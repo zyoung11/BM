@@ -4,220 +4,171 @@ import (
 	"fmt"
 	"os"
 	"time"
-	"unicode"
 
-	"github.com/gdamore/tcell/v2"
-
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/effects"
 	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/speaker"
 )
 
-func drawTextLine(screen tcell.Screen, x, y int, s string, style tcell.Style) {
-	for _, r := range s {
-		screen.SetContent(x, y, r, nil, style)
-		x++
-	}
-}
-
-type audioPanel struct {
-	sampleRate beep.SampleRate
+// ---------- 模型 ----------
+type model struct {
+	file       string
 	streamer   beep.StreamSeeker
 	ctrl       *beep.Ctrl
 	resampler  *beep.Resampler
 	volume     *effects.Volume
+	sampleRate beep.SampleRate
+
+	pos  time.Duration // 当前播放位置
+	leng time.Duration // 总长度
 }
 
-func newAudioPanel(sampleRate beep.SampleRate, streamer beep.StreamSeeker) (*audioPanel, error) {
-	loopStreamer, err := beep.Loop2(streamer)
-	if err != nil {
-		return nil, err
+// ---------- Bubble Tea 标准接口 ----------
+func (m model) Init() tea.Cmd {
+	return tea.Batch(
+		m.tickCmd(),    // 定时刷新
+		tea.HideCursor, // 隐藏光标
+	)
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "esc":
+			return m, tea.Quit
+		case " ":
+			speaker.Lock()
+			m.ctrl.Paused = !m.ctrl.Paused
+			speaker.Unlock()
+		case "q":
+			speaker.Lock()
+			newPos := max(0, m.streamer.Position()-m.sampleRate.N(time.Second))
+			_ = m.streamer.Seek(newPos)
+			speaker.Unlock()
+		case "w":
+			speaker.Lock()
+			newPos := min(m.streamer.Len()-1, m.streamer.Position()+m.sampleRate.N(time.Second))
+			_ = m.streamer.Seek(newPos)
+			speaker.Unlock()
+		case "a":
+			speaker.Lock()
+			m.volume.Volume -= 0.1
+			speaker.Unlock()
+		case "s":
+			speaker.Lock()
+			m.volume.Volume += 0.1
+			speaker.Unlock()
+		case "z":
+			speaker.Lock()
+			r := m.resampler.Ratio() * 15 / 16
+			if r < 0.001 {
+				r = 0.001
+			}
+			m.resampler.SetRatio(r)
+			speaker.Unlock()
+		case "x":
+			speaker.Lock()
+			r := m.resampler.Ratio() * 16 / 15
+			if r > 100 {
+				r = 100
+			}
+			m.resampler.SetRatio(r)
+			speaker.Unlock()
+		}
+
+	case tickMsg:
+		speaker.Lock()
+		m.pos = m.sampleRate.D(m.streamer.Position())
+		speaker.Unlock()
+		return m, m.tickCmd()
 	}
 
-	ctrl := &beep.Ctrl{Streamer: loopStreamer}
-	resampler := beep.ResampleRatio(4, 1, ctrl)
-	volume := &effects.Volume{Streamer: resampler, Base: 2}
-	return &audioPanel{sampleRate, streamer, ctrl, resampler, volume}, nil
+	return m, nil
 }
 
-func (ap *audioPanel) play() {
-	speaker.Play(ap.volume)
+func (m model) View() string {
+	title := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#D7D8A2")).
+		Render("Speedy Player (FLAC + Bubble Tea)")
+
+	key := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#DDC074")).
+		Render("Space 暂停/继续  |  Q/W ±1s  |  A/S 音量  |  Z/X 变速  |  ESC 退出")
+
+	status := fmt.Sprintf("%v / %v    vol=%.1f    speed=%.3fx",
+		m.pos.Round(time.Second), m.leng.Round(time.Second),
+		m.volume.Volume, m.resampler.Ratio())
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		key,
+		"",
+		status,
+	)
 }
 
-func (ap *audioPanel) draw(screen tcell.Screen) {
-	mainStyle := tcell.StyleDefault.
-		Background(tcell.NewHexColor(0x473437)).
-		Foreground(tcell.NewHexColor(0xD7D8A2))
-	statusStyle := mainStyle.
-		Foreground(tcell.NewHexColor(0xDDC074)).
-		Bold(true)
+// ---------- 定时刷新 ----------
+type tickMsg time.Time
 
-	screen.Fill(' ', mainStyle)
-
-	drawTextLine(screen, 0, 0, "Welcome to the Speedy Player!", mainStyle)
-	drawTextLine(screen, 0, 1, "Press [ESC] to quit.", mainStyle)
-	drawTextLine(screen, 0, 2, "Press [SPACE] to pause/resume.", mainStyle)
-	drawTextLine(screen, 0, 3, "Use keys in (?/?) to turn the buttons.", mainStyle)
-
-	speaker.Lock()
-	position := ap.sampleRate.D(ap.streamer.Position())
-	length := ap.sampleRate.D(ap.streamer.Len())
-	volume := ap.volume.Volume
-	speed := ap.resampler.Ratio()
-	speaker.Unlock()
-
-	positionStatus := fmt.Sprintf("%v / %v", position.Round(time.Second), length.Round(time.Second))
-	volumeStatus := fmt.Sprintf("%.1f", volume)
-	speedStatus := fmt.Sprintf("%.3fx", speed)
-
-	drawTextLine(screen, 0, 5, "Position (Q/W):", mainStyle)
-	drawTextLine(screen, 16, 5, positionStatus, statusStyle)
-
-	drawTextLine(screen, 0, 6, "Volume   (A/S):", mainStyle)
-	drawTextLine(screen, 16, 6, volumeStatus, statusStyle)
-
-	drawTextLine(screen, 0, 7, "Speed    (Z/X):", mainStyle)
-	drawTextLine(screen, 16, 7, speedStatus, statusStyle)
+func (m model) tickCmd() tea.Cmd {
+	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
-func (ap *audioPanel) handle(event tcell.Event) (changed, quit bool) {
-	switch event := event.(type) {
-	case *tcell.EventKey:
-		if event.Key() == tcell.KeyESC {
-			return false, true
-		}
-
-		if event.Key() != tcell.KeyRune {
-			return false, false
-		}
-
-		switch unicode.ToLower(event.Rune()) {
-		case ' ':
-			speaker.Lock()
-			ap.ctrl.Paused = !ap.ctrl.Paused
-			speaker.Unlock()
-			return false, false
-
-		case 'q', 'w':
-			speaker.Lock()
-			newPos := ap.streamer.Position()
-			if event.Rune() == 'q' {
-				newPos -= ap.sampleRate.N(time.Second)
-			}
-			if event.Rune() == 'w' {
-				newPos += ap.sampleRate.N(time.Second)
-			}
-			// Clamp the position to be within the stream
-			newPos = max(newPos, 0)
-			newPos = min(newPos, ap.streamer.Len()-1)
-
-			if err := ap.streamer.Seek(newPos); err != nil {
-				report(err)
-			}
-			speaker.Unlock()
-			return true, false
-
-		case 'a':
-			speaker.Lock()
-			ap.volume.Volume -= 0.1
-			speaker.Unlock()
-			return true, false
-
-		case 's':
-			speaker.Lock()
-			ap.volume.Volume += 0.1
-			speaker.Unlock()
-			return true, false
-
-		case 'z':
-			speaker.Lock()
-			newRatio := ap.resampler.Ratio() * 15 / 16
-			newRatio = max(newRatio, 0.001) // Limit to a reasonable ratio
-			ap.resampler.SetRatio(newRatio)
-			speaker.Unlock()
-			return true, false
-
-		case 'x':
-			speaker.Lock()
-			newRatio := ap.resampler.Ratio() * 16 / 15
-			newRatio = min(newRatio, 100) // Limit to a reasonable ratio
-			ap.resampler.SetRatio(newRatio)
-			speaker.Unlock()
-			return true, false
-		}
-	}
-	return false, false
-}
-
+// ---------- 入口 ----------
 func main() {
 	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "Usage: %s song.mp3\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Usage: %s song.flac\n", os.Args[0])
 		os.Exit(1)
 	}
-	f, err := os.Open(os.Args[1])
+	file := os.Args[1]
+
+	// 1. 解码
+	f, err := os.Open(file)
 	if err != nil {
-		report(err)
+		die(err)
 	}
 	streamer, format, err := flac.Decode(f)
 	if err != nil {
-		report(err)
-	}
-	defer streamer.Close()
-
-	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/30))
-
-	screen, err := tcell.NewScreen()
-	if err != nil {
-		report(err)
-	}
-	err = screen.Init()
-	if err != nil {
-		report(err)
-	}
-	defer screen.Fini()
-
-	ap, err := newAudioPanel(format.SampleRate, streamer)
-	if err != nil {
-		report(err)
+		die(err)
 	}
 
-	screen.Clear()
-	ap.draw(screen)
-	screen.Show()
+	// 2. 播放链
+	ctrl := &beep.Ctrl{Streamer: streamer}
+	res := beep.ResampleRatio(4, 1, ctrl)
+	vol := &effects.Volume{Streamer: res, Base: 2}
 
-	ap.play()
+	// 3. 启动扬声器
+	if err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/30)); err != nil {
+		die(err)
+	}
+	speaker.Play(vol)
 
-	seconds := time.Tick(time.Second)
-	events := make(chan tcell.Event)
-	go func() {
-		for {
-			events <- screen.PollEvent()
-		}
-	}()
+	// 4. 初始模型
+	m := model{
+		file:       file,
+		streamer:   streamer,
+		ctrl:       ctrl,
+		resampler:  res,
+		volume:     vol,
+		sampleRate: format.SampleRate,
+		leng:       format.SampleRate.D(streamer.Len()),
+	}
 
-loop:
-	for {
-		select {
-		case event := <-events:
-			changed, quit := ap.handle(event)
-			if quit {
-				break loop
-			}
-			if changed {
-				screen.Clear()
-				ap.draw(screen)
-				screen.Show()
-			}
-		case <-seconds:
-			screen.Clear()
-			ap.draw(screen)
-			screen.Show()
-		}
+	// 5. 启动 Bubble Tea
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		die(err)
 	}
 }
 
-func report(err error) {
+func die(err error) {
 	fmt.Fprintln(os.Stderr, err)
 	os.Exit(1)
 }
