@@ -75,15 +75,6 @@ func getCellSize() (width, height int, err error) {
 	return w, h, nil
 }
 
-// ---------- 事件体系 ----------
-type Event interface{}
-
-type KeyPressEvent struct{}
-
-type SignalEvent struct {
-	Signal os.Signal
-}
-
 // ---------- 入口 ----------
 func main() {
 	if len(os.Args) != 2 {
@@ -102,151 +93,120 @@ func main() {
 	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
-	// 查询终端字符尺寸
+	// 3. 查询终端字符尺寸
 	cellW, cellH, err := getCellSize()
 	if err != nil {
 		log.Fatalf("终端不支持尺寸查询: %v", err)
 	}
 
-	// 3. 主循环
-	for {
-		redraw(flacPath, cellW, cellH)
-
-		switch pollOneEvent().(type) {
-		case KeyPressEvent:
-			return // 任意键退出
-		case SignalEvent:
-			continue // 窗口大小改变，继续循环
-		}
-	}
-}
-
-// ---------- 事件监听 ----------
-func pollOneEvent() Event {
-	keyCh := make(chan struct{})
-	go func() {
-		var b [1]byte
-		os.Stdin.Read(b[:])
-		close(keyCh)
-	}()
-
+	// 4. 设置事件通道
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGWINCH)
 	defer signal.Stop(sigCh)
 
-	select {
-	case <-keyCh:
-		return KeyPressEvent{}
-	case sig := <-sigCh:
-		return SignalEvent{Signal: sig}
+	keyCh := make(chan struct{}, 1)
+	go func() {
+		// 持续读取键盘输入，任意输入都会发送信号
+		buf := make([]byte, 1024)
+		for {
+			_, err := os.Stdin.Read(buf)
+			if err != nil {
+				return // 发生错误（如程序退出），goroutine结束
+			}
+			keyCh <- struct{}{}
+		}
+	}()
+
+	// 5. 主循环
+	// 初始绘制
+	redraw(flacPath, cellW, cellH)
+
+	for {
+		select {
+		case <-keyCh:
+			// 收到键盘输入，退出程序
+			return
+		case <-sigCh:
+			// 收到窗口尺寸变化信号，重新绘制
+			redraw(flacPath, cellW, cellH)
+		}
 	}
 }
 
 // ---------- 绘制 ----------
 func redraw(flacPath string, cellW, cellH int) {
-	// A short delay to allow the terminal to settle after a resize event,
-	// which can help ensure we get the correct new dimensions.
+	// A short delay to allow the terminal to settle after a resize event.
 	time.Sleep(50 * time.Millisecond)
 
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
+		// 此时无法获取尺寸，仅清屏并显示错误
 		fmt.Print("\x1b[2J\x1b[H")
 		fmt.Println("无法获取终端尺寸")
 		return
 	}
 
-		// 清屏(带滚动历史) + 光标归位
+	// 清屏(带滚动历史) + 光标归位
+	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 
-		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
-
-	
-
-			// 图片将从顶部开始绘制，只在底部为提示文字留一行空间
-
-	
-
-			pixelW := w * cellW
-
-	
-
-			pixelH := (h - 1) * cellH
-
-	
-
-			if pixelH < 0 {
-
-	
-
-				pixelH = 0
-
-	
-
-			}
-
-	
-
-		
-
-	
-
-			// 为终端的边框或内边距增加一个安全边距 (99%宽度)
-
-	
-
-			safePixelW := int(float64(pixelW) * 0.99)
-
-	
-
-		
-
-	
-
-			// 提取并绘制封面
-
-	
-
-			if err := drawCover(flacPath, safePixelW, pixelH); err != nil {
-
-	
-
-				fmt.Printf("绘制封面失败: %v\n", err)
-
-	
-
-			}
-
-	// 底部提示
-	fmt.Printf("\x1b[%d;1H", h)
-	fmt.Print("Press any key to quit.")
-}
-
-// ---------- 封面 → Sixel ----------
-func drawCover(path string, termW, termH int) error {
-	// 1. 读 tag
-	f, err := os.Open(path)
+	// --- 加载并解码封面 ---
+	f, err := os.Open(flacPath)
 	if err != nil {
-		return fmt.Errorf("打开文件: %w", err)
+		fmt.Printf("打开文件失败: %v", err)
+		return
 	}
 	defer f.Close()
 
 	m, err := tag.ReadFrom(f)
 	if err != nil {
-		return fmt.Errorf("读取元数据: %w", err)
+		fmt.Printf("读取元数据失败: %v", err)
+		return
 	}
 	pic := m.Picture()
 	if pic == nil {
-		return fmt.Errorf("未找到内嵌封面")
+		fmt.Print("未找到内嵌封面")
+		return
 	}
 
-	// 2. 解码成 image.Image
 	img, _, err := image.Decode(bytes.NewReader(pic.Data))
 	if err != nil {
-		return fmt.Errorf("解码封面: %w", err)
+		fmt.Printf("解码封面失败: %v", err)
+		return
 	}
 
-	// 3. 等比缩放以适应终端可视区域
-	img = resize.Thumbnail(uint(termW), uint(termH), img, resize.Lanczos3)
+	// --- 计算尺寸和位置 ---
+	// 为终端的边框或内边距增加一个安全边距 (99%宽度)
+	pixelW := w * cellW
+	safePixelW := int(float64(pixelW) * 0.99)
+	// 为底部的提示文字留一行空间
+	pixelH := (h - 1) * cellH
+	if pixelH < 0 {
+		pixelH = 0
+	}
 
-	// 4. 输出 sixel（光标当前就在第三行）
-	return sixel.NewEncoder(os.Stdout).Encode(img)
+	// 缩放图片
+	scaledImg := resize.Thumbnail(uint(safePixelW), uint(pixelH), img, resize.Lanczos3)
+
+	// 计算居中所需的起始列
+	finalImgW := scaledImg.Bounds().Dx()
+	startCol := (w - (finalImgW / cellW)) / 2
+	if startCol < 1 {
+		startCol = 1
+	}
+
+	// --- 绘制 ---
+	// 移动光标到起始位置 (行1, 列startCol)
+	fmt.Printf("\x1b[%dG", startCol)
+
+	// 编码并打印Sixel数据
+	if err := sixel.NewEncoder(os.Stdout).Encode(scaledImg); err != nil {
+		// 如果Sixel编码失败，在屏幕上打印错误
+		// 需要先清屏，因为Sixel可能已部分输出
+		fmt.Print("\x1b[2J\x1b[H")
+		fmt.Printf("Sixel编码失败: %v", err)
+	}
+
+	// 在底部绘制提示
+	fmt.Printf("\x1b[%d;1H", h)
+	fmt.Print("Press any key to quit.")
 }
