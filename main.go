@@ -194,16 +194,35 @@ func redraw(flacPath string, cellW, cellH int) {
 	// 缩放图片
 	scaledImg := resize.Thumbnail(uint(safePixelW), uint(pixelH), img, resize.Lanczos3)
 
-	// 计算居中所需的起始列
+	// --- 绘制 ---
+	// 根据终端宽度和图片宽度决定对齐方式
 	finalImgW := scaledImg.Bounds().Dx()
-	startCol := (w - (finalImgW / cellW)) / 2
+	finalImgH := scaledImg.Bounds().Dy()
+	imageWidthInChars := finalImgW / cellW
+	imageHeightInChars := finalImgH / cellH
+
+	startCol := 1
+	startRow := 1
+
+	if w < 2*imageWidthInChars {
+		// 水平居中, 垂直置顶
+		startCol = (w - imageWidthInChars) / 2
+	} else {
+		// 左对齐, 垂直居中
+		availableRows := h - 1
+		startRow = (availableRows - imageHeightInChars) / 2
+	}
+
+	// 确保起始行列不小于1
 	if startCol < 1 {
 		startCol = 1
 	}
+	if startRow < 1 {
+		startRow = 1
+	}
 
-	// --- 绘制 ---
-	// 移动光标到起始位置 (行1, 列startCol)
-	fmt.Printf("\x1b[%dG", startCol)
+	// 移动光标到起始位置
+	fmt.Printf("\x1b[%d;%dH", startRow, startCol)
 
 	// 编码并打印Sixel数据
 	if err := sixel.NewEncoder(os.Stdout).Encode(scaledImg); err != nil {
