@@ -101,19 +101,20 @@ func main() {
 
 	// 4. 设置事件通道
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGWINCH)
+	signal.Notify(sigCh, syscall.SIGWINCH, syscall.SIGINT)
 	defer signal.Stop(sigCh)
 
-	keyCh := make(chan struct{}, 1)
+	keyCh := make(chan byte, 1) // Change to byte to send the actual key
 	go func() {
-		// 持续读取键盘输入，任意输入都会发送信号
-		buf := make([]byte, 1024)
+		buf := make([]byte, 1) // Read one byte at a time
 		for {
-			_, err := os.Stdin.Read(buf)
+			n, err := os.Stdin.Read(buf)
 			if err != nil {
 				return // 发生错误（如程序退出），goroutine结束
 			}
-			keyCh <- struct{}{}
+			if n > 0 {
+				keyCh <- buf[0] // Send the actual byte read
+			}
 		}
 	}()
 
@@ -123,12 +124,18 @@ func main() {
 
 	for {
 		select {
-		case <-keyCh:
-			// 收到键盘输入，退出程序
-			return
-		case <-sigCh:
-			// 收到窗口尺寸变化信号，重新绘制
-			redraw(flacPath, cellW, cellH)
+		case key := <-keyCh:
+			if key == 'q' || key == '\x1b' { // 'q' or ESC
+				return // 退出程序
+			}
+			// 其他键不退出
+		case sig := <-sigCh:
+			if sig == syscall.SIGINT { // Ctrl+C
+				return // 退出程序
+			}
+			if sig == syscall.SIGWINCH { // 窗口尺寸变化
+				redraw(flacPath, cellW, cellH)
+			}
 		}
 	}
 }
