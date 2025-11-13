@@ -1,185 +1,142 @@
+// main.go
 package main
 
 import (
 	"bytes"
 	"fmt"
-	"io"
+	"image"
+	_ "image/jpeg" // 注册 JPEG 解码
+	_ "image/png"  // 注册 PNG 解码
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/blacktop/go-termimg"
 	"github.com/dhowden/tag"
+	"github.com/mattn/go-sixel"
+	"github.com/nfnt/resize"
 	"golang.org/x/term"
 )
 
-// Event represents a terminal event.
+// ---------- 事件体系 ----------
 type Event interface{}
 
-// KeyPressEvent is sent when a key is pressed.
 type KeyPressEvent struct{}
 
-// SignalEvent is sent when an OS signal is received.
 type SignalEvent struct {
 	Signal os.Signal
 }
 
+// ---------- 入口 ----------
 func main() {
-	// --- 1. Initial Setup ---
-	// Enter alternate screen buffer and ensure it's exited on return
+	if len(os.Args) != 2 {
+		log.Fatalf("用法: %s <xxx.flac>", os.Args[0])
+	}
+	flacPath := os.Args[1]
+
+	// 1. 进入交替缓冲区，退出时还原
 	fmt.Print("\x1b[?1049h")
 	defer fmt.Print("\x1b[?1049l")
 
-	// Set terminal to raw mode to capture single key presses
+	// 2. 原始模式
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		log.Fatalf("failed to set terminal to raw mode: %v", err)
+		log.Fatalf("failed to set raw mode: %v", err)
 	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
-	// --- 2. Main Loop ---
+	// 3. 主循环
 	for {
-		// In each iteration, we draw the screen, then wait for one event.
-		redraw()
+		redraw(flacPath)
 
-		event := pollOneEvent()
-
-		switch event.(type) {
+		switch pollOneEvent().(type) {
 		case KeyPressEvent:
-			// Any key press, we exit.
-			return
+			return // 任意键退出
 		case SignalEvent:
-			// If it's a resize signal, the loop will continue and redraw.
-			// We don't need to do anything extra here.
-			continue
+			continue // 窗口大小改变，继续循环
 		}
 	}
 }
 
-// pollOneEvent waits for a single terminal event (key press or resize) and returns it.
+// ---------- 事件监听 ----------
 func pollOneEvent() Event {
-	// Channel for keyboard input
-	keyChan := make(chan struct{})
+	keyCh := make(chan struct{})
 	go func() {
-		// Read a single byte, which is enough to detect a key press
 		var b [1]byte
 		os.Stdin.Read(b[:])
-		close(keyChan)
+		close(keyCh)
 	}()
 
-	// Channel for resize signals
-	sigwinchChan := make(chan os.Signal, 1)
-	signal.Notify(sigwinchChan, syscall.SIGWINCH)
-	defer signal.Stop(sigwinchChan)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGWINCH)
+	defer signal.Stop(sigCh)
 
-	// Wait for the first event to happen
 	select {
-	case <-keyChan:
+	case <-keyCh:
 		return KeyPressEvent{}
-	case sig := <-sigwinchChan:
+	case sig := <-sigCh:
 		return SignalEvent{Signal: sig}
 	}
 }
 
-// redraw gets terminal size, generates a sized/centered image, and prints it.
-func redraw() {
-	width, height, err := term.GetSize(int(os.Stdout.Fd()))
+// ---------- 绘制 ----------
+func redraw(flacPath string) {
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
-		fmt.Print("\x1b[2J\x1b[H") // Clear screen
-		fmt.Println("Could not get terminal size.")
+		fmt.Print("\x1b[2J\x1b[H")
+		fmt.Println("无法获取终端尺寸")
 		return
 	}
 
-	// Clear screen and move cursor to top-left for drawing
+	// 清屏 + 光标归位
 	fmt.Print("\x1b[2J\x1b[H")
 
-	// --- DEBUG: Print current size ---
-	fmt.Printf("Terminal Size: %d width, %d height\n", width, height)
+	// 调试信息
+	fmt.Printf("Terminal: %d×%d   按任意键退出\n\n", w, h)
 
-	sixelData, err := prepareSixelData(width, height)
-	if err != nil {
-		fmt.Printf("Could not prepare image: %v", err)
-		return
+	// 提取并绘制封面
+	if err := drawCover(flacPath, w, h); err != nil {
+		fmt.Printf("绘制封面失败: %v\n", err)
 	}
 
-	// Move cursor below the debug text and print the Sixel data
-	fmt.Print("\x1b[2;1H")
-	fmt.Print(sixelData)
-
-	// Print a quit message at the bottom
-	fmt.Printf("\x1b[%d;1H", height)
+	// 底部提示
+	fmt.Printf("\x1b[%d;1H", h)
 	fmt.Print("Press any key to quit.")
 }
 
-func prepareSixelData(termWidth, termHeight int) (string, error) {
-
-picture := getCover("/home/zy/zy/XM/GO/BM/Nujabes/Nujabes,Shing02 - Luv(sic.), Pt. 3.flac")
-	if picture == nil {
-		return "", fmt.Errorf("failed to get cover art")
-	}
-
-	tmpDir, err := os.MkdirTemp("", "cov")
+// ---------- 封面 → Sixel ----------
+func drawCover(path string, termW, termH int) error {
+	// 1. 读 tag
+	f, err := os.Open(path)
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	pipePath := tmpDir + "/cover.jpg"
-	if err := syscall.Mkfifo(pipePath, 0600); err != nil {
-		return "", fmt.Errorf("failed to create fifo: %w", err)
-	}
-
-	writerErrChan := make(chan error, 1)
-	go func() {
-		f, err := os.OpenFile(pipePath, os.O_WRONLY, 0600)
-		if err != nil {
-			writerErrChan <- err
-			return
-		}
-		defer f.Close()
-		_, err = io.Copy(f, bytes.NewReader(picture.Data))
-		writerErrChan <- err
-	}()
-
-	img, err := termimg.Open(pipePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to open image from pipe: %w", err)
-	}
-
-	// Render by setting the width to the terminal width and let the library
-	// calculate the height to preserve the aspect ratio.
-	rendered, err := img.
-		Width(termWidth).
-		Protocol(termimg.Sixel).
-		Render()
-	if err != nil {
-		return "", fmt.Errorf("failed to render image: %w", err)
-	}
-
-	if err := <-writerErrChan; err != nil {
-		return "", fmt.Errorf("writer goroutine failed: %w", err)
-	}
-
-	return rendered, nil
-}
-
-func getCover(filePath string) *tag.Picture {
-	f, err := os.Open(filePath)
-	if err != nil {
-		log.Printf("无法打开文件: %v", err)
-		return nil
+		return fmt.Errorf("打开文件: %w", err)
 	}
 	defer f.Close()
-	meta, err := tag.ReadFrom(f)
+
+	m, err := tag.ReadFrom(f)
 	if err != nil {
-		log.Printf("读取元数据失败: %v", err)
-		return nil
+		return fmt.Errorf("读取元数据: %w", err)
 	}
-	pic := meta.Picture()
+	pic := m.Picture()
 	if pic == nil {
-		log.Printf("未找到封面图片")
-		return nil
+		return fmt.Errorf("未找到内嵌封面")
 	}
-	return pic
+
+	// 2. 解码成 image.Image
+	img, _, err := image.Decode(bytes.NewReader(pic.Data))
+	if err != nil {
+		return fmt.Errorf("解码封面: %w", err)
+	}
+
+	// 3. 等比缩放（以终端宽度为基准，高度留两行文字）
+	newW := uint(termW)
+	newH := uint(float64(img.Bounds().Dy()) * float64(newW) / float64(img.Bounds().Dx()))
+	if newH > uint(termH)-2 {
+		newH = uint(termH) - 2
+		newW = uint(float64(img.Bounds().Dx()) * float64(newH) / float64(img.Bounds().Dy()))
+	}
+	img = resize.Resize(newW, newH, img, resize.Lanczos3)
+
+	// 4. 输出 sixel（光标当前就在第三行）
+	return sixel.NewEncoder(os.Stdout).Encode(img)
 }
