@@ -51,7 +51,8 @@ type audioPlayer struct {
 }
 
 func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format) (*audioPlayer, error) {
-	ctrl := &beep.Ctrl{Streamer: streamer}
+	loopStreamer := beep.Loop(-1, streamer) // -1 表示无限循环
+	ctrl := &beep.Ctrl{Streamer: loopStreamer}
 	resampler := beep.ResampleRatio(4, 1, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2}
 	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume}, nil
