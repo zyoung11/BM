@@ -151,51 +151,13 @@ func drawLayout(flacPath string, cellW, cellH int) (statusRow int) {
 	}
 
 	// 计算并返回状态UI的起始行
-	sRow := (finalImgH / cellH) + 3
-	if sRow > h-5 {
-		sRow = h - 5
-	}
-	return sRow
+	// 由于不显示文字，返回一个不影响的值
+	return h
 }
 
 // updateStatus 只更新屏幕上动态的部分 (播放器状态)
 func updateStatus(startRow int, player *audioPlayer) {
-	w, h, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil {
-		return // 无法获取尺寸，跳过此次更新
-	}
-	_ = w // w is not used, but keep it for consistency
-
-	speaker.Lock()
-	position := player.sampleRate.D(player.streamer.Position())
-	length := player.sampleRate.D(player.streamer.Len())
-	volume := player.volume.Volume
-	speed := player.resampler.Ratio()
-	paused := player.ctrl.Paused
-	speaker.Unlock()
-
-	positionStatus := fmt.Sprintf("%v / %v", position.Round(time.Second), length.Round(time.Second))
-	volumeStatus := fmt.Sprintf("%.1f", volume)
-	speedStatus := fmt.Sprintf("%.3fx", speed)
-	pauseStatus := "Playing"
-	if paused {
-		pauseStatus = "Paused"
-	}
-
-	// 清除旧的状态文本
-	for i := startRow; i < h; i++ {
-		fmt.Printf("\x1b[%d;1H\x1b[2K", i)
-	}
-
-	// 绘制新的状态文本
-	fmt.Printf("\x1b[%d;1H  %-10s %s", startRow, "Position:", positionStatus)
-	fmt.Printf("\x1b[%d;1H  %-10s %s", startRow+1, "Volume:", volumeStatus)
-	fmt.Printf("\x1b[%d;1H  %-10s %s", startRow+2, "Speed:", speedStatus)
-	fmt.Printf("\x1b[%d;1H  %-10s %s", startRow+3, "Status:", pauseStatus)
-
-	helpText := "Controls: [SPACE]Pause [Q/W]Seek [A/S]Volume [Z/X]Speed"
-	fmt.Printf("\x1b[%d;1H%s", h-1, helpText)
-	fmt.Printf("\x1b[%d;1HPress [ESC] or [Ctrl+C] to quit.", h)
+	// 不显示任何文字，只保留函数结构用于维持程序逻辑
 }
 
 // --- Main Entrypoint ---
