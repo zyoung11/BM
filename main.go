@@ -249,8 +249,9 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 	progressRow := startRow + 5
 
 	// 计算进度条位置和长度
-	progressBarWidth := min(availableWidth-4, 40) // 进度条最大宽度40字符
-	progressBarCol := centerCol - progressBarWidth/2
+	// 使用与歌曲信息相同的视觉居中位置，长度与最长文本相同
+	progressBarWidth := max(max(len(title), len(artist)), len(album))
+	progressBarCol := visualCenterCol
 	if progressBarCol < imageRightEdge {
 		progressBarCol = imageRightEdge
 	}
