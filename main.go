@@ -147,11 +147,38 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int, imageRig
 					scaledImg := resize.Thumbnail(uint(safePixelW), uint(pixelH), img, resize.Lanczos3)
 					finalImgW := scaledImg.Bounds().Dx()
 					finalImgH = scaledImg.Bounds().Dy()
+					// 防止除以零错误
+					if cellW == 0 {
+						cellW = 1
+					}
+					if cellH == 0 {
+						cellH = 1
+					}
 					imageWidthInChars = finalImgW / cellW
 					imageHeightInChars = finalImgH / cellH
 
+					// 获取歌曲信息来计算最长文本长度
+					title, artist, album := getSongMetadata(flacPath)
+					maxTextLength := max(max(len(title), len(artist)), len(album))
+
+					// 判断是否需要只显示照片
+					showInfoOnly := w < maxTextLength || (h-startRow) < 7
+
 					// 计算图片位置
-					if isWideTerminal {
+					if showInfoOnly {
+						// 只显示照片模式：完全居中
+						startCol = (w - imageWidthInChars) / 2
+						startRow = (h - imageHeightInChars) / 2
+						// 确保绝对居中
+						if (w-imageWidthInChars)%2 != 0 {
+							imageWidthInChars--
+							startCol = (w - imageWidthInChars) / 2
+						}
+						if (h-imageHeightInChars)%2 != 0 {
+							imageHeightInChars--
+							startRow = (h - imageHeightInChars) / 2
+						}
+					} else if isWideTerminal {
 						// 宽终端：图片在左侧
 						startCol = 1
 						startRow = (h - imageHeightInChars) / 2
@@ -193,7 +220,7 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int, imageRig
 }
 
 // updateStatus 更新屏幕上动态的部分 (播放器状态和信息)
-func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRightEdge int) {
+func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRightEdge int, cellW, cellH int) {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		return
@@ -205,6 +232,7 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRight
 
 	// 如果终端宽度小于最长文本长度，只显示封面
 	if w < maxTextLength {
+		// 空间不足，只显示照片（已在displayAlbumArt中处理）
 		return
 	}
 
@@ -219,7 +247,7 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRight
 		// 窄终端：检查照片下方是否有足够空间
 		availableRows := h - startRow
 		if availableRows < 7 {
-			// 空间不足，只显示照片
+			// 空间不足，只显示照片（已在displayAlbumArt中处理）
 			return
 		}
 		// 底部状态栏
@@ -480,7 +508,7 @@ func playMusic(flacPath string) error {
 	// --- 主循环 ---
 	var statusRow, imageRightEdge int
 	statusRow, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
-	updateStatus(statusRow, player, flacPath, imageRightEdge)
+	updateStatus(statusRow, player, flacPath, imageRightEdge, cellW, cellH)
 
 	for {
 		select {
@@ -533,7 +561,7 @@ func playMusic(flacPath string) error {
 				needsUpdate = false
 			}
 			if needsUpdate {
-				updateStatus(statusRow, player, flacPath, imageRightEdge)
+				updateStatus(statusRow, player, flacPath, imageRightEdge, cellW, cellH)
 			}
 
 		case sig := <-sigCh:
@@ -542,11 +570,11 @@ func playMusic(flacPath string) error {
 			}
 			if sig == syscall.SIGWINCH {
 				statusRow, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
-				updateStatus(statusRow, player, flacPath, imageRightEdge)
+				updateStatus(statusRow, player, flacPath, imageRightEdge, cellW, cellH)
 			}
 
 		case <-ticker.C:
-			updateStatus(statusRow, player, flacPath, imageRightEdge)
+			updateStatus(statusRow, player, flacPath, imageRightEdge, cellW, cellH)
 		}
 	}
 }
