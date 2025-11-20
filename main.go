@@ -220,38 +220,16 @@ func updateRightPanel(startCol int, player *audioPlayer, w, h int, flacPath stri
 	title, artist, album := getSongMetadata(flacPath)
 
 	// 计算垂直居中位置
-	infoHeight := 16 // 信息总高度
+	infoHeight := 3 // 只显示3行信息
 	startRow := (h - infoHeight) / 2
 	if startRow < 1 {
 		startRow = 1
 	}
 
-	// 显示歌曲信息
-	fmt.Printf("\x1b[%d;%dH\x1b[1m歌曲信息\x1b[0m", startRow, startCol)
-	fmt.Printf("\x1b[%d;%dH标题: %s", startRow+2, startCol, title)
-	fmt.Printf("\x1b[%d;%dH艺术家: %s", startRow+3, startCol, artist)
-	fmt.Printf("\x1b[%d;%dH专辑: %s", startRow+4, startCol, album)
-
-	// 显示播放状态
-	status := "播放中"
-	if player.ctrl.Paused {
-		status = "已暂停"
-	}
-	fmt.Printf("\x1b[%d;%dH状态: %s", startRow+6, startCol, status)
-
-	// 显示音量
-	fmt.Printf("\x1b[%d;%dH音量: %.1f", startRow+7, startCol, player.volume.Volume)
-
-	// 显示播放速度
-	fmt.Printf("\x1b[%d;%dH速度: %.2fx", startRow+8, startCol, player.resampler.Ratio())
-
-	// 显示控制提示
-	fmt.Printf("\x1b[%d;%dH\x1b[1m控制\x1b[0m", startRow+10, startCol)
-	fmt.Printf("\x1b[%d;%dH空格: 暂停/播放", startRow+11, startCol)
-	fmt.Printf("\x1b[%d;%dHq/w: 快退/快进", startRow+12, startCol)
-	fmt.Printf("\x1b[%d;%dHa/s: 音量减/加", startRow+13, startCol)
-	fmt.Printf("\x1b[%d;%dHz/x: 速度减/加", startRow+14, startCol)
-	fmt.Printf("\x1b[%d;%dHESC: 退出", startRow+15, startCol)
+	// 显示简约的歌曲信息
+	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startRow, startCol, title)
+	fmt.Printf("\x1b[%d;%dH%s", startRow+1, startCol, artist)
+	fmt.Printf("\x1b[%d;%dH%s", startRow+2, startCol, album)
 }
 
 // updateBottomStatus 更新底部状态栏
