@@ -114,6 +114,12 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int) {
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 
 	var finalImgH int
+	var imageWidthInChars, imageHeightInChars int
+	var startCol, startRow int
+
+	// 判断布局模式
+	isWideTerminal := w >= 80 // 假设80字符以上为宽终端
+
 	f, err := os.Open(flacPath)
 	if err == nil {
 		defer f.Close()
@@ -121,34 +127,52 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int) {
 		if err == nil {
 			if pic := m.Picture(); pic != nil {
 				if img, _, err := image.Decode(bytes.NewReader(pic.Data)); err == nil {
-					pixelW := w * cellW
+					// 根据布局模式调整图片尺寸
+					var pixelW, pixelH int
+					if isWideTerminal {
+						// 宽终端：左侧图片，右侧信息栏
+						pixelW = (w - 30) * cellW // 预留30字符给信息栏
+						pixelH = (h - 1) * cellH
+					} else {
+						// 窄终端：顶部图片，底部状态栏
+						pixelW = w * cellW
+						pixelH = (h - 2) * cellH // 预留2行给状态栏
+					}
+
 					safePixelW := int(float64(pixelW) * 0.99)
-					pixelH := (h - 1) * cellH
 					if pixelH < 0 {
 						pixelH = 0
 					}
+
 					scaledImg := resize.Thumbnail(uint(safePixelW), uint(pixelH), img, resize.Lanczos3)
 					finalImgW := scaledImg.Bounds().Dx()
 					finalImgH = scaledImg.Bounds().Dy()
-					imageWidthInChars := finalImgW / cellW
-					imageHeightInChars := finalImgH / cellH
-					startCol, startRow := 1, 1
-					if w < 2*imageWidthInChars {
-						// 确保绝对居中：如果宽度差是奇数，微调图片宽度
+					imageWidthInChars = finalImgW / cellW
+					imageHeightInChars = finalImgH / cellH
+
+					// 计算图片位置
+					if isWideTerminal {
+						// 宽终端：图片在左侧
+						startCol = 1
+						startRow = (h - imageHeightInChars) / 2
+					} else {
+						// 窄终端：图片在顶部居中
+						startCol = (w - imageWidthInChars) / 2
+						// 确保绝对居中
 						if (w-imageWidthInChars)%2 != 0 {
 							imageWidthInChars--
+							startCol = (w - imageWidthInChars) / 2
 						}
-						startCol = (w - imageWidthInChars) / 2
-					} else {
-						availableRows := h - 1
-						startRow = (availableRows - imageHeightInChars) / 2
+						startRow = 1
 					}
+
 					if startCol < 1 {
 						startCol = 1
 					}
 					if startRow < 1 {
 						startRow = 1
 					}
+
 					fmt.Printf("\x1b[%d;%dH", startRow, startCol)
 					_ = sixel.NewEncoder(os.Stdout).Encode(scaledImg)
 				}
@@ -156,14 +180,126 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int) {
 		}
 	}
 
-	// 计算并返回状态UI的起始行
-	// 由于不显示文字，返回一个不影响的值
-	return h
+	// 返回状态信息显示位置
+	if isWideTerminal {
+		// 宽终端：右侧信息栏从图片右侧开始
+		return imageWidthInChars + 2
+	} else {
+		// 窄终端：底部状态栏
+		return h - 1
+	}
 }
 
-// updateStatus 只更新屏幕上动态的部分 (播放器状态)
-func updateStatus(startRow int, player *audioPlayer) {
-	// 不显示任何文字，只保留函数结构用于维持程序逻辑
+// updateStatus 更新屏幕上动态的部分 (播放器状态和信息)
+func updateStatus(startRow int, player *audioPlayer, flacPath string) {
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return
+	}
+
+	// 判断布局模式
+	isWideTerminal := w >= 80
+
+	if isWideTerminal {
+		// 宽终端：右侧信息栏
+		updateRightPanel(startRow, player, w, h, flacPath)
+	} else {
+		// 窄终端：底部状态栏
+		updateBottomStatus(startRow, player, w, h)
+	}
+}
+
+// updateRightPanel 更新右侧信息面板
+func updateRightPanel(startCol int, player *audioPlayer, w, h int, flacPath string) {
+	// 清空右侧区域
+	for row := 1; row <= h; row++ {
+		fmt.Printf("\x1b[%d;%dH\x1b[K", row, startCol)
+	}
+
+	// 获取歌曲元数据
+	title, artist, album := getSongMetadata(flacPath)
+
+	// 显示歌曲信息
+	fmt.Printf("\x1b[2;%dH\x1b[1m歌曲信息\x1b[0m", startCol)
+	fmt.Printf("\x1b[4;%dH标题: %s", startCol, title)
+	fmt.Printf("\x1b[5;%dH艺术家: %s", startCol, artist)
+	fmt.Printf("\x1b[6;%dH专辑: %s", startCol, album)
+
+	// 显示播放状态
+	status := "播放中"
+	if player.ctrl.Paused {
+		status = "已暂停"
+	}
+	fmt.Printf("\x1b[8;%dH状态: %s", startCol, status)
+
+	// 显示音量
+	fmt.Printf("\x1b[9;%dH音量: %.1f", startCol, player.volume.Volume)
+
+	// 显示播放速度
+	fmt.Printf("\x1b[10;%dH速度: %.2fx", startCol, player.resampler.Ratio())
+
+	// 显示控制提示
+	fmt.Printf("\x1b[12;%dH\x1b[1m控制\x1b[0m", startCol)
+	fmt.Printf("\x1b[13;%dH空格: 暂停/播放", startCol)
+	fmt.Printf("\x1b[14;%dHq/w: 快退/快进", startCol)
+	fmt.Printf("\x1b[15;%dHa/s: 音量减/加", startCol)
+	fmt.Printf("\x1b[16;%dHz/x: 速度减/加", startCol)
+	fmt.Printf("\x1b[17;%dHESC: 退出", startCol)
+}
+
+// updateBottomStatus 更新底部状态栏
+func updateBottomStatus(startRow int, player *audioPlayer, w, h int) {
+	// 清空底部行
+	fmt.Printf("\x1b[%d;1H\x1b[K", startRow)
+
+	// 显示播放状态和基本信息
+	status := "▶"
+	if player.ctrl.Paused {
+		status = "⏸"
+	}
+
+	// 显示进度条（简化版）
+	progress := "[=====>     ]"
+
+	// 显示基本信息
+	info := fmt.Sprintf("%s %s 音量:%.1f 速度:%.2fx", status, progress, player.volume.Volume, player.resampler.Ratio())
+
+	// 居中显示
+	startCol := (w - len(info)) / 2
+	if startCol < 1 {
+		startCol = 1
+	}
+
+	fmt.Printf("\x1b[%d;%dH%s", startRow, startCol, info)
+}
+
+// getSongMetadata 获取歌曲元数据
+func getSongMetadata(flacPath string) (title, artist, album string) {
+	f, err := os.Open(flacPath)
+	if err != nil {
+		return "未知", "未知", "未知"
+	}
+	defer f.Close()
+
+	m, err := tag.ReadFrom(f)
+	if err != nil {
+		return "未知", "未知", "未知"
+	}
+
+	title = m.Title()
+	if title == "" {
+		title = "未知"
+	}
+	artist = m.Artist()
+	if artist == "" {
+		artist = "未知"
+	}
+	album = m.Album()
+	if album == "" {
+		album = "未知"
+	}
+
+	return title, artist, album
 }
 
 // playMusic 播放音乐并处理用户交互
@@ -224,7 +360,7 @@ func playMusic(flacPath string) error {
 	// --- 主循环 ---
 	var statusRow int
 	statusRow = displayAlbumArt(flacPath, cellW, cellH)
-	updateStatus(statusRow, player)
+	updateStatus(statusRow, player, flacPath)
 
 	for {
 		select {
@@ -277,7 +413,7 @@ func playMusic(flacPath string) error {
 				needsUpdate = false
 			}
 			if needsUpdate {
-				updateStatus(statusRow, player)
+				updateStatus(statusRow, player, flacPath)
 			}
 
 		case sig := <-sigCh:
@@ -286,11 +422,11 @@ func playMusic(flacPath string) error {
 			}
 			if sig == syscall.SIGWINCH {
 				statusRow = displayAlbumArt(flacPath, cellW, cellH)
-				updateStatus(statusRow, player)
+				updateStatus(statusRow, player, flacPath)
 			}
 
 		case <-ticker.C:
-			updateStatus(statusRow, player)
+			updateStatus(statusRow, player, flacPath)
 		}
 	}
 }
