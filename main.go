@@ -117,8 +117,8 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int, imageRig
 	var startCol, startRow int
 
 	// 判断布局模式
-	// 宽度>=80且(宽高比>1.5 或 高度较矮<20)
-	isWideTerminal := w >= 80 && (float64(w)/float64(h) > 1.5 || h < 20)
+	// 宽度>=100且(宽高比>2.0 或 高度较矮<20)
+	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
 
 	f, err := os.Open(flacPath)
 	if err == nil {
@@ -237,8 +237,8 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRight
 	}
 
 	// 判断布局模式
-	// 宽度>=80且(宽高比>1.5 或 高度较矮<20)
-	isWideTerminal := w >= 80 && (float64(w)/float64(h) > 1.5 || h < 20)
+	// 宽度>=100且(宽高比>2.0 或 高度较矮<20)
+	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
 
 	if isWideTerminal {
 		// 宽终端：右侧信息栏
