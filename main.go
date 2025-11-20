@@ -186,8 +186,9 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int, imageRig
 		imageRightEdge := startCol + imageWidthInChars
 		return imageRightEdge, imageRightEdge
 	} else {
-		// 窄终端：底部状态栏
-		return h - 1, 0
+		// 窄终端：返回图片底部位置
+		imageBottomRow := startRow + imageHeightInChars
+		return imageBottomRow, 0
 	}
 }
 
@@ -206,7 +207,7 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRight
 		updateRightPanel(imageRightEdge, player, w, h, flacPath)
 	} else {
 		// 窄终端：底部状态栏
-		updateBottomStatus(startRow, player, w, h)
+		updateBottomStatus(startRow, player, w, h, flacPath)
 	}
 }
 
@@ -247,29 +248,41 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 }
 
 // updateBottomStatus 更新底部状态栏
-func updateBottomStatus(startRow int, player *audioPlayer, w, h int) {
-	// 清空底部行
-	fmt.Printf("\x1b[%d;1H\x1b[K", startRow)
+func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath string) {
+	// 获取歌曲元数据
+	title, artist, album := getSongMetadata(flacPath)
 
-	// 显示播放状态和基本信息
-	status := "▶"
-	if player.ctrl.Paused {
-		status = "⏸"
+	// 计算文本的平均长度
+	texts := []string{title, artist, album}
+	var totalLength int
+	for _, text := range texts {
+		totalLength += len(text)
+	}
+	avgLength := totalLength / len(texts)
+
+	// 计算水平居中位置
+	centerCol := w / 2
+	visualCenterCol := centerCol - avgLength/2
+	if visualCenterCol < 1 {
+		visualCenterCol = 1
 	}
 
-	// 显示进度条（简化版）
-	progress := "[=====>     ]"
-
-	// 显示基本信息
-	info := fmt.Sprintf("%s %s 音量:%.1f 速度:%.2fx", status, progress, player.volume.Volume, player.resampler.Ratio())
-
-	// 居中显示
-	startCol := (w - len(info)) / 2
-	if startCol < 1 {
-		startCol = 1
+	// 计算垂直居中位置（在图片下方的空间中居中）
+	// startRow 是图片底部位置，我们在这个空间内垂直居中显示
+	availableRows := h - startRow
+	infoHeight := 3 // 只显示3行信息
+	startDisplayRow := startRow + (availableRows-infoHeight)/2
+	if startDisplayRow < startRow {
+		startDisplayRow = startRow
+	}
+	if startDisplayRow+infoHeight > h {
+		startDisplayRow = h - infoHeight
 	}
 
-	fmt.Printf("\x1b[%d;%dH%s", startRow, startCol, info)
+	// 显示简约的歌曲信息
+	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startDisplayRow, visualCenterCol, title)
+	fmt.Printf("\x1b[%d;%dH%s", startDisplayRow+1, visualCenterCol, artist)
+	fmt.Printf("\x1b[%d;%dH%s", startDisplayRow+2, visualCenterCol, album)
 }
 
 // getSongMetadata 获取歌曲元数据
