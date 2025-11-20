@@ -298,17 +298,19 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	// 获取歌曲元数据
 	title, artist, album := getSongMetadata(flacPath)
 
-	// 计算垂直居中位置（在图片下方的空间中居中）
-	// startRow 是图片底部位置，我们在这个空间内垂直居中显示
+	// 计算三等分位置（在图片下方的空间中）
+	// startRow 是图片底部位置，我们将可用空间分成三等分
 	availableRows := h - startRow
-	infoHeight := 3 // 只显示3行信息
-	startDisplayRow := startRow + (availableRows-infoHeight)/2
-	if startDisplayRow < startRow {
-		startDisplayRow = startRow
-	}
-	if startDisplayRow+infoHeight > h {
-		startDisplayRow = h - infoHeight
-	}
+
+	// 计算三等分的分界线
+	firstThird := startRow + availableRows/3
+	secondThird := startRow + 2*availableRows/3
+
+	// 信息显示在第一部分和第二部分之间的分界线处
+	infoRow := firstThird
+
+	// 进度条显示在第二部分和第三部分之间的分界线处
+	progressRow := secondThird
 
 	// 每行文字各自居中对齐
 	centerCol := w / 2
@@ -318,22 +320,19 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	if titleCol < 1 {
 		titleCol = 1
 	}
-	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startDisplayRow, titleCol, title)
+	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", infoRow, titleCol, title)
 
 	artistCol := centerCol - len(artist)/2
 	if artistCol < 1 {
 		artistCol = 1
 	}
-	fmt.Printf("\x1b[%d;%dH%s", startDisplayRow+1, artistCol, artist)
+	fmt.Printf("\x1b[%d;%dH%s", infoRow+1, artistCol, artist)
 
 	albumCol := centerCol - len(album)/2
 	if albumCol < 1 {
 		albumCol = 1
 	}
-	fmt.Printf("\x1b[%d;%dH%s", startDisplayRow+2, albumCol, album)
-
-	// 在信息下方显示进度条
-	progressRow := startDisplayRow + 4
+	fmt.Printf("\x1b[%d;%dH%s", infoRow+2, albumCol, album)
 
 	// 计算进度条位置和长度
 	// 进度条从左侧5个字符开始，到右侧5个字符结束
