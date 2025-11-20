@@ -252,21 +252,6 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	// 获取歌曲元数据
 	title, artist, album := getSongMetadata(flacPath)
 
-	// 计算文本的平均长度
-	texts := []string{title, artist, album}
-	var totalLength int
-	for _, text := range texts {
-		totalLength += len(text)
-	}
-	avgLength := totalLength / len(texts)
-
-	// 计算水平居中位置
-	centerCol := w / 2
-	visualCenterCol := centerCol - avgLength/2
-	if visualCenterCol < 1 {
-		visualCenterCol = 1
-	}
-
 	// 计算垂直居中位置（在图片下方的空间中居中）
 	// startRow 是图片底部位置，我们在这个空间内垂直居中显示
 	availableRows := h - startRow
@@ -279,10 +264,27 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 		startDisplayRow = h - infoHeight
 	}
 
-	// 显示简约的歌曲信息
-	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startDisplayRow, visualCenterCol, title)
-	fmt.Printf("\x1b[%d;%dH%s", startDisplayRow+1, visualCenterCol, artist)
-	fmt.Printf("\x1b[%d;%dH%s", startDisplayRow+2, visualCenterCol, album)
+	// 每行文字各自居中对齐
+	centerCol := w / 2
+
+	// 显示简约的歌曲信息（每行单独计算居中位置）
+	titleCol := centerCol - len(title)/2
+	if titleCol < 1 {
+		titleCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startDisplayRow, titleCol, title)
+
+	artistCol := centerCol - len(artist)/2
+	if artistCol < 1 {
+		artistCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH%s", startDisplayRow+1, artistCol, artist)
+
+	albumCol := centerCol - len(album)/2
+	if albumCol < 1 {
+		albumCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH%s", startDisplayRow+2, albumCol, album)
 }
 
 // getSongMetadata 获取歌曲元数据
