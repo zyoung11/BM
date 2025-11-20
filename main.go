@@ -133,6 +133,10 @@ func drawLayout(flacPath string, cellW, cellH int) (statusRow int) {
 					imageHeightInChars := finalImgH / cellH
 					startCol, startRow := 1, 1
 					if w < 2*imageWidthInChars {
+						// 确保绝对居中：如果宽度差是奇数，微调图片宽度
+						if (w-imageWidthInChars)%2 != 0 {
+							imageWidthInChars--
+						}
 						startCol = (w - imageWidthInChars) / 2
 					} else {
 						availableRows := h - 1
