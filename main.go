@@ -51,7 +51,7 @@ type audioPlayer struct {
 }
 
 func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format) (*audioPlayer, error) {
-	loopStreamer := beep.Loop(-1, streamer) // -1 表示无限循环
+	loopStreamer, _ := beep.Loop2(streamer) // 无限循环
 	ctrl := &beep.Ctrl{Streamer: loopStreamer}
 	resampler := beep.ResampleRatio(4, 1, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2}
@@ -212,7 +212,7 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRight
 }
 
 // updateRightPanel 更新右侧信息面板
-func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPath string) {
+func updateRightPanel(imageRightEdge int, _ *audioPlayer, w, h int, flacPath string) {
 	// 获取歌曲元数据
 	title, artist, album := getSongMetadata(flacPath)
 
@@ -248,7 +248,7 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 }
 
 // updateBottomStatus 更新底部状态栏
-func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath string) {
+func updateBottomStatus(startRow int, _ *audioPlayer, w, h int, flacPath string) {
 	// 获取歌曲元数据
 	title, artist, album := getSongMetadata(flacPath)
 
