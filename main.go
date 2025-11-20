@@ -212,7 +212,7 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRight
 }
 
 // updateRightPanel 更新右侧信息面板
-func updateRightPanel(imageRightEdge int, _ *audioPlayer, w, h int, flacPath string) {
+func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPath string) {
 	// 获取歌曲元数据
 	title, artist, album := getSongMetadata(flacPath)
 
@@ -245,6 +245,46 @@ func updateRightPanel(imageRightEdge int, _ *audioPlayer, w, h int, flacPath str
 	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startRow, visualCenterCol, title)
 	fmt.Printf("\x1b[%d;%dH%s", startRow+1, visualCenterCol, artist)
 	fmt.Printf("\x1b[%d;%dH%s", startRow+2, visualCenterCol, album)
+
+	// 在信息下方空三行显示进度条
+	progressRow := startRow + 5
+
+	// 计算进度条位置和长度
+	progressBarWidth := min(availableWidth-4, 40) // 进度条最大宽度40字符
+	progressBarCol := centerCol - progressBarWidth/2
+	if progressBarCol < imageRightEdge {
+		progressBarCol = imageRightEdge
+	}
+
+	// 计算播放进度
+	currentPos := player.streamer.Position()
+	totalLen := player.streamer.Len()
+	var progress float64
+	if totalLen > 0 {
+		progress = float64(currentPos) / float64(totalLen)
+	} else {
+		progress = 0
+	}
+
+	// 计算已播放和未播放的字符数
+	playedChars := int(float64(progressBarWidth) * progress)
+
+	// 显示进度条
+	fmt.Printf("\x1b[%d;%dH", progressRow, progressBarCol)
+
+	// 已播放部分（调暗显示）
+	if playedChars > 0 {
+		fmt.Printf("\x1b[2m") // 调暗
+		for i := 0; i < playedChars; i++ {
+			fmt.Printf("─")
+		}
+		fmt.Printf("\x1b[0m") // 恢复正常亮度
+	}
+
+	// 未播放部分（正常亮度）
+	for i := playedChars; i < progressBarWidth; i++ {
+		fmt.Printf("─")
+	}
 }
 
 // updateBottomStatus 更新底部状态栏
