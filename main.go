@@ -184,7 +184,7 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int, imageRig
 	if isWideTerminal {
 		// 宽终端：返回图片右边界位置
 		imageRightEdge := startCol + imageWidthInChars
-		return imageRightEdge + 2, imageRightEdge
+		return imageRightEdge, imageRightEdge
 	} else {
 		// 窄终端：底部状态栏
 		return h - 1, 0
@@ -212,12 +212,26 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRight
 
 // updateRightPanel 更新右侧信息面板
 func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPath string) {
+	// 获取歌曲元数据
+	title, artist, album := getSongMetadata(flacPath)
+
+	// 计算文本的平均长度
+	texts := []string{title, artist, album}
+	var totalLength int
+	for _, text := range texts {
+		totalLength += len(text)
+	}
+	avgLength := totalLength / len(texts)
+
 	// 计算信息显示的中心位置（图片右边界到终端右边界的中间）
 	availableWidth := w - imageRightEdge
 	centerCol := imageRightEdge + availableWidth/2
 
-	// 获取歌曲元数据
-	title, artist, album := getSongMetadata(flacPath)
+	// 向左偏移一半的平均长度，实现视觉居中
+	visualCenterCol := centerCol - avgLength/2
+	if visualCenterCol < imageRightEdge {
+		visualCenterCol = imageRightEdge
+	}
 
 	// 计算垂直居中位置
 	infoHeight := 3 // 只显示3行信息
@@ -227,9 +241,9 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 	}
 
 	// 显示简约的歌曲信息
-	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startRow, centerCol, title)
-	fmt.Printf("\x1b[%d;%dH%s", startRow+1, centerCol, artist)
-	fmt.Printf("\x1b[%d;%dH%s", startRow+2, centerCol, album)
+	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startRow, visualCenterCol, title)
+	fmt.Printf("\x1b[%d;%dH%s", startRow+1, visualCenterCol, artist)
+	fmt.Printf("\x1b[%d;%dH%s", startRow+2, visualCenterCol, album)
 }
 
 // updateBottomStatus 更新底部状态栏
