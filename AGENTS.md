@@ -24,7 +24,9 @@
 - **Visual Centering**: Text positions account for string length for true visual balance
 - **Absolute Centering**: Narrow mode ensures image is perfectly centered (width adjustments)
 - **Minimalist Display**: Only shows title, artist, album - no labels or controls
-- **Progress Bar**: Wide terminal shows Unicode "─" progress bar with dimmed played section
+- **Progress Bar**: Both layouts show Unicode "─" progress bar with dimmed played section
+  - **Wide**: Spans from image right+5 to terminal right-5
+  - **Narrow**: Spans from terminal left+5 to terminal right-5
 
 ## Key Functions
 - `displayAlbumArt()` - Extracts and displays album art with adaptive layout
@@ -32,6 +34,7 @@
 - `updateRightPanel()` / `updateBottomStatus()` - Layout-specific info display
 - `getSongMetadata()` - Reads FLAC metadata from tags
 - `updateRightPanel()` - Displays song info + progress bar in wide terminal mode
+- `updateBottomStatus()` - Displays song info + progress bar in narrow terminal mode
 
 ## Controls
 - Space: Play/Pause
