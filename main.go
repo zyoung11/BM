@@ -1,12 +1,11 @@
-// main.go
 package main
 
 import (
 	"bytes"
 	"fmt"
 	"image"
-	_ "image/jpeg" // 注册 JPEG 解码
-	_ "image/png"  // 注册 PNG 解码
+	_ "image/jpeg"
+	_ "image/png"
 	"log"
 	"os"
 	"os/signal"
@@ -276,14 +275,14 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 	if playedChars > 0 {
 		fmt.Printf("\x1b[2m") // 调暗
 		for i := 0; i < playedChars; i++ {
-			fmt.Printf("─")
+			fmt.Printf("━")
 		}
 		fmt.Printf("\x1b[0m") // 恢复正常亮度
 	}
 
 	// 未播放部分（正常亮度）
 	for i := playedChars; i < progressBarWidth; i++ {
-		fmt.Printf("─")
+		fmt.Printf("━")
 	}
 }
 
