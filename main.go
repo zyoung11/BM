@@ -99,9 +99,10 @@ func getCellSize() (width, height int, err error) {
 	return w, h, nil
 }
 
-// drawLayout 清空屏幕并绘制静态部分 (封面)
-// 返回播放器状态UI应该开始绘制的行号
-func drawLayout(flacPath string, cellW, cellH int) (statusRow int) {
+// displayAlbumArt 显示专辑封面
+// 输入: flacPath - 歌曲路径, cellW, cellH - 终端单元格宽高
+// 输出: statusRow - 状态行位置
+func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int) {
 	time.Sleep(50 * time.Millisecond)
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
@@ -165,26 +166,22 @@ func updateStatus(startRow int, player *audioPlayer) {
 	// 不显示任何文字，只保留函数结构用于维持程序逻辑
 }
 
-// --- Main Entrypoint ---
-
-func main() {
-	if len(os.Args) != 2 {
-		log.Fatalf("用法: %s <music.flac>", os.Args[0])
-	}
-	flacPath := os.Args[1]
-
+// playMusic 播放音乐并处理用户交互
+// 输入: flacPath - 歌曲路径
+// 输出: error - 错误信息
+func playMusic(flacPath string) error {
 	f, err := os.Open(flacPath)
 	if err != nil {
-		log.Fatalf("打开文件失败: %v", err)
+		return fmt.Errorf("打开文件失败: %v", err)
 	}
 	streamer, format, err := flac.Decode(f)
 	if err != nil {
-		log.Fatalf("解码FLAC失败: %v", err)
+		return fmt.Errorf("解码FLAC失败: %v", err)
 	}
 	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/30))
 	player, err := newAudioPlayer(streamer, format)
 	if err != nil {
-		log.Fatalf("创建播放器失败: %v", err)
+		return fmt.Errorf("创建播放器失败: %v", err)
 	}
 
 	fmt.Print("\x1b[?1049h\x1b[?25l")
@@ -192,13 +189,13 @@ func main() {
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		log.Fatalf("设置原始模式失败: %v", err)
+		return fmt.Errorf("设置原始模式失败: %v", err)
 	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
 	cellW, cellH, err := getCellSize()
 	if err != nil {
-		log.Fatalf("终端不支持尺寸查询: %v", err)
+		return fmt.Errorf("终端不支持尺寸查询: %v", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -226,7 +223,7 @@ func main() {
 
 	// --- 主循环 ---
 	var statusRow int
-	statusRow = drawLayout(flacPath, cellW, cellH)
+	statusRow = displayAlbumArt(flacPath, cellW, cellH)
 	updateStatus(statusRow, player)
 
 	for {
@@ -235,7 +232,7 @@ func main() {
 			needsUpdate := true
 			switch key {
 			case '\x1b': // ESC
-				return
+				return nil
 			case ' ':
 				speaker.Lock()
 				player.ctrl.Paused = !player.ctrl.Paused
@@ -285,15 +282,28 @@ func main() {
 
 		case sig := <-sigCh:
 			if sig == syscall.SIGINT {
-				return
+				return nil
 			}
 			if sig == syscall.SIGWINCH {
-				statusRow = drawLayout(flacPath, cellW, cellH)
+				statusRow = displayAlbumArt(flacPath, cellW, cellH)
 				updateStatus(statusRow, player)
 			}
 
 		case <-ticker.C:
 			updateStatus(statusRow, player)
 		}
+	}
+}
+
+// --- Main Entrypoint ---
+
+func main() {
+	if len(os.Args) != 2 {
+		log.Fatalf("用法: %s <music.flac>", os.Args[0])
+	}
+	flacPath := os.Args[1]
+
+	if err := playMusic(flacPath); err != nil {
+		log.Fatalf("播放失败: %v", err)
 	}
 }
