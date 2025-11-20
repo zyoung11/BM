@@ -117,7 +117,8 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int, imageRig
 	var startCol, startRow int
 
 	// 判断布局模式
-	isWideTerminal := w >= 80 // 假设80字符以上为宽终端
+	// 宽度>=80且(宽高比>1.5 或 高度较矮<20)
+	isWideTerminal := w >= 80 && (float64(w)/float64(h) > 1.5 || h < 20)
 
 	f, err := os.Open(flacPath)
 	if err == nil {
@@ -198,14 +199,30 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRight
 		return
 	}
 
+	// 获取歌曲信息来计算最长文本长度
+	title, artist, album := getSongMetadata(flacPath)
+	maxTextLength := max(max(len(title), len(artist)), len(album))
+
+	// 如果终端宽度小于最长文本长度，只显示封面
+	if w < maxTextLength {
+		return
+	}
+
 	// 判断布局模式
-	isWideTerminal := w >= 80
+	// 宽度>=80且(宽高比>1.5 或 高度较矮<20)
+	isWideTerminal := w >= 80 && (float64(w)/float64(h) > 1.5 || h < 20)
 
 	if isWideTerminal {
 		// 宽终端：右侧信息栏
 		updateRightPanel(imageRightEdge, player, w, h, flacPath)
 	} else {
-		// 窄终端：底部状态栏
+		// 窄终端：检查照片下方是否有足够空间
+		availableRows := h - startRow
+		if availableRows < 7 {
+			// 空间不足，只显示照片
+			return
+		}
+		// 底部状态栏
 		updateBottomStatus(startRow, player, w, h, flacPath)
 	}
 }
