@@ -101,14 +101,14 @@ func getCellSize() (width, height int, err error) {
 
 // displayAlbumArt 显示专辑封面
 // 输入: flacPath - 歌曲路径, cellW, cellH - 终端单元格宽高
-// 输出: statusRow - 状态行位置
-func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int) {
+// 输出: statusRow - 状态行位置, imageRightEdge - 图片右边界位置
+func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int, imageRightEdge int) {
 	time.Sleep(50 * time.Millisecond)
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		fmt.Print("\x1b[2J\x1b[H")
 		fmt.Println("无法获取终端尺寸")
-		return h - 5 // 返回一个默认位置
+		return h - 5, 0 // 返回一个默认位置
 	}
 
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
@@ -180,18 +180,19 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int) {
 		}
 	}
 
-	// 返回状态信息显示位置
+	// 返回状态信息显示位置和图片右边界
 	if isWideTerminal {
-		// 宽终端：右侧信息栏从图片右侧开始
-		return imageWidthInChars + 2
+		// 宽终端：返回图片右边界位置
+		imageRightEdge := startCol + imageWidthInChars
+		return imageRightEdge + 2, imageRightEdge
 	} else {
 		// 窄终端：底部状态栏
-		return h - 1
+		return h - 1, 0
 	}
 }
 
 // updateStatus 更新屏幕上动态的部分 (播放器状态和信息)
-func updateStatus(startRow int, player *audioPlayer, flacPath string) {
+func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRightEdge int) {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		return
@@ -202,7 +203,7 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string) {
 
 	if isWideTerminal {
 		// 宽终端：右侧信息栏
-		updateRightPanel(startRow, player, w, h, flacPath)
+		updateRightPanel(imageRightEdge, player, w, h, flacPath)
 	} else {
 		// 窄终端：底部状态栏
 		updateBottomStatus(startRow, player, w, h)
@@ -210,11 +211,10 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string) {
 }
 
 // updateRightPanel 更新右侧信息面板
-func updateRightPanel(startCol int, player *audioPlayer, w, h int, flacPath string) {
-	// 清空右侧区域
-	for row := 1; row <= h; row++ {
-		fmt.Printf("\x1b[%d;%dH\x1b[K", row, startCol)
-	}
+func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPath string) {
+	// 计算信息显示的中心位置（图片右边界到终端右边界的中间）
+	availableWidth := w - imageRightEdge
+	centerCol := imageRightEdge + availableWidth/2
 
 	// 获取歌曲元数据
 	title, artist, album := getSongMetadata(flacPath)
@@ -227,9 +227,9 @@ func updateRightPanel(startCol int, player *audioPlayer, w, h int, flacPath stri
 	}
 
 	// 显示简约的歌曲信息
-	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startRow, startCol, title)
-	fmt.Printf("\x1b[%d;%dH%s", startRow+1, startCol, artist)
-	fmt.Printf("\x1b[%d;%dH%s", startRow+2, startCol, album)
+	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startRow, centerCol, title)
+	fmt.Printf("\x1b[%d;%dH%s", startRow+1, centerCol, artist)
+	fmt.Printf("\x1b[%d;%dH%s", startRow+2, centerCol, album)
 }
 
 // updateBottomStatus 更新底部状态栏
@@ -343,9 +343,9 @@ func playMusic(flacPath string) error {
 	speaker.Play(player.volume)
 
 	// --- 主循环 ---
-	var statusRow int
-	statusRow = displayAlbumArt(flacPath, cellW, cellH)
-	updateStatus(statusRow, player, flacPath)
+	var statusRow, imageRightEdge int
+	statusRow, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
+	updateStatus(statusRow, player, flacPath, imageRightEdge)
 
 	for {
 		select {
@@ -398,7 +398,7 @@ func playMusic(flacPath string) error {
 				needsUpdate = false
 			}
 			if needsUpdate {
-				updateStatus(statusRow, player, flacPath)
+				updateStatus(statusRow, player, flacPath, imageRightEdge)
 			}
 
 		case sig := <-sigCh:
@@ -406,12 +406,12 @@ func playMusic(flacPath string) error {
 				return nil
 			}
 			if sig == syscall.SIGWINCH {
-				statusRow = displayAlbumArt(flacPath, cellW, cellH)
-				updateStatus(statusRow, player, flacPath)
+				statusRow, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
+				updateStatus(statusRow, player, flacPath, imageRightEdge)
 			}
 
 		case <-ticker.C:
-			updateStatus(statusRow, player, flacPath)
+			updateStatus(statusRow, player, flacPath, imageRightEdge)
 		}
 	}
 }
