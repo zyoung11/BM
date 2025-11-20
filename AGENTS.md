@@ -24,12 +24,14 @@
 - **Visual Centering**: Text positions account for string length for true visual balance
 - **Absolute Centering**: Narrow mode ensures image is perfectly centered (width adjustments)
 - **Minimalist Display**: Only shows title, artist, album - no labels or controls
+- **Progress Bar**: Wide terminal shows Unicode "─" progress bar with dimmed played section
 
 ## Key Functions
 - `displayAlbumArt()` - Extracts and displays album art with adaptive layout
 - `playMusic()` - Main playback loop with keyboard controls
 - `updateRightPanel()` / `updateBottomStatus()` - Layout-specific info display
 - `getSongMetadata()` - Reads FLAC metadata from tags
+- `updateRightPanel()` - Displays song info + progress bar in wide terminal mode
 
 ## Controls
 - Space: Play/Pause
