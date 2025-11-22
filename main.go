@@ -351,11 +351,11 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	firstThird := startRow + availableRows/3
 	secondThird := startRow + 2*availableRows/3
 
-	// 信息显示在第一部分和第二部分之间的分界线处
-	infoRow := firstThird
+	// 歌曲信息第二行显示在第二部分的中间位置
+	infoRow := firstThird + (secondThird-firstThird)/2 - 1
 
-	// 进度条显示在第二部分和第三部分之间的分界线处
-	progressRow := secondThird
+	// 进度条显示在下三分之一的中间位置
+	progressRow := secondThird + (h-secondThird)/2
 
 	// 每行文字各自居中对齐
 	centerCol := w / 2
