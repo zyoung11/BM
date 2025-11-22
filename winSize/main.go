@@ -5,9 +5,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
+
+// 清屏 + 光标回顶
+func clear() { fmt.Print("\033[H\033[2J") }
 
 // 字符行列
 func ttySize() (rows, cols int) {
@@ -19,11 +23,12 @@ func ttySize() (rows, cols int) {
 	return
 }
 
-// 窗口像素
-func winPixel() (w, h int) {
+// 窗口像素（foot 专用）
+func footPixels() (w, h int) {
+	// 发查询
 	fmt.Print("\033[14t")
 
-	// 先把 stdin 设成原始模式
+	// 原始模式，只改必要位
 	old, _ := unix.IoctlGetTermios(int(os.Stdin.Fd()), unix.TCGETS)
 	raw := *old
 	raw.Lflag &^= unix.ECHO | unix.ICANON
@@ -45,11 +50,16 @@ func winPixel() (w, h int) {
 }
 
 func main() {
-	rows, cols := ttySize()
-	pxW, pxH := winPixel()
-	if cols == 0 || rows == 0 || pxW == 0 || pxH == 0 {
-		fmt.Println("无法获取尺寸")
-		return
+	clear()
+	for {
+		rows, cols := ttySize()
+		pxW, pxH := footPixels()
+		// 覆盖显示
+		fmt.Printf("\033[H") // 光标回顶即可
+		fmt.Printf("终端：%d 列 × %d 行\n", cols, rows)
+		fmt.Printf("窗口：%d px × %d px\n", pxW, pxH)
+		fmt.Printf("单字符：%d px × %d px\n", pxW/cols, pxH/rows)
+		fmt.Println("\n按 Ctrl-C 退出")
+		time.Sleep(200 * time.Millisecond) // 5 次/秒，可调
 	}
-	fmt.Printf("窗口 %d×%d px\n", pxW, pxH)
 }
