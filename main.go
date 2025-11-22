@@ -289,7 +289,7 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 	// --- 垂直位置计算 (新逻辑) ---
 	// 在图片高度范围内，分成相同高度的三份
 	partHeight := imageHeight / 3
-	
+
 	// 信息显示的第二行在第二部分的中间位置
 	artistRow := imageTop + partHeight + partHeight/2
 	titleRow := artistRow - 1
@@ -303,7 +303,7 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 	if progressRow-albumRow < 1 {
 		return // 间距不足，不显示信息和进度条
 	}
-	
+
 	// 确保信息不会超出图片顶部
 	if titleRow < imageTop {
 		titleRow = imageTop
@@ -339,8 +339,14 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 
 	playedChars := int(float64(progressBarWidth) * progress)
 
-	// 显示进度条
-	fmt.Printf("\x1b[%d;%dH\x1b[K", progressRow, progressBarStartCol)
+	// 显示播放/暂停图标和进度条
+	fmt.Printf("\x1b[%d;%dH\x1b[K", progressRow, progressBarStartCol-2)
+	if player.ctrl.Paused {
+		fmt.Printf("▶")
+	} else {
+		fmt.Printf("⏸")
+	}
+	fmt.Printf("\x1b[%d;%dH", progressRow, progressBarStartCol)
 	if playedChars > 0 {
 		fmt.Printf("\x1b[2m") // 调暗
 		for i := 0; i < playedChars; i++ {
@@ -351,6 +357,8 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 	for i := playedChars; i < progressBarWidth; i++ {
 		fmt.Printf("━")
 	}
+	// 显示循环图标
+	fmt.Printf("\x1b[%d;%dH\x1b[K⟳", progressRow, progressBarStartCol+progressBarWidth+1)
 }
 
 // updateBottomStatus 更新底部状态栏
@@ -418,7 +426,13 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	// 计算已播放和未播放的字符数
 	playedChars := int(float64(progressBarWidth) * progress)
 
-	// 显示进度条
+	// 显示播放/暂停图标和进度条
+	fmt.Printf("\x1b[%d;%dH\x1b[K", progressRow, progressBarStartCol-2)
+	if player.ctrl.Paused {
+		fmt.Printf("▶")
+	} else {
+		fmt.Printf("⏸")
+	}
 	fmt.Printf("\x1b[%d;%dH", progressRow, progressBarStartCol)
 
 	// 已播放部分（调暗显示）
@@ -434,6 +448,8 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	for i := playedChars; i < progressBarWidth; i++ {
 		fmt.Printf("━")
 	}
+	// 显示循环图标
+	fmt.Printf("\x1b[%d;%dH\x1b[K⟳", progressRow, progressBarStartCol+progressBarWidth+1)
 }
 
 // getSongMetadata 获取歌曲元数据
