@@ -7,6 +7,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -100,14 +101,14 @@ func getCellSize() (width, height int, err error) {
 
 // displayAlbumArt 显示专辑封面
 // 输入: flacPath - 歌曲路径, cellW, cellH - 终端单元格宽高
-// 输出: statusRow - 状态行位置, imageRightEdge - 图片右边界位置
-func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, imageRightEdge int) {
+// 输出: imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB
+func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB int) {
 	time.Sleep(50 * time.Millisecond)
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		fmt.Print("\x1b[2J\x1b[H")
 		fmt.Println("无法获取终端尺寸")
-		return 0, 0, 0 // 返回默认值
+		return 0, 0, 0, 255, 255, 255 // 返回默认值
 	}
 
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
@@ -115,6 +116,7 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 	var finalImgH int
 	var imageWidthInChars, imageHeightInChars int
 	var startCol, startRow int
+	var coverImg image.Image
 
 	// 判断布局模式
 	// 宽度>=100且(宽高比>2.0 或 高度较矮<20)
@@ -127,6 +129,9 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 		if err == nil {
 			if pic := m.Picture(); pic != nil {
 				if img, _, err := image.Decode(bytes.NewReader(pic.Data)); err == nil {
+					// 保存原始图片用于颜色分析
+					coverImg = img
+
 					// 根据布局模式调整图片尺寸
 					var pixelW, pixelH int
 					if isWideTerminal {
@@ -207,6 +212,13 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 		}
 	}
 
+	// 分析封面颜色
+	if coverImg != nil {
+		coverColorR, coverColorG, coverColorB = analyzeCoverColor(coverImg)
+	} else {
+		coverColorR, coverColorG, coverColorB = 255, 255, 255
+	}
+
 	// 返回图片位置和尺寸
 	imageRightEdgeVal := 0
 	if isWideTerminal {
@@ -218,11 +230,11 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 		imageHeightInChars = 1
 	}
 
-	return startRow, imageHeightInChars, imageRightEdgeVal
+	return startRow, imageHeightInChars, imageRightEdgeVal, coverColorR, coverColorG, coverColorB
 }
 
 // updateStatus 更新屏幕上动态的部分 (播放器状态和信息)
-func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath string, imageRightEdge int) {
+func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath string, imageRightEdge, coverColorR, coverColorG, coverColorB int) {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		return
@@ -244,7 +256,7 @@ func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath strin
 
 	if isWideTerminal {
 		// 宽终端：右侧信息栏
-		updateRightPanel(imageRightEdge, player, w, h, flacPath, imageTop, imageHeight)
+		updateRightPanel(imageRightEdge, player, w, h, flacPath, imageTop, imageHeight, coverColorR, coverColorG, coverColorB)
 	} else {
 		// 窄终端：检查照片下方是否有足够空间
 		imageBottomRow := imageTop + imageHeight
@@ -254,12 +266,12 @@ func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath strin
 			return
 		}
 		// 底部状态栏
-		updateBottomStatus(imageBottomRow, player, w, h, flacPath)
+		updateBottomStatus(imageBottomRow, player, w, h, flacPath, coverColorR, coverColorG, coverColorB)
 	}
 }
 
 // updateRightPanel 更新右侧信息面板
-func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPath string, imageTop, imageHeight int) {
+func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPath string, imageTop, imageHeight, coverColorR, coverColorG, coverColorB int) {
 	// 如果图片高度小于7行，则空间太小，不显示任何信息，实现“只显示照片”模式
 	if imageHeight < 7 {
 		return
@@ -317,10 +329,11 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 	}
 
 	// --- 绘制 ---
-	// 显示简约的歌曲信息
-	fmt.Printf("\x1b[%d;%dH\x1b[K\x1b[1m%s\x1b[0m", titleRow, visualCenterCol, title)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s", artistRow, visualCenterCol, artist)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s", albumRow, visualCenterCol, album)
+	// 显示简约的歌曲信息（使用封面颜色）
+	colorCode := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", coverColorR, coverColorG, coverColorB)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", titleRow, visualCenterCol, colorCode, title)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", artistRow, visualCenterCol, colorCode, artist)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", albumRow, visualCenterCol, colorCode, album)
 
 	// 计算进度条位置和长度
 	progressBarStartCol := imageRightEdge + 5
@@ -339,30 +352,32 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 
 	playedChars := int(float64(progressBarWidth) * progress)
 
-	// 显示播放/暂停图标和进度条
-	fmt.Printf("\x1b[%d;%dH\x1b[K", progressRow, progressBarStartCol-2)
+	// 显示播放/暂停图标和进度条（使用封面颜色）
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s", progressRow, progressBarStartCol-2, colorCode)
 	if player.ctrl.Paused {
 		fmt.Printf("▶")
 	} else {
 		fmt.Printf("⏸")
 	}
-	fmt.Printf("\x1b[%d;%dH", progressRow, progressBarStartCol)
+	fmt.Printf("\x1b[0m\x1b[%d;%dH", progressRow, progressBarStartCol)
 	if playedChars > 0 {
-		fmt.Printf("\x1b[2m") // 调暗
+		fmt.Printf("\x1b[2m%s", colorCode) // 调暗并使用封面颜色
 		for i := 0; i < playedChars; i++ {
 			fmt.Printf("━")
 		}
 		fmt.Printf("\x1b[0m") // 恢复正常亮度
 	}
+	fmt.Printf("%s", colorCode) // 未播放部分使用封面颜色
 	for i := playedChars; i < progressBarWidth; i++ {
 		fmt.Printf("━")
 	}
+	fmt.Printf("\x1b[0m")
 	// 显示循环图标
-	fmt.Printf("\x1b[%d;%dH\x1b[K⟳", progressRow, progressBarStartCol+progressBarWidth+1)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s⟳\x1b[0m", progressRow, progressBarStartCol+progressBarWidth+1, colorCode)
 }
 
 // updateBottomStatus 更新底部状态栏
-func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath string) {
+func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath string, coverColorR, coverColorG, coverColorB int) {
 	// 获取歌曲元数据
 	title, artist, album := getSongMetadata(flacPath)
 
@@ -383,24 +398,25 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	// 每行文字各自居中对齐
 	centerCol := w / 2
 
-	// 显示简约的歌曲信息（每行单独计算居中位置）
+	// 显示简约的歌曲信息（每行单独计算居中位置，使用封面颜色）
+	colorCode := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", coverColorR, coverColorG, coverColorB)
 	titleCol := centerCol - len(title)/2
 	if titleCol < 1 {
 		titleCol = 1
 	}
-	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", infoRow, titleCol, title)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, titleCol, colorCode, title)
 
 	artistCol := centerCol - len(artist)/2
 	if artistCol < 1 {
 		artistCol = 1
 	}
-	fmt.Printf("\x1b[%d;%dH%s", infoRow+1, artistCol, artist)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, artistCol, colorCode, artist)
 
 	albumCol := centerCol - len(album)/2
 	if albumCol < 1 {
 		albumCol = 1
 	}
-	fmt.Printf("\x1b[%d;%dH%s", infoRow+2, albumCol, album)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, albumCol, colorCode, album)
 
 	// 计算进度条位置和长度
 	// 进度条从左侧5个字符开始，到右侧5个字符结束
@@ -426,18 +442,18 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	// 计算已播放和未播放的字符数
 	playedChars := int(float64(progressBarWidth) * progress)
 
-	// 显示播放/暂停图标和进度条
-	fmt.Printf("\x1b[%d;%dH\x1b[K", progressRow, progressBarStartCol-2)
+	// 显示播放/暂停图标和进度条（使用封面颜色）
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s", progressRow, progressBarStartCol-2, colorCode)
 	if player.ctrl.Paused {
 		fmt.Printf("▶")
 	} else {
 		fmt.Printf("⏸")
 	}
-	fmt.Printf("\x1b[%d;%dH", progressRow, progressBarStartCol)
+	fmt.Printf("\x1b[0m\x1b[%d;%dH", progressRow, progressBarStartCol)
 
 	// 已播放部分（调暗显示）
 	if playedChars > 0 {
-		fmt.Printf("\x1b[2m") // 调暗
+		fmt.Printf("\x1b[2m%s", colorCode) // 调暗并使用封面颜色
 		for i := 0; i < playedChars; i++ {
 			fmt.Printf("━")
 		}
@@ -445,11 +461,46 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	}
 
 	// 未播放部分（正常亮度）
+	fmt.Printf("%s", colorCode) // 未播放部分使用封面颜色
 	for i := playedChars; i < progressBarWidth; i++ {
 		fmt.Printf("━")
 	}
+	fmt.Printf("\x1b[0m")
 	// 显示循环图标
-	fmt.Printf("\x1b[%d;%dH\x1b[K⟳", progressRow, progressBarStartCol+progressBarWidth+1)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s⟳\x1b[0m", progressRow, progressBarStartCol+progressBarWidth+1, colorCode)
+}
+
+// analyzeCoverColor 分析封面颜色
+func analyzeCoverColor(img image.Image) (r, g, b int) {
+	bounds := img.Bounds()
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			pixel := img.At(x, y)
+			pr, pg, pb, _ := pixel.RGBA()
+
+			// 转换为0-255范围
+			r8 := int(pr >> 8)
+			g8 := int(pg >> 8)
+			b8 := int(pb >> 8)
+
+			// 计算亮度
+			brightness := 0.2126*float64(r8) + 0.7152*float64(g8) + 0.0722*float64(b8)
+
+			// 筛选条件：寻找有色彩且明亮的像素
+			isBright := brightness > 160 // 进一步提高亮度阈值
+			isNotGray := math.Abs(float64(r8)-float64(g8)) > 25 || math.Abs(float64(g8)-float64(b8)) > 25 || math.Abs(float64(b8)-float64(r8)) > 25
+			isNotWhite := !(r8 > 220 && g8 > 220 && b8 > 220) // 避免接近纯白色
+
+			if isBright && isNotGray && isNotWhite {
+				// 找到第一个符合条件的像素就返回
+				return r8, g8, b8
+			}
+		}
+	}
+
+	// 如果没有找到合适的颜色，使用默认的亮色
+	return 255, 255, 255
 }
 
 // getSongMetadata 获取歌曲元数据
@@ -537,9 +588,9 @@ func playMusic(flacPath string) error {
 	speaker.Play(player.volume)
 
 	// --- 主循环 ---
-	var imageTop, imageHeight, imageRightEdge int
-	imageTop, imageHeight, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
-	updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge)
+	var imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB int
+	imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB = displayAlbumArt(flacPath, cellW, cellH)
+	updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB)
 
 	for {
 		select {
@@ -592,7 +643,7 @@ func playMusic(flacPath string) error {
 				needsUpdate = false
 			}
 			if needsUpdate {
-				updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge)
+				updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB)
 			}
 
 		case sig := <-sigCh:
@@ -600,12 +651,12 @@ func playMusic(flacPath string) error {
 				return nil
 			}
 			if sig == syscall.SIGWINCH {
-				imageTop, imageHeight, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
-				updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge)
+				imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB = displayAlbumArt(flacPath, cellW, cellH)
+				updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB)
 			}
 
 		case <-ticker.C:
-			updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge)
+			updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB)
 		}
 	}
 }
