@@ -220,7 +220,7 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int, imageRig
 }
 
 // updateStatus 更新屏幕上动态的部分 (播放器状态和信息)
-func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRightEdge int, cellW, cellH int) {
+func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRightEdge int) {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		return
@@ -508,7 +508,7 @@ func playMusic(flacPath string) error {
 	// --- 主循环 ---
 	var statusRow, imageRightEdge int
 	statusRow, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
-	updateStatus(statusRow, player, flacPath, imageRightEdge, cellW, cellH)
+	updateStatus(statusRow, player, flacPath, imageRightEdge)
 
 	for {
 		select {
@@ -561,7 +561,7 @@ func playMusic(flacPath string) error {
 				needsUpdate = false
 			}
 			if needsUpdate {
-				updateStatus(statusRow, player, flacPath, imageRightEdge, cellW, cellH)
+				updateStatus(statusRow, player, flacPath, imageRightEdge)
 			}
 
 		case sig := <-sigCh:
@@ -570,11 +570,11 @@ func playMusic(flacPath string) error {
 			}
 			if sig == syscall.SIGWINCH {
 				statusRow, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
-				updateStatus(statusRow, player, flacPath, imageRightEdge, cellW, cellH)
+				updateStatus(statusRow, player, flacPath, imageRightEdge)
 			}
 
 		case <-ticker.C:
-			updateStatus(statusRow, player, flacPath, imageRightEdge, cellW, cellH)
+			updateStatus(statusRow, player, flacPath, imageRightEdge)
 		}
 	}
 }
