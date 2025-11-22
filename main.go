@@ -101,13 +101,13 @@ func getCellSize() (width, height int, err error) {
 // displayAlbumArt 显示专辑封面
 // 输入: flacPath - 歌曲路径, cellW, cellH - 终端单元格宽高
 // 输出: statusRow - 状态行位置, imageRightEdge - 图片右边界位置
-func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int, imageRightEdge int) {
+func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, imageRightEdge int) {
 	time.Sleep(50 * time.Millisecond)
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		fmt.Print("\x1b[2J\x1b[H")
 		fmt.Println("无法获取终端尺寸")
-		return h - 5, 0 // 返回一个默认位置
+		return 0, 0, 0 // 返回默认值
 	}
 
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
@@ -207,20 +207,22 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (statusRow int, imageRig
 		}
 	}
 
-	// 返回状态信息显示位置和图片右边界
+	// 返回图片位置和尺寸
+	imageRightEdgeVal := 0
 	if isWideTerminal {
-		// 宽终端：返回图片右边界位置
-		imageRightEdge := startCol + imageWidthInChars
-		return imageRightEdge, imageRightEdge
-	} else {
-		// 窄终端：返回图片底部位置
-		imageBottomRow := startRow + imageHeightInChars
-		return imageBottomRow, 0
+		imageRightEdgeVal = startCol + imageWidthInChars
 	}
+
+	// 确保返回的图片高度不为零，避免后续除以零
+	if imageHeightInChars == 0 && finalImgH > 0 && cellH > 0 {
+		imageHeightInChars = 1
+	}
+
+	return startRow, imageHeightInChars, imageRightEdgeVal
 }
 
 // updateStatus 更新屏幕上动态的部分 (播放器状态和信息)
-func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRightEdge int) {
+func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath string, imageRightEdge int) {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		return
@@ -242,70 +244,90 @@ func updateStatus(startRow int, player *audioPlayer, flacPath string, imageRight
 
 	if isWideTerminal {
 		// 宽终端：右侧信息栏
-		updateRightPanel(imageRightEdge, player, w, h, flacPath)
+		updateRightPanel(imageRightEdge, player, w, h, flacPath, imageTop, imageHeight)
 	} else {
 		// 窄终端：检查照片下方是否有足够空间
-		availableRows := h - startRow
+		imageBottomRow := imageTop + imageHeight
+		availableRows := h - imageBottomRow
 		if availableRows < 7 {
 			// 空间不足，只显示照片（已在displayAlbumArt中处理）
 			return
 		}
 		// 底部状态栏
-		updateBottomStatus(startRow, player, w, h, flacPath)
+		updateBottomStatus(imageBottomRow, player, w, h, flacPath)
 	}
 }
 
 // updateRightPanel 更新右侧信息面板
-func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPath string) {
+func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPath string, imageTop, imageHeight int) {
+	// 如果图片高度小于7行，则空间太小，不显示任何信息，实现“只显示照片”模式
+	if imageHeight < 7 {
+		return
+	}
+
 	// 获取歌曲元数据
 	title, artist, album := getSongMetadata(flacPath)
 
-	// 计算文本的平均长度
+	// --- 水平位置计算 (与之前类似) ---
 	texts := []string{title, artist, album}
 	var totalLength int
 	for _, text := range texts {
 		totalLength += len(text)
 	}
-	avgLength := totalLength / len(texts)
+	avgLength := 0
+	if len(texts) > 0 {
+		avgLength = totalLength / len(texts)
+	}
 
-	// 计算信息显示的中心位置（图片右边界到终端右边界的中间）
 	availableWidth := w - imageRightEdge
 	centerCol := imageRightEdge + availableWidth/2
-
-	// 向左偏移一半的平均长度，实现视觉居中
 	visualCenterCol := centerCol - avgLength/2
-	if visualCenterCol < imageRightEdge {
-		visualCenterCol = imageRightEdge
+	if visualCenterCol < imageRightEdge+1 {
+		visualCenterCol = imageRightEdge + 1
 	}
 
-	// 计算垂直居中位置
-	infoHeight := 3 // 只显示3行信息
-	startRow := (h - infoHeight) / 2
-	if startRow < 1 {
-		startRow = 1
+	// --- 垂直位置计算 (新逻辑) ---
+	// 在图片高度范围内，分成相同高度的三份
+	partHeight := imageHeight / 3
+	
+	// 信息显示的第二行在第二部分的中间位置
+	artistRow := imageTop + partHeight + partHeight/2
+	titleRow := artistRow - 1
+	albumRow := artistRow + 1
+
+	// 进度条在第三部分的中间部分
+	progressRow := imageTop + (2 * partHeight) + partHeight/2
+
+	// 当高度比较低导致信息显示的第三行和进度条之间的间距不足一行的时候切换到只显示照片模式
+	// (albumRow 是第三行信息的位置, progressRow 是进度条位置)
+	if progressRow-albumRow < 1 {
+		return // 间距不足，不显示信息和进度条
+	}
+	
+	// 确保信息不会超出图片顶部
+	if titleRow < imageTop {
+		titleRow = imageTop
+		artistRow = titleRow + 1
+		albumRow = artistRow + 1
 	}
 
+	// 确保进度条不会超出图片底部
+	if progressRow >= imageTop+imageHeight {
+		progressRow = imageTop + imageHeight - 1
+	}
+
+	// --- 绘制 ---
 	// 显示简约的歌曲信息
-	fmt.Printf("\x1b[%d;%dH\x1b[1m%s\x1b[0m", startRow, visualCenterCol, title)
-	fmt.Printf("\x1b[%d;%dH%s", startRow+1, visualCenterCol, artist)
-	fmt.Printf("\x1b[%d;%dH%s", startRow+2, visualCenterCol, album)
-
-	// 在信息下方空三行显示进度条
-	progressRow := startRow + 5
+	fmt.Printf("\x1b[%d;%dH\x1b[K\x1b[1m%s\x1b[0m", titleRow, visualCenterCol, title)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s", artistRow, visualCenterCol, artist)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s", albumRow, visualCenterCol, album)
 
 	// 计算进度条位置和长度
-	// 进度条从图片右侧5个字符开始，长度是可用空间宽度-10个字符
 	progressBarStartCol := imageRightEdge + 5
-	progressBarEndCol := w
-	progressBarWidth := progressBarEndCol - progressBarStartCol
-
-	// 确保进度条宽度至少与最长文本相同
-	minWidth := max(max(len(title), len(artist)), len(album))
-	if progressBarWidth < minWidth {
-		progressBarWidth = minWidth
+	progressBarWidth := w - progressBarStartCol - 1
+	if progressBarWidth < 10 {
+		return // 空间不足以绘制有意义的进度条
 	}
-
-	progressBarCol := progressBarStartCol
 
 	// 计算播放进度
 	currentPos := player.streamer.Position()
@@ -313,17 +335,12 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 	var progress float64
 	if totalLen > 0 {
 		progress = float64(currentPos) / float64(totalLen)
-	} else {
-		progress = 0
 	}
 
-	// 计算已播放和未播放的字符数
 	playedChars := int(float64(progressBarWidth) * progress)
 
 	// 显示进度条
-	fmt.Printf("\x1b[%d;%dH", progressRow, progressBarCol)
-
-	// 已播放部分（调暗显示）
+	fmt.Printf("\x1b[%d;%dH\x1b[K", progressRow, progressBarStartCol)
 	if playedChars > 0 {
 		fmt.Printf("\x1b[2m") // 调暗
 		for i := 0; i < playedChars; i++ {
@@ -331,8 +348,6 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 		}
 		fmt.Printf("\x1b[0m") // 恢复正常亮度
 	}
-
-	// 未播放部分（正常亮度）
 	for i := playedChars; i < progressBarWidth; i++ {
 		fmt.Printf("━")
 	}
@@ -506,9 +521,9 @@ func playMusic(flacPath string) error {
 	speaker.Play(player.volume)
 
 	// --- 主循环 ---
-	var statusRow, imageRightEdge int
-	statusRow, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
-	updateStatus(statusRow, player, flacPath, imageRightEdge)
+	var imageTop, imageHeight, imageRightEdge int
+	imageTop, imageHeight, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
+	updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge)
 
 	for {
 		select {
@@ -561,7 +576,7 @@ func playMusic(flacPath string) error {
 				needsUpdate = false
 			}
 			if needsUpdate {
-				updateStatus(statusRow, player, flacPath, imageRightEdge)
+				updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge)
 			}
 
 		case sig := <-sigCh:
@@ -569,12 +584,12 @@ func playMusic(flacPath string) error {
 				return nil
 			}
 			if sig == syscall.SIGWINCH {
-				statusRow, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
-				updateStatus(statusRow, player, flacPath, imageRightEdge)
+				imageTop, imageHeight, imageRightEdge = displayAlbumArt(flacPath, cellW, cellH)
+				updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge)
 			}
 
 		case <-ticker.C:
-			updateStatus(statusRow, player, flacPath, imageRightEdge)
+			updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge)
 		}
 	}
 }
