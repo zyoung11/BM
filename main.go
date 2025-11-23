@@ -247,6 +247,21 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 					encoder := sixel.NewEncoder(os.Stdout)
 					// 确保sixel编码器使用正确的图片尺寸
 					_ = encoder.Encode(scaledImg)
+
+					// 在图片右侧填充空格来覆盖黑色区域
+					if imageWidthInChars > 0 && startCol+imageWidthInChars <= w {
+						// 从图片右侧开始到终端右侧填充空格
+						fillStartCol := startCol + imageWidthInChars
+						fillEndCol := w
+						if fillStartCol <= fillEndCol {
+							// 在图片的每一行右侧填充空格
+							for row := startRow; row < startRow+imageHeightInChars; row++ {
+								fmt.Printf("\x1b[%d;%dH", row, fillStartCol)
+								// 使用清除到行尾命令确保完全覆盖
+								fmt.Print("\x1b[K")
+							}
+						}
+					}
 				}
 			}
 		}
