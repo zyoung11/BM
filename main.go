@@ -120,7 +120,7 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 
 	// 判断布局模式
 	// 首先检查是否应该什么都不显示
-	showNothing := w < 23 || h < 7
+	showNothing := w < 23 || h < 5
 	// 然后检查是否应该只显示文本和进度条
 	showTextOnly := h < 13
 	// 最后判断宽终端模式
@@ -205,7 +205,7 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 
 					// 判断显示模式 - 按优先级顺序判断
 					// 1. 什么都不显示模式（最高优先级）
-					showNothing := w < 23 || h < 7
+					showNothing := w < 23 || h < 5
 					// 2. 只显示文本模式
 					showTextOnly := h < 13 && !showNothing
 					// 3. 只显示照片模式
@@ -337,7 +337,7 @@ func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath strin
 	// 判断布局模式 - 必须与displayAlbumArt中的判断完全一致
 	// 按优先级顺序判断
 	// 1. 什么都不显示模式（最高优先级）
-	showNothing := w < 23 || h < 7
+	showNothing := w < 23 || h < 5
 	if showNothing {
 		// 什么都不显示模式
 		return
@@ -370,7 +370,7 @@ func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath strin
 		// 窄终端：检查照片下方是否有足够空间
 		imageBottomRow := imageTop + imageHeight
 		availableRows := h - imageBottomRow
-		if availableRows < 7 {
+		if availableRows < 5 {
 			// 空间不足，只显示照片
 			return
 		}
@@ -381,8 +381,8 @@ func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath strin
 
 // updateRightPanel 更新右侧信息面板
 func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPath string, imageTop, imageHeight, coverColorR, coverColorG, coverColorB int, useCoverColor bool) {
-	// 如果图片高度小于7行，则空间太小，不显示任何信息，实现“只显示照片”模式
-	if imageHeight < 7 {
+	// 如果图片高度小于5行，则空间太小，不显示任何信息，实现“只显示照片”模式
+	if imageHeight < 5 {
 		return
 	}
 
