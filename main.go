@@ -651,7 +651,8 @@ func updateTextOnlyMode(player *audioPlayer, w, h int, flacPath string, coverCol
 	playedChars := int(float64(progressBarWidth) * progress)
 
 	// 显示播放/暂停图标和进度条
-	progressRow := centerRow + 2
+	// 在三行信息和进度条之间添加一行间隔
+	progressRow := centerRow + 3
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s", progressRow, progressBarStartCol-2, colorCode)
 	if player.ctrl.Paused {
 		fmt.Printf("▶")
