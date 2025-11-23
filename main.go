@@ -119,8 +119,12 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 	var coverImg image.Image
 
 	// 判断布局模式
-	// 宽度>=100且(宽高比>2.0 或 高度较矮<20)
-	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
+	// 首先检查是否应该什么都不显示
+	showNothing := w < 23 || h < 7
+	// 然后检查是否应该只显示文本和进度条
+	showTextOnly := h < 13
+	// 最后判断宽终端模式
+	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20) && !showNothing && !showTextOnly
 
 	f, err := os.Open(flacPath)
 	if err == nil {
@@ -134,12 +138,16 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 
 					// 根据布局模式调整图片尺寸
 					var pixelW, pixelH int
-					if isWideTerminal {
+					if showNothing || showTextOnly {
+						// 什么都不显示或只显示文本模式：不计算图片尺寸
+						pixelW = 0
+						pixelH = 0
+					} else if isWideTerminal {
 						// 宽终端：左侧图片，右侧信息栏
 						pixelW = (w - 30) * cellW // 预留30字符给信息栏
 						pixelH = (h - 1) * cellH
 					} else {
-						// 窄终端：顶部图片，底部状态栏
+						// 窄终端或只显示照片模式：顶部图片，底部状态栏
 						pixelW = w * cellW
 						pixelH = (h - 2) * cellH // 预留2行给状态栏
 					}
@@ -195,12 +203,28 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 					title, artist, album := getSongMetadata(flacPath)
 					maxTextLength := max(max(len(title), len(artist)), len(album))
 
-					// 判断是否需要只显示照片
-					// 基于终端尺寸和图片尺寸来判断，不使用未初始化的startRow
-					showInfoOnly := w < maxTextLength || h < 10 || imageHeightInChars >= h-2
+					// 判断显示模式 - 按优先级顺序判断
+					// 1. 什么都不显示模式（最高优先级）
+					showNothing := w < 23 || h < 7
+					// 2. 只显示文本模式
+					showTextOnly := h < 13 && !showNothing
+					// 3. 只显示照片模式
+					showInfoOnly := (w < maxTextLength || h < 10) && !showNothing && !showTextOnly
 
 					// 计算图片位置
-					if showInfoOnly {
+					if showNothing {
+						// 什么都不显示模式：不显示图片
+						startCol = 0
+						startRow = 0
+						imageWidthInChars = 0
+						imageHeightInChars = 0
+					} else if showTextOnly {
+						// 只显示文本模式：不显示图片
+						startCol = 0
+						startRow = 0
+						imageWidthInChars = 0
+						imageHeightInChars = 0
+					} else if showInfoOnly {
 						// 只显示照片模式：完全居中
 						startCol = (w - imageWidthInChars) / 2
 						startRow = (h - imageHeightInChars) / 2
@@ -244,22 +268,25 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 						imageHeightInChars = h - startRow
 					}
 
-					fmt.Printf("\x1b[%d;%dH", startRow, startCol)
-					encoder := sixel.NewEncoder(os.Stdout)
-					// 确保sixel编码器使用正确的图片尺寸
-					_ = encoder.Encode(scaledImg)
+					// 只有在应该显示图片的模式下才显示图片
+					if !showNothing && !showTextOnly {
+						fmt.Printf("\x1b[%d;%dH", startRow, startCol)
+						encoder := sixel.NewEncoder(os.Stdout)
+						// 确保sixel编码器使用正确的图片尺寸
+						_ = encoder.Encode(scaledImg)
 
-					// 在图片右侧填充空格来覆盖黑色区域
-					if imageWidthInChars > 0 && startCol+imageWidthInChars <= w {
-						// 从图片右侧开始到终端右侧填充空格
-						fillStartCol := startCol + imageWidthInChars
-						fillEndCol := w
-						if fillStartCol <= fillEndCol {
-							// 在图片的每一行右侧填充空格
-							for row := startRow; row < startRow+imageHeightInChars; row++ {
-								fmt.Printf("\x1b[%d;%dH", row, fillStartCol)
-								// 使用清除到行尾命令确保完全覆盖
-								fmt.Print("\x1b[K")
+						// 在图片右侧填充空格来覆盖黑色区域
+						if imageWidthInChars > 0 && startCol+imageWidthInChars <= w {
+							// 从图片右侧开始到终端右侧填充空格
+							fillStartCol := startCol + imageWidthInChars
+							fillEndCol := w
+							if fillStartCol <= fillEndCol {
+								// 在图片的每一行右侧填充空格
+								for row := startRow; row < startRow+imageHeightInChars; row++ {
+									fmt.Printf("\x1b[%d;%dH", row, fillStartCol)
+									// 使用清除到行尾命令确保完全覆盖
+									fmt.Print("\x1b[K")
+								}
 							}
 						}
 					}
@@ -277,6 +304,7 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 
 	// 返回图片位置和尺寸
 	imageRightEdgeVal := 0
+	// 只有在宽终端模式时才设置imageRightEdge
 	if isWideTerminal {
 		imageRightEdgeVal = startCol + imageWidthInChars
 	}
@@ -306,19 +334,44 @@ func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath strin
 		return
 	}
 
-	// 判断布局模式
-	// 宽度>=100且(宽高比>2.0 或 高度较矮<20)
+	// 判断布局模式 - 必须与displayAlbumArt中的判断完全一致
+	// 按优先级顺序判断
+	// 1. 什么都不显示模式（最高优先级）
+	showNothing := w < 23 || h < 7
+	if showNothing {
+		// 什么都不显示模式
+		return
+	}
+
+	// 2. 只显示文本和进度条模式
+	showTextOnly := h < 13 && !showNothing
+	if showTextOnly {
+		// 只显示文本和进度条模式
+		updateTextOnlyMode(player, w, h, flacPath, coverColorR, coverColorG, coverColorB, useCoverColor)
+		return
+	}
+
+	// 3. 只显示照片模式
+	showInfoOnly := (w < maxTextLength || h < 10) && !showNothing && !showTextOnly
+	if showInfoOnly {
+		// 只显示照片模式，不显示任何信息
+		return
+	}
+
+	// 判断宽终端模式
 	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
 
 	if isWideTerminal {
-		// 宽终端：右侧信息栏
-		updateRightPanel(imageRightEdge, player, w, h, flacPath, imageTop, imageHeight, coverColorR, coverColorG, coverColorB, useCoverColor)
+		// 宽终端：右侧信息栏 - 但需要检查是否有足够的空间显示信息
+		if imageRightEdge > 0 && w-imageRightEdge >= 30 {
+			updateRightPanel(imageRightEdge, player, w, h, flacPath, imageTop, imageHeight, coverColorR, coverColorG, coverColorB, useCoverColor)
+		}
 	} else {
 		// 窄终端：检查照片下方是否有足够空间
 		imageBottomRow := imageTop + imageHeight
 		availableRows := h - imageBottomRow
 		if availableRows < 7 {
-			// 空间不足，只显示照片（已在displayAlbumArt中处理）
+			// 空间不足，只显示照片
 			return
 		}
 		// 底部状态栏
@@ -509,6 +562,96 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	playedChars := int(float64(progressBarWidth) * progress)
 
 	// 显示播放/暂停图标和进度条
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s", progressRow, progressBarStartCol-2, colorCode)
+	if player.ctrl.Paused {
+		fmt.Printf("▶")
+	} else {
+		fmt.Printf("⏸")
+	}
+	fmt.Printf("\x1b[0m\x1b[%d;%dH", progressRow, progressBarStartCol)
+
+	// 已播放部分（调暗显示）
+	if playedChars > 0 {
+		fmt.Printf("\x1b[2m%s", colorCode) // 调暗
+		for i := 0; i < playedChars; i++ {
+			fmt.Printf("━")
+		}
+		fmt.Printf("\x1b[0m") // 恢复正常亮度
+	}
+
+	// 未播放部分（正常亮度）
+	fmt.Printf("%s", colorCode) // 未播放部分
+	for i := playedChars; i < progressBarWidth; i++ {
+		fmt.Printf("━")
+	}
+	fmt.Printf("\x1b[0m")
+	// 显示循环图标
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s⟳\x1b[0m", progressRow, progressBarStartCol+progressBarWidth+1, colorCode)
+}
+
+// updateTextOnlyMode 只显示文本和进度条模式
+func updateTextOnlyMode(player *audioPlayer, w, h int, flacPath string, coverColorR, coverColorG, coverColorB int, useCoverColor bool) {
+	// 获取歌曲元数据
+	title, artist, album := getSongMetadata(flacPath)
+
+	// 计算文本显示位置 - 在终端中间显示
+	centerRow := h / 2
+	centerCol := w / 2
+
+	// 显示简约的歌曲信息（每行单独计算居中位置）
+	var colorCode string
+	if useCoverColor {
+		colorCode = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", coverColorR, coverColorG, coverColorB)
+	} else {
+		colorCode = "\x1b[37m" // 白色
+	}
+
+	// 显示标题（加粗）
+	titleCol := centerCol - len(title)/2
+	if titleCol < 1 {
+		titleCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", centerRow-1, titleCol, colorCode, title)
+
+	// 显示艺术家
+	artistCol := centerCol - len(artist)/2
+	if artistCol < 1 {
+		artistCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", centerRow, artistCol, colorCode, artist)
+
+	// 显示专辑
+	albumCol := centerCol - len(album)/2
+	if albumCol < 1 {
+		albumCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", centerRow+1, albumCol, colorCode, album)
+
+	// 计算进度条位置和长度
+	progressBarStartCol := 5
+	progressBarEndCol := w - 5
+	progressBarWidth := progressBarEndCol - progressBarStartCol
+
+	// 确保进度条宽度合理
+	if progressBarWidth < 10 {
+		progressBarWidth = 10
+	}
+
+	// 计算播放进度
+	currentPos := player.streamer.Position()
+	totalLen := player.streamer.Len()
+	var progress float64
+	if totalLen > 0 {
+		progress = float64(currentPos) / float64(totalLen)
+	} else {
+		progress = 0
+	}
+
+	// 计算已播放和未播放的字符数
+	playedChars := int(float64(progressBarWidth) * progress)
+
+	// 显示播放/暂停图标和进度条
+	progressRow := centerRow + 2
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s", progressRow, progressBarStartCol-2, colorCode)
 	if player.ctrl.Paused {
 		fmt.Printf("▶")
