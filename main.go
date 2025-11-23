@@ -144,14 +144,33 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 						pixelH = (h - 2) * cellH // 预留2行给状态栏
 					}
 
-					safePixelW := int(float64(pixelW) * 0.99)
-					if pixelH < 0 {
-						pixelH = 0
+					// 确保目标尺寸合理
+					if pixelW < 10 {
+						pixelW = 10
+					}
+					if pixelH < 10 {
+						pixelH = 10
 					}
 
-					scaledImg := resize.Thumbnail(uint(safePixelW), uint(pixelH), img, resize.Lanczos3)
+					// 先将所有图片统一转换为960x960分辨率
+					originalBounds := img.Bounds()
+					originalWidth := originalBounds.Dx()
+					originalHeight := originalBounds.Dy()
+
+					// 如果图片不是960x960，先转换为960x960
+					var normalizedImg image.Image
+					if originalWidth != 960 || originalHeight != 960 {
+						// 使用Lanczos3算法保持高质量缩放
+						normalizedImg = resize.Resize(960, 960, img, resize.Lanczos3)
+					} else {
+						normalizedImg = img
+					}
+
+					// 然后根据终端尺寸进行最终缩放
+					scaledImg := resize.Thumbnail(uint(pixelW), uint(pixelH), normalizedImg, resize.Lanczos3)
 					finalImgW := scaledImg.Bounds().Dx()
 					finalImgH = scaledImg.Bounds().Dy()
+
 					// 防止除以零错误
 					if cellW == 0 {
 						cellW = 1
@@ -159,15 +178,26 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 					if cellH == 0 {
 						cellH = 1
 					}
-					imageWidthInChars = finalImgW / cellW
-					imageHeightInChars = finalImgH / cellH
+
+					// 精确计算字符尺寸，考虑可能的余数
+					imageWidthInChars = (finalImgW + cellW - 1) / cellW
+					imageHeightInChars = (finalImgH + cellH - 1) / cellH
+
+					// 确保尺寸不会超出终端
+					if imageWidthInChars > w {
+						imageWidthInChars = w
+					}
+					if imageHeightInChars > h {
+						imageHeightInChars = h
+					}
 
 					// 获取歌曲信息来计算最长文本长度
 					title, artist, album := getSongMetadata(flacPath)
 					maxTextLength := max(max(len(title), len(artist)), len(album))
 
 					// 判断是否需要只显示照片
-					showInfoOnly := w < maxTextLength || (h-startRow) < 7
+					// 基于终端尺寸和图片尺寸来判断，不使用未初始化的startRow
+					showInfoOnly := w < maxTextLength || h < 10 || imageHeightInChars >= h-2
 
 					// 计算图片位置
 					if showInfoOnly {
@@ -205,8 +235,18 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 						startRow = 1
 					}
 
+					// 确保图片位置不会超出终端边界
+					if startCol+imageWidthInChars > w {
+						imageWidthInChars = w - startCol
+					}
+					if startRow+imageHeightInChars > h {
+						imageHeightInChars = h - startRow
+					}
+
 					fmt.Printf("\x1b[%d;%dH", startRow, startCol)
-					_ = sixel.NewEncoder(os.Stdout).Encode(scaledImg)
+					encoder := sixel.NewEncoder(os.Stdout)
+					// 确保sixel编码器使用正确的图片尺寸
+					_ = encoder.Encode(scaledImg)
 				}
 			}
 		}
