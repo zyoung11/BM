@@ -225,7 +225,8 @@ func displayAlbumArt(flacPath string, cellW, cellH int) (imageTop, imageHeight, 
 							imageWidthInChars--
 							startCol = (w - imageWidthInChars) / 2
 						}
-						startRow = 1
+						// 照片距离终端上边界两行间距
+						startRow = 2
 					}
 
 					if startCol < 1 {
@@ -449,8 +450,8 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	firstThird := startRow + availableRows/3
 	secondThird := startRow + 2*availableRows/3
 
-	// 歌曲信息第二行显示在第二部分的中间位置
-	infoRow := firstThird + (secondThird-firstThird)/2 - 1
+	// 歌曲信息第一行显示在第一部分与第二部分的交界处
+	infoRow := firstThird
 
 	// 进度条显示在下三分之一的中间位置
 	progressRow := secondThird + (h-secondThird)/2
