@@ -8,17 +8,19 @@ import (
 
 	"github.com/dhowden/tag"
 	"github.com/godbus/dbus/v5"
+	"github.com/gopxl/beep/v2/flac"
 )
 
 // MPRIS 服务端实现
 type MPRISServer struct {
-	conn      *dbus.Conn
-	player    *audioPlayer
-	flacPath  string
-	isPlaying bool
-	position  int64
-	duration  int64
-	metadata  map[string]dbus.Variant
+	conn         *dbus.Conn
+	player       *audioPlayer
+	flacPath     string
+	isPlaying    bool
+	position     int64
+	duration     int64
+	metadata     map[string]dbus.Variant
+	originalFile *os.File // 保持对原始文件的引用用于时长计算
 }
 
 // 创建 MPRIS 服务端
@@ -28,22 +30,29 @@ func NewMPRISServer(player *audioPlayer, flacPath string) (*MPRISServer, error) 
 		return nil, fmt.Errorf("连接 D-Bus 失败: %v", err)
 	}
 
+	// 重新打开文件用于时长计算
+	f, err := os.Open(flacPath)
+	if err != nil {
+		return nil, fmt.Errorf("打开文件失败: %v", err)
+	}
+
 	server := &MPRISServer{
-		conn:      conn,
-		player:    player,
-		flacPath:  flacPath,
-		isPlaying: false,
-		position:  0,
-		duration:  0,
-		metadata:  make(map[string]dbus.Variant),
+		conn:         conn,
+		player:       player,
+		flacPath:     flacPath,
+		isPlaying:    false,
+		position:     0,
+		duration:     0,
+		metadata:     make(map[string]dbus.Variant),
+		originalFile: f,
 	}
 
 	// 初始化元数据
 	server.updateMetadata()
 
-	// 计算音频时长
-	if player.streamer != nil {
-		server.duration = int64(player.streamer.Len())
+	// 计算音频时长（以微秒为单位）
+	if err := server.calculateDuration(); err != nil {
+		log.Printf("计算音频时长失败: %v", err)
 	}
 
 	return server, nil
@@ -91,6 +100,9 @@ func (m *MPRISServer) StopService() {
 		m.conn.ReleaseName("org.mpris.MediaPlayer2.bm")
 		m.conn.Close()
 	}
+	if m.originalFile != nil {
+		m.originalFile.Close()
+	}
 }
 
 // 更新播放状态
@@ -107,6 +119,12 @@ func (m *MPRISServer) UpdatePosition(pos int64) {
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 		"Position": m.position,
 	})
+}
+
+// 获取当前位置（以微秒为单位）
+func (m *MPRISServer) getCurrentPosition() int64 {
+	// 直接返回内部跟踪的位置
+	return m.position
 }
 
 // 更新元数据
@@ -128,6 +146,41 @@ func (m *MPRISServer) Quit() *dbus.Error {
 // 提升播放器窗口
 func (m *MPRISServer) Raise() *dbus.Error {
 	return nil
+}
+
+// 检查是否支持全屏
+func (m *MPRISServer) CanQuit() (bool, *dbus.Error) {
+	return true, nil
+}
+
+// 检查是否支持全屏
+func (m *MPRISServer) CanRaise() (bool, *dbus.Error) {
+	return false, nil
+}
+
+// 检查是否支持全屏
+func (m *MPRISServer) HasTrackList() (bool, *dbus.Error) {
+	return false, nil
+}
+
+// 获取程序标识符
+func (m *MPRISServer) Identity() (string, *dbus.Error) {
+	return "BM Music Player", nil
+}
+
+// 获取桌面入口
+func (m *MPRISServer) DesktopEntry() (string, *dbus.Error) {
+	return "", nil
+}
+
+// 获取支持的URI协议
+func (m *MPRISServer) SupportedUriSchemes() ([]string, *dbus.Error) {
+	return []string{"file"}, nil
+}
+
+// 获取支持的MIME类型
+func (m *MPRISServer) SupportedMimeTypes() ([]string, *dbus.Error) {
+	return []string{"audio/flac"}, nil
 }
 
 // --- org.mpris.MediaPlayer2.Player 接口实现 ---
@@ -178,18 +231,21 @@ func (m *MPRISServer) Play() *dbus.Error {
 	return nil
 }
 
-// 跳转到指定位置
+// 跳转到指定位置（offset 以微秒为单位）
 func (m *MPRISServer) Seek(offset int64) *dbus.Error {
 	if m.player != nil && m.player.streamer != nil {
-		currentPos := int64(m.player.streamer.Position())
+		// 将微秒转换为样本数
+		currentPos := m.getCurrentPosition()
 		newPos := currentPos + offset
 		if newPos < 0 {
 			newPos = 0
 		}
-		if newPos >= int64(m.player.streamer.Len()) {
-			newPos = int64(m.player.streamer.Len()) - 1
+		if newPos >= m.duration {
+			newPos = m.duration - 1
 		}
-		if err := m.player.streamer.Seek(int(newPos)); err != nil {
+		// 将微秒转换为样本数
+		samplePos := int(float64(newPos) / 1e6 * float64(m.player.sampleRate))
+		if err := m.player.streamer.Seek(samplePos); err != nil {
 			return dbus.MakeFailedError(fmt.Errorf("跳转失败: %v", err))
 		}
 		m.UpdatePosition(newPos)
@@ -197,16 +253,18 @@ func (m *MPRISServer) Seek(offset int64) *dbus.Error {
 	return nil
 }
 
-// 设置位置
+// 设置位置（position 以微秒为单位）
 func (m *MPRISServer) SetPosition(trackID dbus.ObjectPath, position int64) *dbus.Error {
 	if m.player != nil && m.player.streamer != nil {
 		if position < 0 {
 			position = 0
 		}
-		if position >= int64(m.player.streamer.Len()) {
-			position = int64(m.player.streamer.Len()) - 1
+		if position >= m.duration {
+			position = m.duration - 1
 		}
-		if err := m.player.streamer.Seek(int(position)); err != nil {
+		// 将微秒转换为样本数
+		samplePos := int(float64(position) / 1e6 * float64(m.player.sampleRate))
+		if err := m.player.streamer.Seek(samplePos); err != nil {
 			return dbus.MakeFailedError(fmt.Errorf("设置位置失败: %v", err))
 		}
 		m.UpdatePosition(position)
@@ -224,6 +282,23 @@ func (m *MPRISServer) OpenUri(uri string) *dbus.Error {
 // Get 方法实现 D-Bus Properties.Get
 func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *dbus.Error) {
 	switch interfaceName {
+	case "org.mpris.MediaPlayer2":
+		switch propertyName {
+		case "CanQuit":
+			return dbus.MakeVariant(true), nil
+		case "CanRaise":
+			return dbus.MakeVariant(false), nil
+		case "HasTrackList":
+			return dbus.MakeVariant(false), nil
+		case "Identity":
+			return dbus.MakeVariant("BM Music Player"), nil
+		case "DesktopEntry":
+			return dbus.MakeVariant(""), nil
+		case "SupportedUriSchemes":
+			return dbus.MakeVariant([]string{"file"}), nil
+		case "SupportedMimeTypes":
+			return dbus.MakeVariant([]string{"audio/flac"}), nil
+		}
 	case "org.mpris.MediaPlayer2.Player":
 		switch propertyName {
 		case "PlaybackStatus":
@@ -246,10 +321,7 @@ func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *db
 			}
 			return dbus.MakeVariant(1.0), nil
 		case "Position":
-			if m.player != nil && m.player.streamer != nil {
-				return dbus.MakeVariant(int64(m.player.streamer.Position())), nil
-			}
-			return dbus.MakeVariant(m.position), nil
+			return dbus.MakeVariant(m.getCurrentPosition()), nil
 		case "MinimumRate":
 			return dbus.MakeVariant(0.1), nil
 		case "MaximumRate":
@@ -273,7 +345,17 @@ func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *db
 
 // GetAll 方法实现 D-Bus Properties.GetAll
 func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *dbus.Error) {
-	if interfaceName == "org.mpris.MediaPlayer2.Player" {
+	if interfaceName == "org.mpris.MediaPlayer2" {
+		props := make(map[string]dbus.Variant)
+		props["CanQuit"] = dbus.MakeVariant(true)
+		props["CanRaise"] = dbus.MakeVariant(false)
+		props["HasTrackList"] = dbus.MakeVariant(false)
+		props["Identity"] = dbus.MakeVariant("BM Music Player")
+		props["DesktopEntry"] = dbus.MakeVariant("")
+		props["SupportedUriSchemes"] = dbus.MakeVariant([]string{"file"})
+		props["SupportedMimeTypes"] = dbus.MakeVariant([]string{"audio/flac"})
+		return props, nil
+	} else if interfaceName == "org.mpris.MediaPlayer2.Player" {
 		props := make(map[string]dbus.Variant)
 
 		// 播放状态
@@ -285,11 +367,7 @@ func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *db
 			props["Rate"] = dbus.MakeVariant(m.player.resampler.Ratio())
 			volume := float64(m.player.volume.Volume+5) / 5.0
 			props["Volume"] = dbus.MakeVariant(volume)
-			if m.player.streamer != nil {
-				props["Position"] = dbus.MakeVariant(int64(m.player.streamer.Position()))
-			} else {
-				props["Position"] = dbus.MakeVariant(m.position)
-			}
+			props["Position"] = dbus.MakeVariant(m.getCurrentPosition())
 		} else {
 			props["Rate"] = dbus.MakeVariant(1.0)
 			props["Volume"] = dbus.MakeVariant(1.0)
@@ -370,10 +448,13 @@ func (m *MPRISServer) updateMetadata() {
 		"xesam:artist":  dbus.MakeVariant([]string{artist}),
 		"xesam:album":   dbus.MakeVariant(album),
 	}
+	log.Printf("元数据构建完成: 时长=%d微秒, 标题=%s, 艺术家=%s, 专辑=%s", m.duration, title, artist, album)
 
 	// 添加专辑封面
 	if coverData := m.extractAlbumArt(); coverData != "" {
-		m.metadata["mpris:artUrl"] = dbus.MakeVariant(fmt.Sprintf("data:image/jpeg;base64,%s", coverData))
+		// MPRIS 规范要求使用 file:// 或 http:// URL
+		// 这里我们使用 file:// URL 格式
+		m.metadata["mpris:artUrl"] = dbus.MakeVariant(coverData)
 	}
 }
 
@@ -391,12 +472,48 @@ func (m *MPRISServer) extractAlbumArt() string {
 	}
 
 	if pic := metadata.Picture(); pic != nil {
-		// 这里应该将图片数据转换为 base64
-		// 简化实现，返回空字符串
-		return ""
+		// 将图片数据转换为 base64
+		return m.encodePictureToBase64(pic)
 	}
 
 	return ""
+}
+
+// 将图片数据保存为临时文件并返回文件URL
+func (m *MPRISServer) encodePictureToBase64(pic *tag.Picture) string {
+	// 根据图片类型设置文件扩展名
+	var fileExt string
+	switch pic.MIMEType {
+	case "image/jpeg", "image/jpg":
+		fileExt = "jpg"
+	case "image/png":
+		fileExt = "png"
+	default:
+		// 根据图片数据自动检测类型
+		if len(pic.Data) > 8 && pic.Data[0] == 0x89 && pic.Data[1] == 0x50 && pic.Data[2] == 0x4E && pic.Data[3] == 0x47 {
+			fileExt = "png"
+		} else if len(pic.Data) > 2 && pic.Data[0] == 0xFF && pic.Data[1] == 0xD8 {
+			fileExt = "jpg"
+		} else {
+			// 默认使用 jpg
+			fileExt = "jpg"
+		}
+	}
+
+	// 创建临时文件
+	tempFile, err := os.CreateTemp("", "bm_cover_*."+fileExt)
+	if err != nil {
+		return ""
+	}
+	defer tempFile.Close()
+
+	// 写入图片数据
+	if _, err := tempFile.Write(pic.Data); err != nil {
+		return ""
+	}
+
+	// 返回 file:// URL
+	return "file://" + tempFile.Name()
 }
 
 // 发送属性变化信号
@@ -415,6 +532,31 @@ func (m *MPRISServer) sendPropertiesChanged(interfaceName string, changedPropert
 	if err != nil {
 		log.Printf("发送属性变化信号失败: %v", err)
 	}
+}
+
+// 计算音频时长
+func (m *MPRISServer) calculateDuration() error {
+	if m.originalFile == nil {
+		return fmt.Errorf("原始文件未打开")
+	}
+
+	// 重新解码文件以获取准确的时长
+	if _, err := m.originalFile.Seek(0, 0); err != nil {
+		return fmt.Errorf("重置文件指针失败: %v", err)
+	}
+
+	streamer, format, err := flac.Decode(m.originalFile)
+	if err != nil {
+		return fmt.Errorf("重新解码文件失败: %v", err)
+	}
+
+	// streamer.Len() 返回的是样本数，需要转换为微秒
+	totalSamples := streamer.Len()
+	// 转换为微秒：样本数 / 采样率 * 1,000,000
+	m.duration = int64(float64(totalSamples) / float64(format.SampleRate) * 1e6)
+	log.Printf("音频时长计算: 样本数=%d, 采样率=%d, 时长=%d微秒", totalSamples, format.SampleRate, m.duration)
+
+	return nil
 }
 
 // 启动 MPRIS 更新循环
