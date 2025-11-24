@@ -201,7 +201,7 @@ func (m *MPRISServer) HasTrackList() (bool, *dbus.Error) {
 
 // 获取程序标识符
 func (m *MPRISServer) Identity() (string, *dbus.Error) {
-	return "BM Music Player", nil
+	return "BM", nil
 }
 
 // 获取桌面入口
@@ -350,7 +350,7 @@ func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *db
 		case "HasTrackList":
 			return dbus.MakeVariant(false), nil
 		case "Identity":
-			return dbus.MakeVariant("BM Music Player"), nil
+			return dbus.MakeVariant("BM"), nil
 		case "DesktopEntry":
 			return dbus.MakeVariant(""), nil
 		case "SupportedUriSchemes":
@@ -409,7 +409,7 @@ func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *db
 		props["CanQuit"] = dbus.MakeVariant(true)
 		props["CanRaise"] = dbus.MakeVariant(false)
 		props["HasTrackList"] = dbus.MakeVariant(false)
-		props["Identity"] = dbus.MakeVariant("BM Music Player")
+		props["Identity"] = dbus.MakeVariant("BM")
 		props["DesktopEntry"] = dbus.MakeVariant("")
 		props["SupportedUriSchemes"] = dbus.MakeVariant([]string{"file"})
 		props["SupportedMimeTypes"] = dbus.MakeVariant([]string{"audio/flac"})
