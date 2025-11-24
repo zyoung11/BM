@@ -59,22 +59,6 @@ func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format) (*audioPlaye
 	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume, 0}, nil
 }
 
-// 获取当前播放位置（样本数）
-func (p *audioPlayer) getCurrentPosition() int {
-	return p.position
-}
-
-// 设置播放位置
-func (p *audioPlayer) setPosition(pos int) {
-	if pos < 0 {
-		pos = 0
-	}
-	if pos >= p.streamer.Len() {
-		pos = p.streamer.Len() - 1
-	}
-	p.position = pos
-}
-
 // --- TUI / Drawing ---
 
 func getCellSize() (width, height int, err error) {
@@ -381,7 +365,7 @@ func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath strin
 	if isWideTerminal {
 		// 宽终端：右侧信息栏 - 但需要检查是否有足够的空间显示信息
 		if imageRightEdge > 0 && w-imageRightEdge >= 30 {
-			updateRightPanel(imageRightEdge, player, w, h, flacPath, imageTop, imageHeight, coverColorR, coverColorG, coverColorB, useCoverColor)
+			updateRightPanel(imageRightEdge, player, w, flacPath, imageTop, imageHeight, coverColorR, coverColorG, coverColorB, useCoverColor)
 		}
 	} else {
 		// 窄终端：检查照片下方是否有足够空间
@@ -397,7 +381,7 @@ func updateStatus(imageTop, imageHeight int, player *audioPlayer, flacPath strin
 }
 
 // updateRightPanel 更新右侧信息面板
-func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPath string, imageTop, imageHeight, coverColorR, coverColorG, coverColorB int, useCoverColor bool) {
+func updateRightPanel(imageRightEdge int, player *audioPlayer, w int, flacPath string, imageTop, imageHeight, coverColorR, coverColorG, coverColorB int, useCoverColor bool) {
 	// 如果图片高度小于5行，则空间太小，不显示任何信息，实现“只显示照片”模式
 	if imageHeight < 5 {
 		return
@@ -493,7 +477,7 @@ func updateRightPanel(imageRightEdge int, player *audioPlayer, w, h int, flacPat
 	fmt.Printf("\x1b[0m\x1b[%d;%dH", progressRow, progressBarStartCol)
 	if playedChars > 0 {
 		fmt.Printf("\x1b[2m%s", colorCode) // 调暗
-		for i := 0; i < playedChars; i++ {
+		for range playedChars {
 			fmt.Printf("━")
 		}
 		fmt.Printf("\x1b[0m") // 恢复正常亮度
@@ -590,7 +574,7 @@ func updateBottomStatus(startRow int, player *audioPlayer, w, h int, flacPath st
 	// 已播放部分（调暗显示）
 	if playedChars > 0 {
 		fmt.Printf("\x1b[2m%s", colorCode) // 调暗
-		for i := 0; i < playedChars; i++ {
+		for range playedChars {
 			fmt.Printf("━")
 		}
 		fmt.Printf("\x1b[0m") // 恢复正常亮度
