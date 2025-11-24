@@ -17,6 +17,7 @@
 - **Audio**: beep/v2 for playback with FLAC support, uses Loop2 for infinite looping
 - **Display**: sixel for terminal image rendering with resize for scaling
 - **Layout**: Adaptive based on terminal width (80 chars threshold)
+- **MPRIS**: Full MPRIS 2.2 support for external control and integration
 
 ## Visual Design Features
 - **Wide Terminal**: Image left, info right - text centered in available space
@@ -42,3 +43,8 @@
 - a/s: Volume down/up
 - z/x: Speed down/up
 - ESC: Exit
+
+## MPRIS Integration
+- **Service**: org.mpris.MediaPlayer2.bm
+- **Features**: Playback control, volume, seek, position jump
+- **External Control**: Desktop media controls, progress bar click support
