@@ -20,7 +20,9 @@ type MPRISServer struct {
 	position     int64
 	duration     int64
 	metadata     map[string]dbus.Variant
-	originalFile *os.File // 保持对原始文件的引用用于时长计算
+	originalFile *os.File  // 保持对原始文件的引用用于时长计算
+	lastUpdate   time.Time // 上次更新时间
+	startTime    time.Time // 播放开始时间
 }
 
 // 创建 MPRIS 服务端
@@ -45,6 +47,8 @@ func NewMPRISServer(player *audioPlayer, flacPath string) (*MPRISServer, error) 
 		duration:     0,
 		metadata:     make(map[string]dbus.Variant),
 		originalFile: f,
+		lastUpdate:   time.Now(),
+		startTime:    time.Time{},
 	}
 
 	// 初始化元数据
@@ -107,7 +111,15 @@ func (m *MPRISServer) StopService() {
 
 // 更新播放状态
 func (m *MPRISServer) UpdatePlaybackStatus(playing bool) {
+	if playing && !m.isPlaying {
+		// 开始播放，记录开始时间
+		m.startTime = time.Now().Add(-time.Duration(m.position) * time.Microsecond)
+	} else if !playing && m.isPlaying {
+		// 暂停播放，更新当前位置
+		m.updatePositionFromTime()
+	}
 	m.isPlaying = playing
+	m.lastUpdate = time.Now()
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 		"PlaybackStatus": m.getPlaybackStatus(),
 	})
@@ -116,14 +128,39 @@ func (m *MPRISServer) UpdatePlaybackStatus(playing bool) {
 // 更新播放位置
 func (m *MPRISServer) UpdatePosition(pos int64) {
 	m.position = pos
+	m.lastUpdate = time.Now()
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 		"Position": m.position,
 	})
 }
 
+// 根据时间更新位置
+func (m *MPRISServer) updatePositionFromTime() {
+	if !m.isPlaying || m.startTime.IsZero() {
+		return
+	}
+
+	elapsed := time.Since(m.startTime)
+	newPosition := int64(elapsed.Microseconds())
+
+	// 如果超过总时长，循环
+	if m.duration > 0 && newPosition >= m.duration {
+		newPosition = newPosition % m.duration
+		m.startTime = time.Now().Add(-time.Duration(newPosition) * time.Microsecond)
+	}
+
+	if newPosition != m.position {
+		m.position = newPosition
+		m.lastUpdate = time.Now()
+	}
+}
+
 // 获取当前位置（以微秒为单位）
 func (m *MPRISServer) getCurrentPosition() int64 {
-	// 直接返回内部跟踪的位置
+	// 如果正在播放，根据时间计算当前位置
+	if m.isPlaying && !m.startTime.IsZero() {
+		m.updatePositionFromTime()
+	}
 	return m.position
 }
 
@@ -233,42 +270,47 @@ func (m *MPRISServer) Play() *dbus.Error {
 
 // 跳转到指定位置（offset 以微秒为单位）
 func (m *MPRISServer) Seek(offset int64) *dbus.Error {
-	if m.player != nil && m.player.streamer != nil {
-		// 将微秒转换为样本数
-		currentPos := m.getCurrentPosition()
-		newPos := currentPos + offset
-		if newPos < 0 {
-			newPos = 0
-		}
-		if newPos >= m.duration {
-			newPos = m.duration - 1
-		}
-		// 将微秒转换为样本数
-		samplePos := int(float64(newPos) / 1e6 * float64(m.player.sampleRate))
-		if err := m.player.streamer.Seek(samplePos); err != nil {
-			return dbus.MakeFailedError(fmt.Errorf("跳转失败: %v", err))
-		}
-		m.UpdatePosition(newPos)
+	currentPos := m.getCurrentPosition()
+	newPos := currentPos + offset
+	if newPos < 0 {
+		newPos = 0
 	}
+	if newPos >= m.duration {
+		newPos = m.duration - 1
+	}
+
+	// 更新位置和开始时间
+	m.position = newPos
+	if m.isPlaying {
+		m.startTime = time.Now().Add(-time.Duration(newPos) * time.Microsecond)
+	}
+	m.lastUpdate = time.Now()
+
+	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+		"Position": m.position,
+	})
 	return nil
 }
 
 // 设置位置（position 以微秒为单位）
 func (m *MPRISServer) SetPosition(trackID dbus.ObjectPath, position int64) *dbus.Error {
-	if m.player != nil && m.player.streamer != nil {
-		if position < 0 {
-			position = 0
-		}
-		if position >= m.duration {
-			position = m.duration - 1
-		}
-		// 将微秒转换为样本数
-		samplePos := int(float64(position) / 1e6 * float64(m.player.sampleRate))
-		if err := m.player.streamer.Seek(samplePos); err != nil {
-			return dbus.MakeFailedError(fmt.Errorf("设置位置失败: %v", err))
-		}
-		m.UpdatePosition(position)
+	if position < 0 {
+		position = 0
 	}
+	if position >= m.duration {
+		position = m.duration - 1
+	}
+
+	// 更新位置和开始时间
+	m.position = position
+	if m.isPlaying {
+		m.startTime = time.Now().Add(-time.Duration(position) * time.Microsecond)
+	}
+	m.lastUpdate = time.Now()
+
+	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+		"Position": m.position,
+	})
 	return nil
 }
 
