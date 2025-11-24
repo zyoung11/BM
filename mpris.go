@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -56,7 +55,7 @@ func NewMPRISServer(player *audioPlayer, flacPath string) (*MPRISServer, error) 
 
 	// 计算音频时长（以微秒为单位）
 	if err := server.calculateDuration(); err != nil {
-		log.Printf("计算音频时长失败: %v", err)
+		// log.Printf("计算音频时长失败: %v", err)
 	}
 
 	return server, nil
@@ -69,21 +68,21 @@ func (m *MPRISServer) Start() error {
 	if err != nil {
 		return fmt.Errorf("导出 Properties 接口失败: %v", err)
 	}
-	log.Println("✓ 导出 Properties 接口成功")
+	// log.Println("✓ 导出 Properties 接口成功")
 
 	// 注册媒体播放器2接口
 	err = m.conn.Export(m, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2")
 	if err != nil {
 		return fmt.Errorf("导出 MediaPlayer2 接口失败: %v", err)
 	}
-	log.Println("✓ 导出 MediaPlayer2 接口成功")
+	// log.Println("✓ 导出 MediaPlayer2 接口成功")
 
 	// 注册媒体播放器2.Player接口
 	err = m.conn.Export(m, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player")
 	if err != nil {
 		return fmt.Errorf("导出 Player 接口失败: %v", err)
 	}
-	log.Println("✓ 导出 Player 接口成功")
+	// log.Println("✓ 导出 Player 接口成功")
 
 	// 注册服务名
 	reply, err := m.conn.RequestName("org.mpris.MediaPlayer2.bm", dbus.NameFlagDoNotQueue)
@@ -94,7 +93,7 @@ func (m *MPRISServer) Start() error {
 		return fmt.Errorf("服务名已被占用")
 	}
 
-	log.Println("✓ MPRIS 服务已启动: org.mpris.MediaPlayer2.bm")
+	// log.Println("✓ MPRIS 服务已启动: org.mpris.MediaPlayer2.bm")
 	return nil
 }
 
@@ -490,7 +489,7 @@ func (m *MPRISServer) updateMetadata() {
 		"xesam:artist":  dbus.MakeVariant([]string{artist}),
 		"xesam:album":   dbus.MakeVariant(album),
 	}
-	log.Printf("元数据构建完成: 时长=%d微秒, 标题=%s, 艺术家=%s, 专辑=%s", m.duration, title, artist, album)
+	// log.Printf("元数据构建完成: 时长=%d微秒, 标题=%s, 艺术家=%s, 专辑=%s", m.duration, title, artist, album)
 
 	// 添加专辑封面
 	if coverData := m.extractAlbumArt(); coverData != "" {
@@ -572,7 +571,7 @@ func (m *MPRISServer) sendPropertiesChanged(interfaceName string, changedPropert
 		[]string{},
 	)
 	if err != nil {
-		log.Printf("发送属性变化信号失败: %v", err)
+		// log.Printf("发送属性变化信号失败: %v", err)
 	}
 }
 
@@ -596,7 +595,7 @@ func (m *MPRISServer) calculateDuration() error {
 	totalSamples := streamer.Len()
 	// 转换为微秒：样本数 / 采样率 * 1,000,000
 	m.duration = int64(float64(totalSamples) / float64(format.SampleRate) * 1e6)
-	log.Printf("音频时长计算: 样本数=%d, 采样率=%d, 时长=%d微秒", totalSamples, format.SampleRate, m.duration)
+	// log.Printf("音频时长计算: 样本数=%d, 采样率=%d, 时长=%d微秒", totalSamples, format.SampleRate, m.duration)
 
 	return nil
 }
@@ -608,11 +607,12 @@ func (m *MPRISServer) StartUpdateLoop() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			if m.player != nil && m.player.streamer != nil {
-				currentPos := int64(m.player.streamer.Position())
-				if currentPos != m.position {
-					m.UpdatePosition(currentPos)
-				}
+			// 使用基于时间的计算而不是直接读取播放器位置
+			if m.isPlaying && !m.startTime.IsZero() {
+				m.updatePositionFromTime()
+				m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+					"Position": m.position,
+				})
 			}
 		}
 	}()
