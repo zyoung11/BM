@@ -21,6 +21,7 @@
 - **跳转**: `Seek()` 和 `SetPosition()` 方法
 - **音量调节**: `SetVolume()` 方法
 - **播放速率**: `SetRate()` 方法
+- **进度条跳转**: 支持外部程序点击进度条直接跳转播放位置
 
 ### 3. 属性变化通知
 当播放状态、位置、音量等发生变化时，会自动发送 D-Bus 信号通知其他程序。
@@ -52,7 +53,11 @@ dbus-send --session --dest=org.mpris.MediaPlayer2.bm --type=method_call --print-
 
 ### 跳转播放位置
 ```bash
+# 相对跳转（前进5秒）
 dbus-send --session --dest=org.mpris.MediaPlayer2.bm --type=method_call --print-reply /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.Seek int64:5000000
+
+# 绝对位置跳转（跳转到30秒位置）
+dbus-send --session --dest=org.mpris.MediaPlayer2.bm --type=method_call --print-reply /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player.SetPosition objpath:"/org/mpris/MediaPlayer2/TrackList/NoTrack" int64:30000000
 ```
 
 ## 支持的桌面环境
@@ -68,6 +73,8 @@ dbus-send --session --dest=org.mpris.MediaPlayer2.bm --type=method_call --print-
 - 遵循 MPRIS 2.2 规范
 - 自动注册服务到会话总线
 - 实时更新播放状态和位置
+- 支持外部程序点击进度条跳转播放位置
+- 基于时间的播放位置计算，确保暂停/播放后时间同步正确
 
 ## 注意事项
 
