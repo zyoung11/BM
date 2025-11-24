@@ -780,10 +780,10 @@ func playMusic(flacPath string) error {
 	// 启动 MPRIS 服务
 	mprisServer, err := NewMPRISServer(player, flacPath)
 	if err != nil {
-		log.Printf("MPRIS 服务启动失败: %v", err)
+		// log.Printf("MPRIS 服务启动失败: %v", err)
 	} else {
 		if err := mprisServer.Start(); err != nil {
-			log.Printf("MPRIS 服务注册失败: %v", err)
+			// log.Printf("MPRIS 服务注册失败: %v", err)
 		} else {
 			defer mprisServer.StopService()
 			mprisServer.StartUpdateLoop()
