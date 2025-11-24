@@ -40,6 +40,235 @@ func min[T ~int | ~float64](a, b T) T {
 	return b
 }
 
+// --- Page Management ---
+
+type PageType int
+
+const (
+	PageMain   PageType = iota // 主播放页面
+	PageLyrics                 // 歌词页面
+	PageInfo                   // 歌曲信息页面
+	PageStats                  // 统计信息页面
+)
+
+// pageState 管理页面状态
+type pageState struct {
+	currentPage PageType
+	pages       map[PageType]func() // 页面渲染函数
+}
+
+// newPageState 创建新的页面状态管理器
+func newPageState() *pageState {
+	return &pageState{
+		currentPage: PageMain,
+		pages:       make(map[PageType]func()),
+	}
+}
+
+// nextPage 切换到下一个页面
+func (ps *pageState) nextPage() {
+	ps.currentPage = (ps.currentPage + 1) % 4 // 循环切换4个页面
+}
+
+// renderCurrentPage 渲染当前页面
+func (ps *pageState) renderCurrentPage() {
+	if renderFunc, exists := ps.pages[ps.currentPage]; exists {
+		renderFunc()
+	}
+}
+
+// renderMainPage 渲染主播放页面
+func renderMainPage(imageTop, imageHeight int, player *audioPlayer, flacPath string, imageRightEdge, coverColorR, coverColorG, coverColorB int, useCoverColor bool) {
+	updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB, useCoverColor)
+}
+
+// renderLyricsPage 渲染歌词页面
+func renderLyricsPage(player *audioPlayer, flacPath string, coverColorR, coverColorG, coverColorB int, useCoverColor bool) {
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return
+	}
+
+	// 清屏
+	fmt.Print("\x1b[2J\x1b[H")
+
+	// 显示页面标题
+	var colorCode string
+	if useCoverColor {
+		colorCode = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", coverColorR, coverColorG, coverColorB)
+	} else {
+		colorCode = "\x1b[37m" // 白色
+	}
+
+	// 页面标题
+	title := "歌词页面"
+	titleCol := w/2 - len(title)/2
+	if titleCol < 1 {
+		titleCol = 1
+	}
+	fmt.Printf("\x1b[2;%dH%s\x1b[1m%s\x1b[0m", titleCol, colorCode, title)
+
+	// 显示歌曲信息
+	songTitle, artist, album := getSongMetadata(flacPath)
+	infoLine := fmt.Sprintf("%s - %s - %s", songTitle, artist, album)
+	infoCol := w/2 - len(infoLine)/2
+	if infoCol < 1 {
+		infoCol = 1
+	}
+	fmt.Printf("\x1b[4;%dH%s%s\x1b[0m", infoCol, colorCode, infoLine)
+
+	// 显示歌词占位符
+	lyricsText := "暂无歌词"
+	lyricsCol := w/2 - len(lyricsText)/2
+	lyricsRow := h / 2
+	if lyricsCol < 1 {
+		lyricsCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", lyricsRow, lyricsCol, colorCode, lyricsText)
+
+	// 显示播放状态
+	statusText := "播放中"
+	if player.ctrl.Paused {
+		statusText = "已暂停"
+	}
+	statusCol := w/2 - len(statusText)/2
+	statusRow := h - 3
+	if statusCol < 1 {
+		statusCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", statusRow, statusCol, colorCode, statusText)
+
+	// 显示页面指示器
+	pageIndicator := "[歌词页面] 按Tab切换页面"
+	indicatorCol := w/2 - len(pageIndicator)/2
+	indicatorRow := h - 1
+	if indicatorCol < 1 {
+		indicatorCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH%s\x1b[0m", indicatorRow, indicatorCol, pageIndicator)
+}
+
+// renderInfoPage 渲染歌曲信息页面
+func renderInfoPage(flacPath string, coverColorR, coverColorG, coverColorB int, useCoverColor bool) {
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return
+	}
+
+	// 清屏
+	fmt.Print("\x1b[2J\x1b[H")
+
+	// 显示页面标题
+	var colorCode string
+	if useCoverColor {
+		colorCode = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", coverColorR, coverColorG, coverColorB)
+	} else {
+		colorCode = "\x1b[37m" // 白色
+	}
+
+	// 页面标题
+	title := "歌曲信息"
+	titleCol := w/2 - len(title)/2
+	if titleCol < 1 {
+		titleCol = 1
+	}
+	fmt.Printf("\x1b[2;%dH%s\x1b[1m%s\x1b[0m", titleCol, colorCode, title)
+
+	// 获取并显示详细的歌曲信息
+	songTitle, artist, album := getSongMetadata(flacPath)
+
+	// 显示详细信息
+	infoStartRow := h/2 - 2
+
+	infoLines := []string{
+		fmt.Sprintf("标题: %s", songTitle),
+		fmt.Sprintf("艺术家: %s", artist),
+		fmt.Sprintf("专辑: %s", album),
+		fmt.Sprintf("文件: %s", flacPath),
+	}
+
+	for i, line := range infoLines {
+		lineCol := w/2 - len(line)/2
+		if lineCol < 1 {
+			lineCol = 1
+		}
+		fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", infoStartRow+i, lineCol, colorCode, line)
+	}
+
+	// 显示页面指示器
+	pageIndicator := "[信息页面] 按Tab切换页面"
+	indicatorCol := w/2 - len(pageIndicator)/2
+	indicatorRow := h - 1
+	if indicatorCol < 1 {
+		indicatorCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH%s\x1b[0m", indicatorRow, indicatorCol, pageIndicator)
+}
+
+// renderStatsPage 渲染统计信息页面
+func renderStatsPage(player *audioPlayer, flacPath string, coverColorR, coverColorG, coverColorB int, useCoverColor bool) {
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return
+	}
+
+	// 清屏
+	fmt.Print("\x1b[2J\x1b[H")
+
+	// 显示页面标题
+	var colorCode string
+	if useCoverColor {
+		colorCode = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", coverColorR, coverColorG, coverColorB)
+	} else {
+		colorCode = "\x1b[37m" // 白色
+	}
+
+	// 页面标题
+	title := "统计信息"
+	titleCol := w/2 - len(title)/2
+	if titleCol < 1 {
+		titleCol = 1
+	}
+	fmt.Printf("\x1b[2;%dH%s\x1b[1m%s\x1b[0m", titleCol, colorCode, title)
+
+	// 计算统计信息
+	currentPos := player.streamer.Position()
+	totalLen := player.streamer.Len()
+	progress := 0.0
+	if totalLen > 0 {
+		progress = float64(currentPos) / float64(totalLen)
+	}
+
+	// 显示统计信息
+	infoStartRow := h/2 - 2
+
+	infoLines := []string{
+		fmt.Sprintf("播放进度: %.1f%%", progress*100),
+		fmt.Sprintf("当前位置: %d 样本", currentPos),
+		fmt.Sprintf("总长度: %d 样本", totalLen),
+		fmt.Sprintf("采样率: %d Hz", player.sampleRate),
+		fmt.Sprintf("音量: %.1f", player.volume.Volume),
+		fmt.Sprintf("播放速率: %.2f", player.resampler.Ratio()),
+	}
+
+	for i, line := range infoLines {
+		lineCol := w/2 - len(line)/2
+		if lineCol < 1 {
+			lineCol = 1
+		}
+		fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", infoStartRow+i, lineCol, colorCode, line)
+	}
+
+	// 显示页面指示器
+	pageIndicator := "[统计页面] 按Tab切换页面"
+	indicatorCol := w/2 - len(pageIndicator)/2
+	indicatorRow := h - 1
+	if indicatorCol < 1 {
+		indicatorCol = 1
+	}
+	fmt.Printf("\x1b[%d;%dH%s\x1b[0m", indicatorRow, indicatorCol, pageIndicator)
+}
+
 // --- Audio Player ---
 
 type audioPlayer struct {
@@ -814,11 +1043,30 @@ func playMusic(flacPath string) error {
 
 	speaker.Play(player.volume)
 
-	// --- 主循环 ---
+	// --- 多页面管理 ---
+	pageState := newPageState()
 	var imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB int
-	imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB = displayAlbumArt(flacPath, cellW, cellH)
 	useCoverColor := true // 默认使用封面颜色
-	updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB, useCoverColor)
+
+	// 初始化主页面显示
+	imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB = displayAlbumArt(flacPath, cellW, cellH)
+
+	// 注册页面渲染函数
+	pageState.pages[PageMain] = func() {
+		renderMainPage(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB, useCoverColor)
+	}
+	pageState.pages[PageLyrics] = func() {
+		renderLyricsPage(player, flacPath, coverColorR, coverColorG, coverColorB, useCoverColor)
+	}
+	pageState.pages[PageInfo] = func() {
+		renderInfoPage(flacPath, coverColorR, coverColorG, coverColorB, useCoverColor)
+	}
+	pageState.pages[PageStats] = func() {
+		renderStatsPage(player, flacPath, coverColorR, coverColorG, coverColorB, useCoverColor)
+	}
+
+	// --- 主循环 ---
+	pageState.renderCurrentPage()
 
 	for {
 		select {
@@ -827,6 +1075,12 @@ func playMusic(flacPath string) error {
 			switch key {
 			case '\x1b': // ESC
 				return nil
+			case '\t': // Tab键切换页面
+				pageState.nextPage()
+				// 如果是主页面，需要重新显示专辑封面
+				if pageState.currentPage == PageMain {
+					imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB = displayAlbumArt(flacPath, cellW, cellH)
+				}
 			case ' ':
 				speaker.Lock()
 				player.ctrl.Paused = !player.ctrl.Paused
@@ -904,7 +1158,7 @@ func playMusic(flacPath string) error {
 				needsUpdate = false
 			}
 			if needsUpdate {
-				updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB, useCoverColor)
+				pageState.renderCurrentPage()
 			}
 
 		case sig := <-sigCh:
@@ -912,12 +1166,16 @@ func playMusic(flacPath string) error {
 				return nil
 			}
 			if sig == syscall.SIGWINCH {
-				imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB = displayAlbumArt(flacPath, cellW, cellH)
-				updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB, useCoverColor)
+				// 窗口大小改变时，如果是主页面需要重新显示专辑封面
+				if pageState.currentPage == PageMain {
+					imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB = displayAlbumArt(flacPath, cellW, cellH)
+				}
+				pageState.renderCurrentPage()
 			}
 
 		case <-ticker.C:
-			updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB, useCoverColor)
+			// 定时更新当前页面
+			pageState.renderCurrentPage()
 			// 更新 MPRIS 播放位置
 			if mprisServer != nil {
 				// 让 MPRIS 服务器自己处理位置更新
