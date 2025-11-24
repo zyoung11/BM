@@ -760,6 +760,20 @@ func playMusic(flacPath string) error {
 		return fmt.Errorf("创建播放器失败: %v", err)
 	}
 
+	// 启动 MPRIS 服务
+	mprisServer, err := NewMPRISServer(player, flacPath)
+	if err != nil {
+		log.Printf("MPRIS 服务启动失败: %v", err)
+	} else {
+		if err := mprisServer.Start(); err != nil {
+			log.Printf("MPRIS 服务注册失败: %v", err)
+		} else {
+			defer mprisServer.StopService()
+			mprisServer.StartUpdateLoop()
+			mprisServer.UpdatePlaybackStatus(true)
+		}
+	}
+
 	fmt.Print("\x1b[?1049h\x1b[?25l")
 	defer fmt.Print("\x1b[?1049l\x1b[?25h")
 
@@ -814,6 +828,10 @@ func playMusic(flacPath string) error {
 				speaker.Lock()
 				player.ctrl.Paused = !player.ctrl.Paused
 				speaker.Unlock()
+				// 更新 MPRIS 播放状态
+				if mprisServer != nil {
+					mprisServer.UpdatePlaybackStatus(!player.ctrl.Paused)
+				}
 			case 'q', 'w':
 				speaker.Lock()
 				newPos := player.streamer.Position()
@@ -832,6 +850,10 @@ func playMusic(flacPath string) error {
 					// log error?
 				}
 				speaker.Unlock()
+				// 更新 MPRIS 播放位置
+				if mprisServer != nil {
+					mprisServer.UpdatePosition(int64(newPos))
+				}
 			case 'a', 's':
 				speaker.Lock()
 				if key == 'a' {
@@ -840,6 +862,13 @@ func playMusic(flacPath string) error {
 					player.volume.Volume += 0.1
 				}
 				speaker.Unlock()
+				// 更新 MPRIS 音量
+				if mprisServer != nil {
+					volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
+					mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+						"Volume": volume.Value(),
+					})
+				}
 			case 'z', 'x':
 				speaker.Lock()
 				ratio := player.resampler.Ratio()
@@ -850,6 +879,13 @@ func playMusic(flacPath string) error {
 				}
 				player.resampler.SetRatio(min(max(ratio, 0.1), 4.0))
 				speaker.Unlock()
+				// 更新 MPRIS 播放速率
+				if mprisServer != nil {
+					rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
+					mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+						"Rate": rate.Value(),
+					})
+				}
 			case 'e':
 				useCoverColor = !useCoverColor
 			default:
@@ -870,6 +906,13 @@ func playMusic(flacPath string) error {
 
 		case <-ticker.C:
 			updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB, useCoverColor)
+			// 更新 MPRIS 播放位置
+			if mprisServer != nil && player.streamer != nil {
+				currentPos := int64(player.streamer.Position())
+				if currentPos != mprisServer.position {
+					mprisServer.UpdatePosition(currentPos)
+				}
+			}
 		}
 	}
 }
