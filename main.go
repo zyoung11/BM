@@ -44,10 +44,11 @@ func min[T ~int | ~float64](a, b T) T {
 
 type audioPlayer struct {
 	sampleRate beep.SampleRate
-	streamer   beep.StreamSeeker
+	streamer   beep.StreamSeeker // 原始 streamer，用于时长计算
 	ctrl       *beep.Ctrl
 	resampler  *beep.Resampler
 	volume     *effects.Volume
+	position   int // 当前播放位置（样本数）
 }
 
 func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format) (*audioPlayer, error) {
@@ -55,7 +56,23 @@ func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format) (*audioPlaye
 	ctrl := &beep.Ctrl{Streamer: loopStreamer}
 	resampler := beep.ResampleRatio(4, 1, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2}
-	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume}, nil
+	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume, 0}, nil
+}
+
+// 获取当前播放位置（样本数）
+func (p *audioPlayer) getCurrentPosition() int {
+	return p.position
+}
+
+// 设置播放位置
+func (p *audioPlayer) setPosition(pos int) {
+	if pos < 0 {
+		pos = 0
+	}
+	if pos >= p.streamer.Len() {
+		pos = p.streamer.Len() - 1
+	}
+	p.position = pos
 }
 
 // --- TUI / Drawing ---
@@ -771,6 +788,8 @@ func playMusic(flacPath string) error {
 			defer mprisServer.StopService()
 			mprisServer.StartUpdateLoop()
 			mprisServer.UpdatePlaybackStatus(true)
+			// 立即更新一次元数据
+			mprisServer.UpdateMetadata()
 		}
 	}
 
@@ -852,7 +871,9 @@ func playMusic(flacPath string) error {
 				speaker.Unlock()
 				// 更新 MPRIS 播放位置
 				if mprisServer != nil {
-					mprisServer.UpdatePosition(int64(newPos))
+					// 将样本数转换为微秒
+					positionInMicroseconds := int64(float64(newPos) / float64(player.sampleRate) * 1e6)
+					mprisServer.UpdatePosition(positionInMicroseconds)
 				}
 			case 'a', 's':
 				speaker.Lock()
@@ -908,7 +929,13 @@ func playMusic(flacPath string) error {
 			updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB, useCoverColor)
 			// 更新 MPRIS 播放位置
 			if mprisServer != nil && player.streamer != nil {
-				currentPos := int64(player.streamer.Position())
+				// 使用简单的基于时间的进度计算
+				// 这里我们假设每秒更新一次，每次增加相当于1秒的微秒数
+				currentPos := mprisServer.position + 1000000 // 1秒 = 1,000,000微秒
+				// 如果超过总时长，回到开始
+				if currentPos >= mprisServer.duration {
+					currentPos = 0
+				}
 				if currentPos != mprisServer.position {
 					mprisServer.UpdatePosition(currentPos)
 				}
