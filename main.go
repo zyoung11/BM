@@ -873,7 +873,14 @@ func playMusic(flacPath string) error {
 				if mprisServer != nil {
 					// 将样本数转换为微秒
 					positionInMicroseconds := int64(float64(newPos) / float64(player.sampleRate) * 1e6)
-					mprisServer.UpdatePosition(positionInMicroseconds)
+					mprisServer.position = positionInMicroseconds
+					if mprisServer.isPlaying {
+						mprisServer.startTime = time.Now().Add(-time.Duration(positionInMicroseconds) * time.Microsecond)
+					}
+					mprisServer.lastUpdate = time.Now()
+					mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+						"Position": positionInMicroseconds,
+					})
 				}
 			case 'a', 's':
 				speaker.Lock()
@@ -928,17 +935,14 @@ func playMusic(flacPath string) error {
 		case <-ticker.C:
 			updateStatus(imageTop, imageHeight, player, flacPath, imageRightEdge, coverColorR, coverColorG, coverColorB, useCoverColor)
 			// 更新 MPRIS 播放位置
-			if mprisServer != nil && player.streamer != nil {
-				// 使用简单的基于时间的进度计算
-				// 这里我们假设每秒更新一次，每次增加相当于1秒的微秒数
-				currentPos := mprisServer.position + 1000000 // 1秒 = 1,000,000微秒
-				// 如果超过总时长，回到开始
-				if currentPos >= mprisServer.duration {
-					currentPos = 0
-				}
-				if currentPos != mprisServer.position {
-					mprisServer.UpdatePosition(currentPos)
-				}
+			if mprisServer != nil {
+				// 让 MPRIS 服务器自己处理位置更新
+				// 这里只需要触发位置检查
+				currentPos := mprisServer.getCurrentPosition()
+				// 发送属性变化信号
+				mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+					"Position": currentPos,
+				})
 			}
 		}
 	}
