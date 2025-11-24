@@ -285,6 +285,15 @@ func (m *MPRISServer) Seek(offset int64) *dbus.Error {
 	}
 	m.lastUpdate = time.Now()
 
+	// 同步到实际音频播放器
+	if m.player != nil && m.player.streamer != nil {
+		// 将微秒转换为样本数
+		samplePos := int(float64(newPos) / 1e6 * float64(m.player.sampleRate))
+		if err := m.player.streamer.Seek(samplePos); err != nil {
+			// 跳转失败，忽略错误
+		}
+	}
+
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 		"Position": m.position,
 	})
@@ -306,6 +315,15 @@ func (m *MPRISServer) SetPosition(trackID dbus.ObjectPath, position int64) *dbus
 		m.startTime = time.Now().Add(-time.Duration(position) * time.Microsecond)
 	}
 	m.lastUpdate = time.Now()
+
+	// 同步到实际音频播放器
+	if m.player != nil && m.player.streamer != nil {
+		// 将微秒转换为样本数
+		samplePos := int(float64(position) / 1e6 * float64(m.player.sampleRate))
+		if err := m.player.streamer.Seek(samplePos); err != nil {
+			// 跳转失败，忽略错误
+		}
+	}
 
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 		"Position": m.position,
@@ -607,13 +625,18 @@ func (m *MPRISServer) StartUpdateLoop() {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			// 使用基于时间的计算而不是直接读取播放器位置
+			// 如果正在播放，使用基于时间的计算
 			if m.isPlaying && !m.startTime.IsZero() {
 				m.updatePositionFromTime()
-				m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-					"Position": m.position,
-				})
+			} else if m.player != nil && m.player.streamer != nil {
+				// 如果暂停，使用播放器的实际位置
+				samplePos := m.player.streamer.Position()
+				m.position = int64(float64(samplePos) / float64(m.player.sampleRate) * 1e6)
 			}
+
+			m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+				"Position": m.position,
+			})
 		}
 	}()
 }
