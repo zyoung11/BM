@@ -30,11 +30,11 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 	switch key {
 	case '\x1b': // ESC
 		return nil, fmt.Errorf("user quit")
-	case KeyArrowUp:
+	case 'k', 'w', KeyArrowUp:
 		if len(p.app.Playlist) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.app.Playlist)) % len(p.app.Playlist)
 		}
-	case KeyArrowDown:
+	case 'j', 's', KeyArrowDown:
 		if len(p.app.Playlist) > 0 {
 			p.cursor = (p.cursor + 1) % len(p.app.Playlist)
 		}
