@@ -31,16 +31,44 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 	case '\x1b': // ESC
 		return nil, fmt.Errorf("user quit")
 	case KeyArrowUp:
-		if p.cursor > 0 {
-			p.cursor--
+		if len(p.app.Playlist) > 0 {
+			p.cursor = (p.cursor - 1 + len(p.app.Playlist)) % len(p.app.Playlist)
 		}
 	case KeyArrowDown:
-		if p.cursor < len(p.app.Playlist)-1 {
-			p.cursor++
+		if len(p.app.Playlist) > 0 {
+			p.cursor = (p.cursor + 1) % len(p.app.Playlist)
 		}
+	case ' ': // Remove current song from playlist
+		p.removeCurrentSong()
 	}
 	p.View() // Redraw on any key press
 	return nil, nil
+}
+
+// removeCurrentSong removes the song at the current cursor position from the playlist
+// and deselects it in the Library page.
+func (p *PlayList) removeCurrentSong() {
+	if p.cursor >= 0 && p.cursor < len(p.app.Playlist) {
+		songPath := p.app.Playlist[p.cursor] // Get path before removal
+
+		// Remove from playlist
+		p.app.Playlist = append(p.app.Playlist[:p.cursor], p.app.Playlist[p.cursor+1:]...)
+
+		// Find Library page and update its selection state
+		for _, page := range p.app.pages {
+			if libPage, ok := page.(*Library); ok {
+				delete(libPage.selected, songPath)
+				break
+			}
+		}
+
+		// Adjust cursor if it's out of bounds after removal
+		if p.cursor >= len(p.app.Playlist) && len(p.app.Playlist) > 0 {
+			p.cursor = len(p.app.Playlist) - 1
+		} else if len(p.app.Playlist) == 0 {
+			p.cursor = 0 // Or handle empty list state
+		}
+	}
 }
 
 // HandleSignal redraws the view on resize.
@@ -61,7 +89,7 @@ func (p *PlayList) View() {
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen
 
 	// Title
-	title := "Playlist"
+	title := "Playlist - Press <space> to remove"
 	fmt.Printf("\x1b[1;1H\x1b[K\x1b[1m%s\x1b[0m", title)
 
 	if len(p.app.Playlist) == 0 {
@@ -88,13 +116,13 @@ func (p *PlayList) View() {
 		trackPath := p.app.Playlist[trackIndex]
 		trackName := filepath.Base(trackPath)
 
-		// Styling
-		style := "\x1b[0m" // Reset
+		// Styling - all items are "selected"
+		style := "\x1b[32m" // Green text for selected
 		if trackIndex == p.cursor {
 			style += "\x1b[7m" // Reverse video for cursor
 		}
 
-		line := fmt.Sprintf("  %s", trackName)
+		line := fmt.Sprintf("✓ %s", trackName) // Checkmark for selected
 		if len(line) > w {
 			line = line[:w]
 		}

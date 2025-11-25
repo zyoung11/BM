@@ -25,7 +25,7 @@ The application is architected as a **multi-page TUI application**. A central "A
 
 The application is in a transitional phase. The user has requested to build the `Library` and `PlayList` functionality **in isolation** from the core audio player first.
 
-*   **Current Behavior:** The application still requires a single `.flac` file path as a command-line argument. The `PlayerPage` will play this file as it always has. The `Library` and `PlayList` pages are fully functional for file browsing and selection, but they do not yet control what song is played.
+*   **Current Behavior:** The application still requires a single `.flac` file path as a command-line argument. The `PlayerPage` will play this file as it always has. The `Library` and `PlayList` pages are fully functional for file browsing and selection. The `Library` page now supports hierarchical browsing of `.flac` files and directories. Files and directories can be selected, and their selection state is maintained and reflected in the `PlayList`. They do not yet control what song is played.
 *   **Next Major Step:** The next step is to integrate the `PlayList` page with the `audioPlayer` service. This will involve changing the application to take a directory as input and modifying the audio engine to play songs from the playlist instead of a single hardcoded file. **This work is intentionally deferred.**
 
 ## 3. Building and Running
@@ -74,7 +74,13 @@ The core of the application is the `App` struct in `main.go` and the `Page` inte
     *   `a` / `s`: Volume down/up
     *   `z` / `x`: Adjust playback rate
     *   `e`: Toggle text color
-*   **Library/PlayList Controls:**
-    *   `Up`/`Down` Arrow: Navigate lists.
-    *   `Space` (Library only): Select a file.
-    *   `Enter` (Library only): Add selected files to the playlist.
+*   **Library Controls:**
+    *   `Up`/`Down` Arrow: Navigate lists (circularly).
+    *   `Right Arrow`: Enter selected directory.
+    *   `Left Arrow`: Exit current directory.
+    *   `Space`:
+        *   On a file: Toggle selection of the file. Automatically adds/removes the file from the playlist. Cursor advances (non-circularly).
+        *   On a directory: Toggle selection of all `.flac` files within that directory (and its subdirectories). Automatically adds/removes files from the playlist. Cursor advances (non-circularly).
+*   **PlayList Controls:**
+    *   `Up`/`Down` Arrow: Navigate lists (circularly).
+    *   `Space`: Remove the currently highlighted song from the playlist.
