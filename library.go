@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -14,37 +15,52 @@ import (
 type Library struct {
 	app *App
 
-	files    []string
-	cursor   int
-	selected map[int]bool // Using a map for quick lookups
-	offset   int          // For scrolling the view
+	entries     []os.DirEntry
+	currentPath string
+	cursor      int
+	selected    map[string]bool // Use file path as key for persistent selection
+	offset      int             // For scrolling the view
 }
 
 // NewLibrary creates a new instance of Library.
 func NewLibrary(app *App) *Library {
 	return &Library{
-		app:      app,
-		selected: make(map[int]bool),
+		app:         app,
+		currentPath: ".",
+		selected:    make(map[string]bool),
 	}
 }
 
-// Init scans the music directory for .flac files.
-func (p *Library) Init() {
-	p.files = make([]string, 0)
-	// For now, scan the current directory.
-	err := filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
-			p.files = append(p.files, path)
-		}
-		return nil
-	})
+// scanDirectory reads the contents of a directory and populates the entries list.
+func (p *Library) scanDirectory(path string) {
+	p.entries = make([]os.DirEntry, 0)
+	p.currentPath = path
+	p.cursor = 0 // Reset cursor on directory change
+
+	files, err := os.ReadDir(path)
 	if err != nil {
-		// For now, just log it. A real app might show this in the UI.
-		// log.Printf("Error scanning directory: %v", err)
+		// In a real app, you might want to display this error in the UI
+		return
 	}
+
+	for _, file := range files {
+		// We are interested in directories and .flac files
+		if file.IsDir() || strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
+			p.entries = append(p.entries, file)
+		}
+	}
+	// Sort so directories come first, then files
+	sort.Slice(p.entries, func(i, j int) bool {
+		if p.entries[i].IsDir() != p.entries[j].IsDir() {
+			return p.entries[i].IsDir()
+		}
+		return p.entries[i].Name() < p.entries[j].Name()
+	})
+}
+
+// Init initializes the library by scanning the starting directory.
+func (p *Library) Init() {
+	p.scanDirectory(p.currentPath)
 }
 
 // HandleKey handles user input for the library page.
@@ -57,50 +73,100 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 			p.cursor--
 		}
 	case KeyArrowDown:
-		if p.cursor < len(p.files)-1 {
+		if p.cursor < len(p.entries)-1 {
 			p.cursor++
 		}
-	case ' ': // Toggle selection and add/remove from playlist
-		if p.cursor >= len(p.files) {
-			break // No file at cursor position
+	case KeyArrowRight:
+		if p.cursor < len(p.entries) && p.entries[p.cursor].IsDir() {
+			newPath := filepath.Join(p.currentPath, p.entries[p.cursor].Name())
+			p.scanDirectory(newPath)
 		}
-		
-		filePath := p.files[p.cursor]
-		// wasSelected := p.selected[p.cursor] // Store previous state, not strictly needed with new logic
+	case KeyArrowLeft:
+		if p.currentPath != "." {
+			newPath := filepath.Dir(p.currentPath)
+			p.scanDirectory(newPath)
+		}
+	case ' ':
+		if p.cursor >= len(p.entries) {
+			break
+		}
+		entry := p.entries[p.cursor]
+		fullPath := filepath.Join(p.currentPath, entry.Name())
 
-		p.toggleSelection(p.cursor)
+		if !entry.IsDir() {
+			// It's a file, toggle its selection
+			p.toggleSelection(fullPath)
+			if p.selected[fullPath] {
+				// Now selected, ensure it's in the playlist (without duplicates)
+				found := false
+				for _, s := range p.app.Playlist {
+					if s == fullPath {
+						found = true
+						break
+					}
+				}
+				if !found {
+					p.app.Playlist = append(p.app.Playlist, fullPath)
+				}
+			} else {
+				// Now deselected, remove it from the playlist
+				p.removeSongFromPlaylist(fullPath)
+			}
+		} else {
+			// It's a directory, toggle all files within it
+			var songsInDir []string
+			filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
+				if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
+					songsInDir = append(songsInDir, path)
+				}
+				return nil
+			})
 
-		if p.selected[p.cursor] { // If it's now selected
-			// Add to playlist if not already present
-			found := false
-			for _, s := range p.app.Playlist {
-				if s == filePath {
-					found = true
-					break
+			// If any song in the directory is not selected, select them all.
+			// Otherwise, deselect them all.
+			allSelected := true
+			if len(songsInDir) > 0 {
+				for _, songPath := range songsInDir {
+					if !p.selected[songPath] {
+						allSelected = false
+						break
+					}
+				}
+			} else {
+				allSelected = false
+			}
+
+
+			for _, songPath := range songsInDir {
+				if allSelected {
+					// Deselect and remove from playlist
+					delete(p.selected, songPath)
+					p.removeSongFromPlaylist(songPath)
+				} else {
+					// Select and add to playlist
+					if !p.selected[songPath] {
+						p.selected[songPath] = true
+						p.app.Playlist = append(p.app.Playlist, songPath)
+					}
 				}
 			}
-			if !found {
-				p.app.Playlist = append(p.app.Playlist, filePath)
-			}
-		} else { // If it's now deselected
-			p.removeSongFromPlaylist(filePath)
 		}
 
-		if p.cursor < len(p.files)-1 {
+		// Auto-advance cursor
+		if p.cursor < len(p.entries)-1 {
 			p.cursor++
 		}
-
 	}
 	p.View() // Redraw on any key press
 	return nil, nil
 }
 
-// toggleSelection adds or removes a file index from the selection.
-func (p *Library) toggleSelection(index int) {
-	if p.selected[index] {
-		delete(p.selected, index)
+// toggleSelection adds or removes a file path from the selection.
+func (p *Library) toggleSelection(path string) {
+	if p.selected[path] {
+		delete(p.selected, path)
 	} else {
-		p.selected[index] = true
+		p.selected[path] = true
 	}
 }
 
@@ -134,7 +200,7 @@ func (p *Library) View() {
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen
 
 	// Title
-	title := "Library - Press <space> to select, <enter> to add"
+	title := fmt.Sprintf("Library: %s - Use arrows to navigate, space to select", p.currentPath)
 	fmt.Printf("\x1b[1;1H\x1b[K\x1b[1m%s\x1b[0m", title)
 
 	// Make sure offset is valid
@@ -145,29 +211,69 @@ func (p *Library) View() {
 		p.offset = p.cursor - h + 3
 	}
 
-	// Draw files
+	// Draw entries
 	for i := 0; i < h-2; i++ {
-		fileIndex := p.offset + i
-		if fileIndex >= len(p.files) {
+		entryIndex := p.offset + i
+		if entryIndex >= len(p.entries) {
 			break
 		}
 
-		line := p.files[fileIndex]
-		// Truncate line if it's too long
-		if len(line) > w {
-			line = line[:w]
-		}
+		entry := p.entries[entryIndex]
+		entryName := entry.Name()
+		fullPath := filepath.Join(p.currentPath, entryName)
 
+		line := ""
 		// Styling
 		style := "\x1b[0m" // Reset
-		if fileIndex == p.cursor {
+
+		if entry.IsDir() {
+			// Determine if the directory is "fully selected"
+			dirFullPath := filepath.Join(p.currentPath, entry.Name())
+			var songsInDir []string
+			filepath.WalkDir(dirFullPath, func(path string, d os.DirEntry, err error) error {
+				if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
+					songsInDir = append(songsInDir, path)
+				}
+				return nil
+			})
+
+			isDirFullySelected := false
+			if len(songsInDir) > 0 { // Only consider fully selected if there are songs in it
+				allSongsSelected := true
+				for _, songPath := range songsInDir {
+					if !p.selected[songPath] {
+						allSongsSelected = false
+						break
+					}
+				}
+				if allSongsSelected {
+					isDirFullySelected = true
+				}
+			}
+
+			if isDirFullySelected {
+				line = "✓ " + entryName + "/" // Mark directory as selected
+				style += "\x1b[32m" // Green text for selected directory
+			} else {
+				line = "▸ " + entryName + "/" // Default directory indicator
+			}
+		} else {
+			// Existing file logic
+			if p.selected[fullPath] {
+				line = "✓ " + entryName
+				style += "\x1b[32m" // Green text for selected file
+			} else {
+				line = "  " + entryName
+			}
+		}
+
+		// Apply reverse video style for cursor, always on top of selection style
+		if entryIndex == p.cursor {
 			style += "\x1b[7m" // Reverse video for cursor
 		}
-		if p.selected[fileIndex] {
-			style += "\x1b[32m" // Green text for selected
-			line = "▸ " + line
-		} else {
-			line = "  " + line
+
+		if len(line) > w {
+			line = line[:w]
 		}
 
 		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+2, style, line)
