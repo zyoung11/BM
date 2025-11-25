@@ -17,7 +17,6 @@ import (
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/effects"
 	"github.com/gopxl/beep/v2/speaker"
-	"github.com/mattn/go-sixel"
 	"github.com/nfnt/resize"
 	"golang.org/x/term"
 )
@@ -230,21 +229,33 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 						pixelH = (h - 2) * p.cellH
 					}
 
-					if pixelW < 10 { pixelW = 10 }
-					if pixelH < 10 { pixelH = 10 }
-					
+					if pixelW < 10 {
+						pixelW = 10
+					}
+					if pixelH < 10 {
+						pixelH = 10
+					}
+
 					normalizedImg := resize.Resize(960, 960, img, resize.Lanczos3)
 					scaledImg := resize.Thumbnail(uint(pixelW), uint(pixelH), normalizedImg, resize.Lanczos3)
 					finalImgW, finalImgH := scaledImg.Bounds().Dx(), scaledImg.Bounds().Dy()
 
-					if p.cellW == 0 { p.cellW = 1 }
-					if p.cellH == 0 { p.cellH = 1 }
+					if p.cellW == 0 {
+						p.cellW = 1
+					}
+					if p.cellH == 0 {
+						p.cellH = 1
+					}
 
 					imageWidthInChars = (finalImgW + p.cellW - 1) / p.cellW
 					imageHeightInChars = (finalImgH + p.cellH - 1) / p.cellH
-					
-					if imageWidthInChars > w { imageWidthInChars = w }
-					if imageHeightInChars > h { imageHeightInChars = h }
+
+					if imageWidthInChars > w {
+						imageWidthInChars = w
+					}
+					if imageHeightInChars > h {
+						imageHeightInChars = h
+					}
 
 					title, artist, album := getSongMetadata(p.flacPath)
 					maxTextLength := max(max(len(title), len(artist)), len(album))
@@ -263,14 +274,22 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 						startCol, startRow = (w-imageWidthInChars)/2, 2
 					}
 
-					if startCol < 1 { startCol = 1 }
-					if startRow < 1 { startRow = 1 }
-					if startCol+imageWidthInChars > w { imageWidthInChars = w - startCol }
-					if startRow+imageHeightInChars > h { imageHeightInChars = h - startRow }
+					if startCol < 1 {
+						startCol = 1
+					}
+					if startRow < 1 {
+						startRow = 1
+					}
+					if startCol+imageWidthInChars > w {
+						imageWidthInChars = w - startCol
+					}
+					if startRow+imageHeightInChars > h {
+						imageHeightInChars = h - startRow
+					}
 
 					if !showNothing && !showTextOnly {
 						fmt.Printf("\x1b[%d;%dH", startRow, startCol)
-						_ = sixel.NewEncoder(os.Stdout).Encode(scaledImg)
+						_ = NewEncoder(os.Stdout).Encode(scaledImg)
 						if imageWidthInChars > 0 && startCol+imageWidthInChars <= w {
 							fillStartCol := startCol + imageWidthInChars
 							for row := startRow; row < startRow+imageHeightInChars; row++ {
@@ -303,13 +322,17 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 
 func (p *PlayerPage) updateStatus() {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 
 	title, artist, album := getSongMetadata(p.flacPath)
 	maxTextLength := max(max(len(title), len(artist)), len(album))
 
 	showNothing := w < 23 || h < 5
-	if showNothing { return }
+	if showNothing {
+		return
+	}
 
 	showTextOnly := h < 13 && !showNothing
 	if showTextOnly {
@@ -318,7 +341,9 @@ func (p *PlayerPage) updateStatus() {
 	}
 
 	showInfoOnly := (w < maxTextLength || h < 10) && !showNothing && !showTextOnly
-	if showInfoOnly { return }
+	if showInfoOnly {
+		return
+	}
 
 	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
 
@@ -335,20 +360,28 @@ func (p *PlayerPage) updateStatus() {
 }
 
 func (p *PlayerPage) updateRightPanel(w int) {
-	if p.imageHeight < 5 { return }
-	
+	if p.imageHeight < 5 {
+		return
+	}
+
 	title, artist, album := getSongMetadata(p.flacPath)
-	
+
 	texts := []string{title, artist, album}
 	var totalLength int
-	for _, text := range texts { totalLength += len(text) }
+	for _, text := range texts {
+		totalLength += len(text)
+	}
 	avgLength := 0
-	if len(texts) > 0 { avgLength = totalLength / len(texts) }
+	if len(texts) > 0 {
+		avgLength = totalLength / len(texts)
+	}
 
 	availableWidth := w - p.imageRightEdge
 	centerCol := p.imageRightEdge + availableWidth/2
 	visualCenterCol := centerCol - avgLength/2
-	if visualCenterCol < p.imageRightEdge+1 { visualCenterCol = p.imageRightEdge + 1 }
+	if visualCenterCol < p.imageRightEdge+1 {
+		visualCenterCol = p.imageRightEdge + 1
+	}
 
 	partHeight := p.imageHeight / 3
 	artistRow := p.imageTop + partHeight + partHeight/2
@@ -356,9 +389,15 @@ func (p *PlayerPage) updateRightPanel(w int) {
 	albumRow := artistRow + 1
 	progressRow := p.imageTop + (2 * partHeight) + partHeight/2
 
-	if progressRow-albumRow < 1 { return }
-	if titleRow < p.imageTop { titleRow, artistRow, albumRow = p.imageTop, p.imageTop+1, p.imageTop+2 }
-	if progressRow >= p.imageTop+p.imageHeight { progressRow = p.imageTop + p.imageHeight - 1 }
+	if progressRow-albumRow < 1 {
+		return
+	}
+	if titleRow < p.imageTop {
+		titleRow, artistRow, albumRow = p.imageTop, p.imageTop+1, p.imageTop+2
+	}
+	if progressRow >= p.imageTop+p.imageHeight {
+		progressRow = p.imageTop + p.imageHeight - 1
+	}
 
 	colorCode := p.getColorCode()
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", titleRow, visualCenterCol, colorCode, title)
@@ -367,7 +406,9 @@ func (p *PlayerPage) updateRightPanel(w int) {
 
 	progressBarStartCol := p.imageRightEdge + 5
 	progressBarWidth := w - progressBarStartCol - 1
-	if progressBarWidth < 10 { return }
+	if progressBarWidth < 10 {
+		return
+	}
 
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
@@ -386,8 +427,10 @@ func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 
 	progressBarStartCol := 5
 	progressBarWidth := w - 10
-	if progressBarWidth < 10 { progressBarWidth = 10 }
-	
+	if progressBarWidth < 10 {
+		progressBarWidth = 10
+	}
+
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
 
@@ -402,9 +445,11 @@ func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 
 	progressBarStartCol := 5
 	progressBarWidth := w - 10
-	if progressBarWidth < 10 { progressBarWidth = 10 }
+	if progressBarWidth < 10 {
+		progressBarWidth = 10
+	}
 	progressRow := centerRow + 3
-	
+
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
 
@@ -412,23 +457,31 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 	currentPos := p.app.player.streamer.Position()
 	totalLen := p.app.player.streamer.Len()
 	progress := 0.0
-	if totalLen > 0 { progress = float64(currentPos) / float64(totalLen) }
-	
+	if totalLen > 0 {
+		progress = float64(currentPos) / float64(totalLen)
+	}
+
 	playedChars := int(float64(width) * progress)
 
 	icon := "⏸"
-	if p.app.player.ctrl.Paused { icon = "▶" }
-	
+	if p.app.player.ctrl.Paused {
+		icon = "▶"
+	}
+
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s", row, startCol-2, colorCode, icon)
-	
+
 	var bar string
 	if playedChars > 0 {
 		bar += fmt.Sprintf("\x1b[2m%s", colorCode) // Dim played part
-		for i := 0; i < playedChars; i++ { bar += "━" }
+		for i := 0; i < playedChars; i++ {
+			bar += "━"
+		}
 		bar += "\x1b[0m"
 	}
 	bar += colorCode // Unplayed part
-	for i := playedChars; i < width; i++ { bar += "━" }
+	for i := playedChars; i < width; i++ {
+		bar += "━"
+	}
 
 	fmt.Printf("\x1b[0m\x1b[%d;%dH%s", row, startCol, bar)
 	fmt.Printf("\x1b[0m\x1b[%d;%dH\x1b[K%s⟳\x1b[0m", row, startCol+width+1, colorCode)
@@ -441,7 +494,6 @@ func (p *PlayerPage) getColorCode() string {
 	return "\x1b[37m" // White
 }
 
-
 // --- Misc Helper Functions ---
 
 func getCellSize() (width, height int, err error) {
@@ -451,34 +503,60 @@ func getCellSize() (width, height int, err error) {
 	var b [1]byte
 	for {
 		n, err := os.Stdin.Read(b[:])
-		if err != nil { return 0, 0, err }
-		if n == 0 { continue }
+		if err != nil {
+			return 0, 0, err
+		}
+		if n == 0 {
+			continue
+		}
 		buf = append(buf, b[0])
-		if b[0] == 't' { break }
+		if b[0] == 't' {
+			break
+		}
 	}
 	if !(len(buf) > 2 && buf[0] == '\x1b' && buf[1] == '[' && buf[len(buf)-1] == 't') {
 		return 0, 0, fmt.Errorf("无法解析的终端响应格式: %q", buf)
 	}
 	content := buf[2 : len(buf)-1]
 	parts := bytes.Split(content, []byte(";"))
-	if len(parts) != 3 { return 0, 0, fmt.Errorf("预期的响应分段为3, 实际为 %d: %q", len(parts), buf) }
-	if string(parts[0]) != "6" { return 0, 0, fmt.Errorf("预期的响应代码为 6, 实际为 %s", parts[0]) }
-	h, err := strconv.Atoi(string(parts[1])); if err != nil { return 0, 0, err }
-	w, err := strconv.Atoi(string(parts[2])); if err != nil { return 0, 0, err }
+	if len(parts) != 3 {
+		return 0, 0, fmt.Errorf("预期的响应分段为3, 实际为 %d: %q", len(parts), buf)
+	}
+	if string(parts[0]) != "6" {
+		return 0, 0, fmt.Errorf("预期的响应代码为 6, 实际为 %s", parts[0])
+	}
+	h, err := strconv.Atoi(string(parts[1]))
+	if err != nil {
+		return 0, 0, err
+	}
+	w, err := strconv.Atoi(string(parts[2]))
+	if err != nil {
+		return 0, 0, err
+	}
 	return w, h, nil
 }
 
 func getSongMetadata(flacPath string) (title, artist, album string) {
 	// This function remains unchanged.
 	f, err := os.Open(flacPath)
-	if err != nil { return "未知", "未知", "未知" }
+	if err != nil {
+		return "未知", "未知", "未知"
+	}
 	defer f.Close()
 	m, err := tag.ReadFrom(f)
-	if err != nil { return "未知", "未知", "未知" }
+	if err != nil {
+		return "未知", "未知", "未知"
+	}
 	title, artist, album = m.Title(), m.Artist(), m.Album()
-	if title == "" { title = "未知" }
-	if artist == "" { artist = "未知" }
-	if album == "" { album = "未知" }
+	if title == "" {
+		title = "未知"
+	}
+	if artist == "" {
+		artist = "未知"
+	}
+	if album == "" {
+		album = "未知"
+	}
 	return title, artist, album
 }
 
@@ -502,9 +580,15 @@ func analyzeCoverColor(img image.Image) (r, g, b int) {
 }
 
 func max[T ~int | ~float64](a, b T) T {
-	if a > b { return a }; return b
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func min[T ~int | ~float64](a, b T) T {
-	if a < b { return a }; return b
+	if a < b {
+		return a
+	}
+	return b
 }
