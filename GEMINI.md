@@ -16,6 +16,7 @@ The application is architected as a **multi-page TUI application**. A central "A
 *   **Media Controls:** `github.com/godbus/dbus/v5` for MPRIS D-Bus integration.
 *   **Metadata:** `github.com/dhowden/tag` for reading metadata from audio files.
 *   **Architecture:** A custom, lightweight TUI engine built around a `Page` interface.
+*   **Scrollbars:** Dynamic scrollbars for `Library` and `PlayList` pages when content exceeds screen height.
 *   **Current Pages:**
     *   `PlayerPage`: The main music player UI.
     *   `Library`: A page to browse `.flac` files in the local directory.
@@ -63,7 +64,6 @@ The core of the application is the `App` struct in `main.go` and the `Page` inte
         Tick()
     }
     ```
-
 ### Keybindings
 
 *   **Global:**
