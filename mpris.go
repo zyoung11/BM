@@ -8,6 +8,7 @@ import (
 	"github.com/dhowden/tag"
 	"github.com/godbus/dbus/v5"
 	"github.com/gopxl/beep/v2/flac"
+	"github.com/gopxl/beep/v2/speaker"
 )
 
 // MPRIS 服务端实现
@@ -289,9 +290,11 @@ func (m *MPRISServer) Seek(offset int64) *dbus.Error {
 	if m.player != nil && m.player.streamer != nil {
 		// 将微秒转换为样本数
 		samplePos := int(float64(newPos) / 1e6 * float64(m.player.sampleRate))
+		speaker.Lock()
 		if err := m.player.streamer.Seek(samplePos); err != nil {
 			// 跳转失败，忽略错误
 		}
+		speaker.Unlock()
 	}
 
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
@@ -320,9 +323,11 @@ func (m *MPRISServer) SetPosition(trackID dbus.ObjectPath, position int64) *dbus
 	if m.player != nil && m.player.streamer != nil {
 		// 将微秒转换为样本数
 		samplePos := int(float64(position) / 1e6 * float64(m.player.sampleRate))
+		speaker.Lock()
 		if err := m.player.streamer.Seek(samplePos); err != nil {
 			// 跳转失败，忽略错误
 		}
+		speaker.Unlock()
 	}
 
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
