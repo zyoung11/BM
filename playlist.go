@@ -89,25 +89,37 @@ func (p *PlayList) View() {
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen
 
 	// Title
-	title := "Playlist - Press <space> to remove"
-	fmt.Printf("\x1b[1;1H\x1b[K\x1b[1m%s\x1b[0m", title)
+	title := "PlayList"
+	titleX := (w - len(title)) / 2
+	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+
+	// Footer
+	footer := "Press <space> to remove"
+	footerX := (w - len(footer)) / 2
+	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
 
 	if len(p.app.Playlist) == 0 {
 		msg := "Playlist is empty. Add songs from the Library tab."
-		fmt.Printf("\x1b[3;1H%s", msg)
+		msgX := (w - len(msg)) / 2
+		fmt.Printf("\x1b[4;%dH%s", msgX, msg) // Position message more centrally in the empty space
 		return
+	}
+
+	listHeight := h - 4 // Title, blank line, footer, blank line
+	if listHeight < 0 {
+		listHeight = 0
 	}
 
 	// Adjust offset for scrolling
 	if p.cursor < p.offset {
 		p.offset = p.cursor
 	}
-	if p.cursor >= p.offset+h-2 {
-		p.offset = p.cursor - h + 3
+	if p.cursor >= p.offset+listHeight {
+		p.offset = p.cursor - listHeight + 1
 	}
 
 	// Draw playlist items
-	for i := 0; i < h-2; i++ {
+	for i := 0; i < listHeight; i++ {
 		trackIndex := p.offset + i
 		if trackIndex >= len(p.app.Playlist) {
 			break
@@ -127,7 +139,7 @@ func (p *PlayList) View() {
 			line = line[:w]
 		}
 
-		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+2, style, line)
+		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line) // Start list from line 3
 	}
 }
 

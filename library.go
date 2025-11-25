@@ -200,19 +200,37 @@ func (p *Library) View() {
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen
 
 	// Title
-	title := fmt.Sprintf("Library: %s - Use arrows to navigate, space to select", p.currentPath)
-	fmt.Printf("\x1b[1;1H\x1b[K\x1b[1m%s\x1b[0m", title)
+	title := "Library"
+	titleX := (w - len(title)) / 2
+	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
 
-	// Make sure offset is valid
+	// Footer
+	footer := fmt.Sprintf("Path: %s | Use arrows to navigate, space to select", p.currentPath)
+	// Truncate footer if it's too long
+	if len(footer) > w {
+		footer = "..." + footer[len(footer)-w+3:]
+	}
+	footerX := (w - len(footer)) / 2
+	if footerX < 1 {
+		footerX = 1
+	}
+	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
+
+	listHeight := h - 4 // Title, blank line, footer, blank line
+	if listHeight < 0 {
+		listHeight = 0
+	}
+
+	// Adjust offset for scrolling
 	if p.cursor < p.offset {
 		p.offset = p.cursor
 	}
-	if p.cursor >= p.offset+h-2 {
-		p.offset = p.cursor - h + 3
+	if p.cursor >= p.offset+listHeight {
+		p.offset = p.cursor - listHeight + 1
 	}
 
 	// Draw entries
-	for i := 0; i < h-2; i++ {
+	for i := 0; i < listHeight; i++ {
 		entryIndex := p.offset + i
 		if entryIndex >= len(p.entries) {
 			break
@@ -276,7 +294,7 @@ func (p *Library) View() {
 			line = line[:w]
 		}
 
-		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+2, style, line)
+		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line) // Start list from line 3
 	}
 }
 
