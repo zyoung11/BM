@@ -68,20 +68,20 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 	switch key {
 	case '\x1b': // ESC
 		return nil, fmt.Errorf("user quit")
-	case KeyArrowUp:
+	case 'k', 'w', KeyArrowUp:
 		if len(p.entries) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.entries)) % len(p.entries)
 		}
-	case KeyArrowDown:
+	case 'j', 's', KeyArrowDown:
 		if len(p.entries) > 0 {
 			p.cursor = (p.cursor + 1) % len(p.entries)
 		}
-	case KeyArrowRight:
+	case 'l', 'd', KeyArrowRight:
 		if p.cursor < len(p.entries) && p.entries[p.cursor].IsDir() {
 			newPath := filepath.Join(p.currentPath, p.entries[p.cursor].Name())
 			p.scanDirectory(newPath)
 		}
-	case KeyArrowLeft:
+	case 'h', 'a', KeyArrowLeft:
 		if p.currentPath != "." {
 			newPath := filepath.Dir(p.currentPath)
 			p.scanDirectory(newPath)
