@@ -60,11 +60,36 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 		if p.cursor < len(p.files)-1 {
 			p.cursor++
 		}
-	case ' ': // Toggle selection
+	case ' ': // Toggle selection and add/remove from playlist
+		if p.cursor >= len(p.files) {
+			break // No file at cursor position
+		}
+		
+		filePath := p.files[p.cursor]
+		// wasSelected := p.selected[p.cursor] // Store previous state, not strictly needed with new logic
+
 		p.toggleSelection(p.cursor)
-	case '\r': // Enter
-		p.addSelectedToPlaylist()
-		p.selected = make(map[int]bool) // Clear selection
+
+		if p.selected[p.cursor] { // If it's now selected
+			// Add to playlist if not already present
+			found := false
+			for _, s := range p.app.Playlist {
+				if s == filePath {
+					found = true
+					break
+				}
+			}
+			if !found {
+				p.app.Playlist = append(p.app.Playlist, filePath)
+			}
+		} else { // If it's now deselected
+			p.removeSongFromPlaylist(filePath)
+		}
+
+		if p.cursor < len(p.files)-1 {
+			p.cursor++
+		}
+
 	}
 	p.View() // Redraw on any key press
 	return nil, nil
@@ -79,15 +104,17 @@ func (p *Library) toggleSelection(index int) {
 	}
 }
 
-// addSelectedToPlaylist adds all selected file paths to the app's main playlist.
-func (p *Library) addSelectedToPlaylist() {
-	// A real implementation would probably check for duplicates
-	for index := range p.selected {
-		if index < len(p.files) {
-			p.app.Playlist = append(p.app.Playlist, p.files[index])
+// removeSongFromPlaylist removes the first occurrence of a song path from the app's playlist.
+func (p *Library) removeSongFromPlaylist(songPath string) {
+	for i, s := range p.app.Playlist {
+		if s == songPath {
+			p.app.Playlist = append(p.app.Playlist[:i], p.app.Playlist[i+1:]...)
+			return // Remove only the first occurrence
 		}
 	}
 }
+
+
 
 // HandleSignal handles window resize events.
 func (p *Library) HandleSignal(sig os.Signal) error {
