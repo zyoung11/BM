@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	"image/color"
 	"image/draw"
 	"io"
 	"os"
@@ -104,7 +103,8 @@ func (e *Encoder) Encode(img image.Image) error {
 		if z > 0 {
 			w.Write([]byte{0x2d})
 		}
-		for p := 0; p < 6; p++ {
+		p := 0
+		for range 6 {
 			y := z*6 + p
 			for x := 0; x < width; x++ {
 				_, _, _, alpha := img.At(x, y).RGBA()
@@ -114,6 +114,7 @@ func (e *Encoder) Encode(img image.Image) error {
 					buf[width*int(idx)+x] |= 1 << uint(p)
 				}
 			}
+			p++
 		}
 		for n := 1; n < nc; n++ {
 			if cset[n] {
@@ -223,8 +224,4 @@ func (e *Encoder) Encode(img image.Image) error {
 	}
 
 	return nil
-}
-
-func sixelRGB(r, g, b uint) color.Color {
-	return color.NRGBA{uint8(r * 0xFF / 100), uint8(g * 0xFF / 100), uint8(b * 0xFF / 100), 0xFF}
 }
