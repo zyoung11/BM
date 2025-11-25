@@ -4,7 +4,7 @@ This document provides a comprehensive overview of the `bm` project for a Gemini
 
 ## 1. Project Overview
 
-`bm` is a terminal-based music player written in Go. It is designed to play single audio files (specifically `.flac` files were tested) and render their album art directly in a compatible terminal using Sixel graphics.
+`bm` is a terminal-based music player written in Go. It began as a player for single audio files, rendering album art in the terminal, and is being refactored to support a music library and playlists.
 
 The application is architected as a **multi-page TUI application**. A central "App" engine manages shared services and an event loop, while distinct "Pages" are responsible for UI rendering and handling user input. This allows for features like background audio playback while navigating different views.
 
@@ -13,92 +13,68 @@ The application is architected as a **multi-page TUI application**. A central "A
 *   **Language:** Go
 *   **Audio Playback:** `github.com/gopxl/beep/v2`
 *   **Album Art Display:** `github.com/mattn/go-sixel` for rendering images in the terminal.
-*   **Media Controls:** `github.com/godbus/dbus/v5` for MPRIS D-Bus integration, allowing control via system media keys and widgets.
-*   **Metadata:** `github.com/dhowden/tag` for reading metadata (title, artist, album art) from audio files.
-*   **Architecture:** A custom, lightweight TUI engine built around a `Page` interface. This allows for extensible, independent views. The core audio playback is managed as a background service, decoupled from the UI pages.
+*   **Media Controls:** `github.com/godbus/dbus/v5` for MPRIS D-Bus integration.
+*   **Metadata:** `github.com/dhowden/tag` for reading metadata from audio files.
+*   **Architecture:** A custom, lightweight TUI engine built around a `Page` interface.
 *   **Current Pages:**
     *   `PlayerPage`: The main music player UI.
-    *   `Page1`, `Page2`: Simple placeholder pages to demonstrate the multi-page capability.
+    *   `Library`: A page to browse `.flac` files in the local directory.
+    *   `PlayList`: A page to view songs selected from the Library.
 
-## 2. Building and Running
+## 2. Current State & Next Steps
 
-### Dependencies
+The application is in a transitional phase. The user has requested to build the `Library` and `PlayList` functionality **in isolation** from the core audio player first.
 
-Dependencies are managed by Go Modules and are listed in the `go.mod` file. They will be downloaded automatically by Go commands.
+*   **Current Behavior:** The application still requires a single `.flac` file path as a command-line argument. The `PlayerPage` will play this file as it always has. The `Library` and `PlayList` pages are fully functional for file browsing and selection, but they do not yet control what song is played.
+*   **Next Major Step:** The next step is to integrate the `PlayList` page with the `audioPlayer` service. This will involve changing the application to take a directory as input and modifying the audio engine to play songs from the playlist instead of a single hardcoded file. **This work is intentionally deferred.**
+
+## 3. Building and Running
 
 ### Running the Application
 
-To run the application directly without building a binary, use `go run`. An audio file path is required as a command-line argument.
+To run the application, provide a path to a `.flac` file. This file will be played by the `PlayerPage`.
 
 ```bash
 # Example
 go run . "path/to/your/music.flac"
 ```
 
-### Building the Application
+You can switch to the `Library` and `PlayList` pages using the `Tab` key.
 
-To build the executable binary, use `go build`. This will create a binary named `bm` (from the module name) in the project root.
+### Building the Application
 
 ```bash
 go build .
 ```
 
-You can then run the compiled application:
-
-```bash
-./bm "path/to/your/music.flac"
-```
-
-### Testing
-
-The project contains a `/test` directory, but no automated tests have been implemented yet.
-
-**TODO:** Document the official testing procedure if one is established.
-
-## 3. Development Conventions
+## 4. Development Conventions
 
 ### Architecture: App & Page Model
 
-The core of the application is the `App` struct in `main.go` and the `Page` interface in `page.go`.
+The core of the application is the `App` struct in `main.go` and the `Page` interface. The `App` struct now also holds a `Playlist` slice of strings, which is the shared state between the `Library` and `PlayList` pages.
 
-*   **`main.go`**: This file acts as the main TUI engine.
-    *   The `main()` function handles all one-time setup: initializing the terminal, initializing the audio service (`audioPlayer` and `speaker`), setting up the MPRIS service, creating all pages, and adding them to the `App`.
-    *   The `App.Run()` method contains the main event loop, which listens for keyboard input, system signals (`SIGWINCH`, `SIGINT`), and a periodic ticker.
-    *   The event loop handles global actions (like `Tab` for page switching) and delegates all other events to the currently active page.
-
-*   **`page.go`**: This file defines the crucial `Page` interface, which is the contract for all views in the application.
+*   **`page.go`**: This file defines the crucial `Page` interface. The `HandleKey` signature has been updated to support special keys.
     ```go
     type Page interface {
         Init()
-        HandleKey(key byte) (Page, error)
+        HandleKey(key rune) (Page, error) // Now accepts a rune
         HandleSignal(sig os.Signal) error
         View()
         Tick()
     }
     ```
 
-### Adding a New Page
-
-To add a new feature or view, follow this pattern:
-
-1.  Create a new file (e.g., `newpage.go`).
-2.  Define a struct for your page (e.g., `NewPage`).
-3.  Implement all methods of the `Page` interface for your struct.
-4.  In `main.go`, instantiate your new page and add it to the `app.pages` slice.
-
-### Concurrency and State
-
-*   **Audio Safety:** The audio stream (`beep.Streamer`) is manipulated by multiple goroutines (the main loop, the MPRIS handler, the `speaker`'s internal audio goroutine). Any call that modifies the stream's state, especially `Seek`, **must** be wrapped in `speaker.Lock()` and `speaker.Unlock()` to prevent data races.
-*   **I/O Safety:** Avoid reading from `os.Stdin` in page-specific code, as a central goroutine in `main.go` is already consuming `os.Stdin` for keyboard input. The `getCellSize()` function was a source of a race condition and was moved to the initial setup in `main()` to be called only once before other goroutines start.
-
 ### Keybindings
 
-*   **Global:** `Tab` is reserved for cycling through pages and is handled by `main.go`.
-*   **Page-Specific:** All other keys are handled by the `HandleKey` method of the active page.
-    *   **PlayerPage Controls:**
-        *   `ESC`: Quit
-        *   `Space`: Play/Pause
-        *   `q` / `w`: Seek backward/forward
-        *   `a` / `s`: Volume down/up
-        *   `z` / `x`: Adjust playback rate
-        *   `e`: Toggle between album art color and default white for text.
+*   **Global:** `Tab` is reserved for cycling through pages.
+*   **PlayerPage Controls:**
+    *   `ESC`: Quit
+    *   `Space`: Play/Pause
+    *   `q` / `w`: Seek backward/forward
+    *   `a` / `s`: Volume down/up
+    *   `z` / `x`: Adjust playback rate
+    *   `e`: Toggle text color
+*   **Library/PlayList Controls:**
+    *   `Up`/`Down` Arrow: Navigate lists.
+    *   `Space` (Library only): Select a file.
+    *   `Enter` (Library only): Add selected files to the playlist.
