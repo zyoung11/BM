@@ -134,12 +134,38 @@ func (p *PlayList) View() {
 			style += "\x1b[7m" // Reverse video for cursor
 		}
 
+		// Truncate line to leave space for scrollbar
 		line := fmt.Sprintf("✓ %s", trackName) // Checkmark for selected
-		if len(line) > w {
-			line = line[:w]
+		if len(line) > w-1 {
+			line = line[:w-1]
 		}
 
 		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line) // Start list from line 3
+	}
+
+	// Draw Scrollbar if needed
+	totalItems := len(p.app.Playlist)
+	if totalItems > listHeight {
+		thumbSize := listHeight * listHeight / totalItems
+		if thumbSize < 1 {
+			thumbSize = 1
+		}
+		
+		scrollRange := totalItems - listHeight
+		thumbRange := listHeight - thumbSize
+		
+		thumbStart := 0
+		if scrollRange > 0 {
+			thumbStart = p.offset * thumbRange / scrollRange
+		}
+		
+		for i := 0; i < listHeight; i++ {
+			if i >= thumbStart && i < thumbStart+thumbSize {
+				fmt.Printf("\x1b[%d;%dH┃", i+3, w) // Thumb
+			} else {
+				fmt.Printf("\x1b[%d;%dH│", i+3, w) // Track
+			}
+		}
 	}
 }
 
