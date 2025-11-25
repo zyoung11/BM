@@ -50,7 +50,7 @@ func NewPlayerPage(app *App, flacPath string, cellW, cellH int) *PlayerPage {
 func (p *PlayerPage) Init() {}
 
 // HandleKey handles user key presses.
-func (p *PlayerPage) HandleKey(key byte) (Page, error) {
+func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 	player := p.app.player
 	mprisServer := p.app.mprisServer
 	needsRedraw := true // Most keys will need a status update
@@ -178,7 +178,7 @@ type audioPlayer struct {
 }
 
 func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format) (*audioPlayer, error) {
-	loopStreamer, _ := beep.Loop2(streamer)
+	loopStreamer := beep.Loop(2, streamer)
 	ctrl := &beep.Ctrl{Streamer: loopStreamer}
 	resampler := beep.ResampleRatio(4, 1, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2}

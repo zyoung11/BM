@@ -13,106 +13,84 @@ import (
 	"golang.org/x/term"
 )
 
+// Key constants for special keys
+const (
+	KeyArrowUp    = 1000 + iota
+	KeyArrowDown
+	KeyArrowLeft
+	KeyArrowRight
+)
+
 // App represents the main TUI application and holds shared state.
-
 type App struct {
-	player *audioPlayer
-
-	mprisServer *MPRISServer
-
-	pages []Page
-
+	player           *audioPlayer
+	mprisServer      *MPRISServer
+	pages            []Page
 	currentPageIndex int
+	Playlist         []string
 }
 
 // Page defines the interface for a TUI page.
 type Page interface {
-	// Init initializes the page.
 	Init()
-
-	// HandleKey handles a key press event. It can return a new page
-	// to switch to, or nil to stay on the current page.
-	// It returns an error to signal the application should quit.
-	HandleKey(key byte) (Page, error)
-
-	// HandleSignal handles a system signal (e.g., SIGWINCH for resize).
+	HandleKey(key rune) (Page, error)
 	HandleSignal(sig os.Signal) error
-
-	// View renders the page's UI. It's called after Init and after every Update.
 	View()
-
-	// Tick is called on a regular interval for updates.
 	Tick()
 }
 
 // Run starts the application's main event loop.
-
 func (a *App) Run() error {
-	// Terminal is already in raw mode, just manage screen buffer and cursor
-
-	fmt.Print("\x1b[?1049h\x1b[?25l") // Enter alternate screen buffer and hide cursor
-
-	defer fmt.Print("\x1b[?1049l\x1b[?25h") // Exit alternate screen buffer and show cursor
-
-	// --- Event Channels ---
+	fmt.Print("\x1b[?1049h\x1b[?25l")
+	defer fmt.Print("\x1b[?1049l\x1b[?25h")
 
 	sigCh := make(chan os.Signal, 1)
-
 	signal.Notify(sigCh, syscall.SIGWINCH, syscall.SIGINT)
-
 	defer signal.Stop(sigCh)
 
-	keyCh := make(chan byte, 1)
-
+	keyCh := make(chan rune)
 	go func() {
-		buf := make([]byte, 1)
-
+		buf := make([]byte, 3)
 		for {
-
 			n, err := os.Stdin.Read(buf)
 			if err != nil {
 				return
 			}
-
 			if n > 0 {
-				keyCh <- buf[0]
+				if buf[0] == '\x1b' && n > 1 && buf[1] == '[' {
+					switch buf[2] {
+					case 'A':
+						keyCh <- KeyArrowUp
+					case 'B':
+						keyCh <- KeyArrowDown
+					case 'C':
+						keyCh <- KeyArrowRight
+					case 'D':
+						keyCh <- KeyArrowLeft
+					}
+				} else {
+					keyCh <- rune(buf[0])
+				}
 			}
-
 		}
 	}()
 
 	ticker := time.NewTicker(time.Second / 2)
-
 	defer ticker.Stop()
 
-	// --- Initial Draw ---
-
 	a.pages[a.currentPageIndex].Init()
-
 	a.pages[a.currentPageIndex].View()
 
-	// --- Main Event Loop ---
-
 	for {
-
 		currentPage := a.pages[a.currentPageIndex]
-
 		select {
-
 		case key := <-keyCh:
-
 			if key == '\t' {
-
 				a.currentPageIndex = (a.currentPageIndex + 1) % len(a.pages)
-
 				newPage := a.pages[a.currentPageIndex]
-
 				newPage.Init()
-
 				newPage.View()
-
 				continue
-
 			}
 
 			_, err := currentPage.HandleKey(key)
@@ -121,21 +99,16 @@ func (a *App) Run() error {
 			}
 
 		case sig := <-sigCh:
-
 			if sig == syscall.SIGINT {
 				return nil
 			}
-
 			if err := currentPage.HandleSignal(sig); err != nil {
 				return err
 			}
 
 		case <-ticker.C:
-
 			currentPage.Tick()
-
 		}
-
 	}
 }
 
@@ -143,30 +116,18 @@ func main() {
 	if len(os.Args) != 2 {
 		log.Fatalf("用法: %s <music.flac>", os.Args[0])
 	}
-
 	flacPath := os.Args[1]
-
-	// --- Pre-flight Setup (before Run loop) ---
-
-	// Set terminal to raw mode *before* starting key reader goroutine
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
 		log.Fatalf("设置原始模式失败: %v", err)
 	}
-
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
-
-	// Get cell size once, now that we are in raw mode and before the key reader starts
 
 	cellW, cellH, err := getCellSize()
 	if err != nil {
-		// On failure, we can't really continue with image display
-
 		log.Fatalf("无法获取终端单元格尺寸: %v", err)
 	}
-
-	// --- Audio Service Initialization ---
 
 	f, err := os.Open(flacPath)
 	if err != nil {
@@ -185,53 +146,29 @@ func main() {
 		log.Fatalf("创建播放器失败: %v", err)
 	}
 
-	// --- MPRIS Service Initialization ---
-
 	mprisServer, err := NewMPRISServer(player, flacPath)
-
-	if err != nil {
-		log.Printf("MPRIS 服务启动失败: %v", err)
-	} else {
-		if err := mprisServer.Start(); err != nil {
-			log.Printf("MPRIS 服务注册失败: %v", err)
-		} else {
-
+	if err == nil {
+		if err := mprisServer.Start(); err == nil {
 			defer mprisServer.StopService()
-
 			mprisServer.StartUpdateLoop()
-
 			mprisServer.UpdatePlaybackStatus(true)
-
 			mprisServer.UpdateMetadata()
-
 		}
 	}
 
-	// --- App Initialization ---
-
 	app := &App{
-		player: player,
-
-		mprisServer: mprisServer,
-
+		player:           player,
+		mprisServer:      mprisServer,
 		currentPageIndex: 0,
+		Playlist:         make([]string, 0),
 	}
 
-	// --- Create and add pages ---
-
 	playerPage := NewPlayerPage(app, flacPath, cellW, cellH)
-
-	page1 := NewPage1(app)
-
-	page2 := NewPage2(app)
-
-	app.pages = []Page{playerPage, page1, page2}
-
-	// --- Start Audio Playback ---
+	playListPage := NewPlayList(app)
+	libraryPage := NewLibrary(app)
+	app.pages = []Page{playerPage, playListPage, libraryPage}
 
 	speaker.Play(app.player.volume)
-
-	// --- Run App ---
 
 	if err := app.Run(); err != nil {
 		log.Fatalf("应用运行时出现错误: %v", err)
