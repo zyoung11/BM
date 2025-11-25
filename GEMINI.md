@@ -66,21 +66,27 @@ The core of the application is the `App` struct in `main.go` and the `Page` inte
 
 ### Keybindings
 
-*   **Global:** `Tab` is reserved for cycling through pages.
+*   **Global:**
+    *   `Tab`: Cycle through pages.
+    *   `1`: Switch to Player page.
+    *   `2`: Switch to PlayList page.
+    *   `3`: Switch to Library page.
+    *   `ESC`: Quit the application from any page.
 *   **PlayerPage Controls:**
-    *   `ESC`: Quit
     *   `Space`: Play/Pause
     *   `q` / `w`: Seek backward/forward
     *   `a` / `s`: Volume down/up
     *   `z` / `x`: Adjust playback rate
     *   `e`: Toggle text color
 *   **Library Controls:**
-    *   `Up`/`Down` Arrow: Navigate lists (circularly).
-    *   `Right Arrow`: Enter selected directory.
-    *   `Left Arrow`: Exit current directory.
+    *   `Up Arrow` / `k` / `w`: Navigate up (circularly).
+    *   `Down Arrow` / `j` / `s`: Navigate down (circularly).
+    *   `Right Arrow` / `l` / `d`: Enter selected directory.
+    *   `Left Arrow` / `h` / `a`: Exit current directory.
     *   `Space`:
-        *   On a file: Toggle selection of the file. Automatically adds/removes the file from the playlist. Cursor advances (non-circularly).
-        *   On a directory: Toggle selection of all `.flac` files within that directory (and its subdirectories). Automatically adds/removes files from the playlist. Cursor advances (non-circularly).
+        *   On a file: Toggle selection. Automatically adds/removes the file from the playlist. Cursor advances (non-circularly).
+        *   On a directory: Toggle selection of all `.flac` files within that directory (and its subdirectories). Cursor advances (non-circularly).
 *   **PlayList Controls:**
-    *   `Up`/`Down` Arrow: Navigate lists (circularly).
+    *   `Up Arrow` / `k` / `w`: Navigate up (circularly).
+    *   `Down Arrow` / `j` / `s`: Navigate down (circularly).
     *   `Space`: Remove the currently highlighted song from the playlist.

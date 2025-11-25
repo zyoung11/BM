@@ -39,6 +39,16 @@ type Page interface {
 	Tick()
 }
 
+// switchToPage switches the application to the page at the given index.
+func (a *App) switchToPage(index int) {
+	if index >= 0 && index < len(a.pages) && index != a.currentPageIndex {
+		a.currentPageIndex = index
+		newPage := a.pages[a.currentPageIndex]
+		newPage.Init()
+		newPage.View()
+	}
+}
+
 // Run starts the application's main event loop.
 func (a *App) Run() error {
 	fmt.Print("\x1b[?1049h\x1b[?25l")
@@ -85,17 +95,20 @@ func (a *App) Run() error {
 		currentPage := a.pages[a.currentPageIndex]
 		select {
 		case key := <-keyCh:
-			if key == '\t' {
-				a.currentPageIndex = (a.currentPageIndex + 1) % len(a.pages)
-				newPage := a.pages[a.currentPageIndex]
-				newPage.Init()
-				newPage.View()
-				continue
-			}
-
-			_, err := currentPage.HandleKey(key)
-			if err != nil {
-				return nil
+			switch key {
+			case '\t':
+				a.switchToPage((a.currentPageIndex + 1) % len(a.pages))
+			case '1':
+				a.switchToPage(0) // PlayerPage
+			case '2':
+				a.switchToPage(1) // PlayListPage
+			case '3':
+				a.switchToPage(2) // LibraryPage
+			default:
+				_, err := currentPage.HandleKey(key)
+				if err != nil {
+					return nil
+				}
 			}
 
 		case sig := <-sigCh:
