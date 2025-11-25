@@ -69,12 +69,12 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 	case '\x1b': // ESC
 		return nil, fmt.Errorf("user quit")
 	case KeyArrowUp:
-		if p.cursor > 0 {
-			p.cursor--
+		if len(p.entries) > 0 {
+			p.cursor = (p.cursor - 1 + len(p.entries)) % len(p.entries)
 		}
 	case KeyArrowDown:
-		if p.cursor < len(p.entries)-1 {
-			p.cursor++
+		if len(p.entries) > 0 {
+			p.cursor = (p.cursor + 1) % len(p.entries)
 		}
 	case KeyArrowRight:
 		if p.cursor < len(p.entries) && p.entries[p.cursor].IsDir() {
