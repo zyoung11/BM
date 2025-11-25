@@ -37,26 +37,18 @@ type PlayerPage struct {
 }
 
 // NewPlayerPage creates a new instance of the player page.
-func NewPlayerPage(app *App, flacPath string) *PlayerPage {
+func NewPlayerPage(app *App, flacPath string, cellW, cellH int) *PlayerPage {
 	return &PlayerPage{
 		app:           app,
 		flacPath:      flacPath,
 		useCoverColor: true, // Default to using cover color
+		cellW:         cellW,
+		cellH:         cellH,
 	}
 }
 
-// Init initializes the page, including getting terminal dimensions.
-func (p *PlayerPage) Init() {
-	cellW, cellH, err := getCellSize()
-	if err != nil {
-		// Can't get cell size, use some defaults
-		p.cellW = 8
-		p.cellH = 16
-	} else {
-		p.cellW = cellW
-		p.cellH = cellH
-	}
-}
+// Init for PlayerPage is now empty, as setup is done in the constructor.
+func (p *PlayerPage) Init() {}
 
 // HandleKey handles user key presses.
 func (p *PlayerPage) HandleKey(key byte) (Page, error) {
