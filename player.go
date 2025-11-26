@@ -49,6 +49,15 @@ func NewPlayerPage(app *App, flacPath string, cellW, cellH int) *PlayerPage {
 // Init for PlayerPage is now empty, as setup is done in the constructor.
 func (p *PlayerPage) Init() {}
 
+// UpdateSong 更新当前播放的歌曲路径
+func (p *PlayerPage) UpdateSong(songPath string) {
+	p.flacPath = songPath
+	// 重置图像相关状态，强制重新加载专辑封面
+	p.imageTop = 0
+	p.imageHeight = 0
+	p.imageRightEdge = 0
+}
+
 // HandleKey handles user key presses.
 func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 	player := p.app.player
@@ -143,14 +152,55 @@ func (p *PlayerPage) HandleSignal(sig os.Signal) error {
 
 // View renders the player UI to the screen.
 func (p *PlayerPage) View() {
+	// 如果没有歌曲路径，显示空状态
+	if p.flacPath == "" {
+		p.displayEmptyState()
+		return
+	}
+
 	// displayAlbumArt clears the screen and draws the art.
 	p.imageTop, p.imageHeight, p.imageRightEdge, p.coverColorR, p.coverColorG, p.coverColorB = p.displayAlbumArt()
 	// updateStatus draws the text and progress bar over it.
 	p.updateStatus()
 }
 
+// displayEmptyState 显示播放列表为空的状态
+func (p *PlayerPage) displayEmptyState() {
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		w, h = 80, 24
+	}
+
+	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen
+
+	// 标题
+	title := "Player"
+	titleX := (w - len(title)) / 2
+	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+
+	// 空状态消息
+	msg := "PlayList is empty."
+	msg2 := "Add songs from the Library tab."
+	msgX := (w - len(msg)) / 2
+	msg2X := (w - len(msg2)) / 2
+	centerRow := h / 2
+
+	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow-1, msgX, msg)
+	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow+1, msg2X, msg2)
+
+	// 页面切换提示
+	footer := "Press Tab to switch to Library page"
+	footerX := (w - len(footer)) / 2
+	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
+}
+
 // Tick is called periodically by the main loop to update dynamic elements.
 func (p *PlayerPage) Tick() {
+	// 如果没有歌曲，不需要更新
+	if p.flacPath == "" {
+		return
+	}
+
 	// We only need to update the status (progress bar, etc.), not the whole album art.
 	p.updateStatus()
 
@@ -162,6 +212,9 @@ func (p *PlayerPage) Tick() {
 
 // currentPositionInMicroseconds is a helper to get the player position for MPRIS.
 func (p *PlayerPage) currentPositionInMicroseconds() int64 {
+	if p.app.player == nil {
+		return 0
+	}
 	pos := p.app.player.streamer.Position()
 	return int64(float64(pos) / float64(p.app.player.sampleRate) * 1e6)
 }
@@ -454,6 +507,11 @@ func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 }
 
 func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string) {
+	// 检查player是否可用
+	if p.app.player == nil {
+		return
+	}
+
 	currentPos := p.app.player.streamer.Position()
 	totalLen := p.app.player.streamer.Len()
 	progress := 0.0

@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/speaker"
 	"golang.org/x/term"
@@ -15,7 +16,7 @@ import (
 
 // Key constants for special keys
 const (
-	KeyArrowUp    = 1000 + iota
+	KeyArrowUp = 1000 + iota
 	KeyArrowDown
 	KeyArrowLeft
 	KeyArrowRight
@@ -28,6 +29,7 @@ type App struct {
 	pages            []Page
 	currentPageIndex int
 	Playlist         []string
+	currentSongPath  string // 当前播放的歌曲路径
 }
 
 // Page defines the interface for a TUI page.
@@ -44,9 +46,87 @@ func (a *App) switchToPage(index int) {
 	if index >= 0 && index < len(a.pages) && index != a.currentPageIndex {
 		a.currentPageIndex = index
 		newPage := a.pages[a.currentPageIndex]
+		// 清理屏幕并重新初始化
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen completely
 		newPage.Init()
 		newPage.View()
 	}
+}
+
+// PlaySong 播放指定的歌曲文件
+func (a *App) PlaySong(songPath string) error {
+	// 如果是同一首歌，不做任何操作
+	if a.currentSongPath == songPath && a.player != nil {
+		// 切换到播放页面
+		a.switchToPage(0) // PlayerPage
+		return nil
+	}
+
+	// 停止当前播放
+	speaker.Lock()
+	if a.player != nil {
+		a.player.ctrl.Paused = true
+	}
+	speaker.Unlock()
+
+	// 加载新文件
+	f, err := os.Open(songPath)
+	if err != nil {
+		return fmt.Errorf("打开文件失败: %v", err)
+	}
+
+	streamer, format, err := flac.Decode(f)
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("解码FLAC失败: %v", err)
+	}
+
+	// 重新初始化speaker（如果采样率不同）
+	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/30))
+
+	// 创建新的播放器
+	player, err := newAudioPlayer(streamer, format)
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("创建播放器失败: %v", err)
+	}
+
+	// 更新MPRIS服务
+	if a.mprisServer != nil {
+		a.mprisServer.StopService()
+	}
+	mprisServer, err := NewMPRISServer(player, songPath)
+	if err == nil {
+		if err := mprisServer.Start(); err == nil {
+			mprisServer.StartUpdateLoop()
+			mprisServer.UpdatePlaybackStatus(true)
+			mprisServer.UpdateMetadata()
+		}
+	}
+
+	// 更新应用状态
+	speaker.Lock()
+	a.player = player
+	a.mprisServer = mprisServer
+	a.currentSongPath = songPath
+	speaker.Unlock()
+
+	// 开始播放
+	speaker.Play(a.player.volume)
+
+	// 更新PlayerPage
+	if playerPage, ok := a.pages[0].(*PlayerPage); ok {
+		playerPage.UpdateSong(songPath)
+	}
+
+	// 强制清理屏幕并切换到播放页面
+	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
+	a.currentPageIndex = 0            // 直接设置页面索引
+	playerPage := a.pages[0].(*PlayerPage)
+	playerPage.Init()
+	playerPage.View()
+
+	return nil
 }
 
 // Run starts the application's main event loop.
@@ -127,9 +207,18 @@ func (a *App) Run() error {
 
 func main() {
 	if len(os.Args) != 2 {
-		log.Fatalf("用法: %s <music.flac>", os.Args[0])
+		log.Fatalf("用法: %s <music_directory>", os.Args[0])
 	}
-	flacPath := os.Args[1]
+	dirPath := os.Args[1]
+
+	// 验证输入路径是目录
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		log.Fatalf("无法访问路径: %v", err)
+	}
+	if !info.IsDir() {
+		log.Fatalf("输入路径必须是目录，不是文件")
+	}
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
@@ -142,46 +231,21 @@ func main() {
 		log.Fatalf("无法获取终端单元格尺寸: %v", err)
 	}
 
-	f, err := os.Open(flacPath)
-	if err != nil {
-		log.Fatalf("打开文件失败: %v", err)
-	}
-
-	streamer, format, err := flac.Decode(f)
-	if err != nil {
-		log.Fatalf("解码FLAC失败: %v", err)
-	}
-
-	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/30))
-
-	player, err := newAudioPlayer(streamer, format)
-	if err != nil {
-		log.Fatalf("创建播放器失败: %v", err)
-	}
-
-	mprisServer, err := NewMPRISServer(player, flacPath)
-	if err == nil {
-		if err := mprisServer.Start(); err == nil {
-			defer mprisServer.StopService()
-			mprisServer.StartUpdateLoop()
-			mprisServer.UpdatePlaybackStatus(true)
-			mprisServer.UpdateMetadata()
-		}
-	}
+	// 初始化speaker，但不立即播放任何音频
+	sampleRate := beep.SampleRate(44100)
+	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
 
 	app := &App{
-		player:           player,
-		mprisServer:      mprisServer,
-		currentPageIndex: 0,
+		player:           nil, // 延迟初始化
+		mprisServer:      nil, // 延迟初始化
+		currentPageIndex: 2,   // 默认显示Library页面
 		Playlist:         make([]string, 0),
 	}
 
-	playerPage := NewPlayerPage(app, flacPath, cellW, cellH)
+	playerPage := NewPlayerPage(app, "", cellW, cellH) // 空的初始路径
 	playListPage := NewPlayList(app)
-	libraryPage := NewLibrary(app)
+	libraryPage := NewLibraryWithPath(app, dirPath) // 传递初始目录路径
 	app.pages = []Page{playerPage, playListPage, libraryPage}
-
-	speaker.Play(app.player.volume)
 
 	if err := app.Run(); err != nil {
 		log.Fatalf("应用运行时出现错误: %v", err)
