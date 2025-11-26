@@ -49,12 +49,15 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 // scanDirectory reads the contents of a directory and populates the entries list.
 func (p *Library) scanDirectory(path string) {
 	// Save current cursor position before changing directory
-	if p.currentPath != "" {
-		p.pathHistory[p.currentPath] = p.cursor
-	}
+	oldPath := p.currentPath
 
 	p.entries = make([]os.DirEntry, 0)
 	p.currentPath = path
+
+	// Save cursor position for old path
+	if oldPath != "" {
+		p.pathHistory[oldPath] = p.cursor
+	}
 
 	// Restore cursor position if available, otherwise set to 0
 	if savedCursor, exists := p.pathHistory[path]; exists {
@@ -75,12 +78,12 @@ func (p *Library) scanDirectory(path string) {
 			p.entries = append(p.entries, file)
 		}
 	}
-	// Sort so directories come first, then files
-	sort.Slice(p.entries, func(i, j int) bool {
+	// Sort so directories come first, then files alphabetically
+	sort.SliceStable(p.entries, func(i, j int) bool {
 		if p.entries[i].IsDir() != p.entries[j].IsDir() {
 			return p.entries[i].IsDir()
 		}
-		return p.entries[i].Name() < p.entries[j].Name()
+		return strings.ToLower(p.entries[i].Name()) < strings.ToLower(p.entries[j].Name())
 	})
 }
 
