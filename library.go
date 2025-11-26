@@ -108,7 +108,9 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 			p.scanDirectory(newPath)
 		}
 	case 'h', 'a', KeyArrowLeft:
-		if p.currentPath != p.initialPath {
+		currentAbs, _ := filepath.Abs(p.currentPath)
+		initialAbs, _ := filepath.Abs(p.initialPath)
+		if currentAbs != initialAbs {
 			newPath := filepath.Dir(p.currentPath)
 			p.scanDirectory(newPath)
 		}
