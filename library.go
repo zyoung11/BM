@@ -17,6 +17,7 @@ type Library struct {
 
 	entries     []os.DirEntry
 	currentPath string
+	initialPath string // The starting path provided to the application
 	cursor      int
 	selected    map[string]bool // Use file path as key for persistent selection
 	offset      int             // For scrolling the view
@@ -28,6 +29,7 @@ func NewLibrary(app *App) *Library {
 	return &Library{
 		app:         app,
 		currentPath: ".",
+		initialPath: ".",
 		selected:    make(map[string]bool),
 		pathHistory: make(map[string]int),
 	}
@@ -38,6 +40,7 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 	return &Library{
 		app:         app,
 		currentPath: startPath,
+		initialPath: startPath,
 		selected:    make(map[string]bool),
 		pathHistory: make(map[string]int),
 	}
@@ -105,7 +108,7 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 			p.scanDirectory(newPath)
 		}
 	case 'h', 'a', KeyArrowLeft:
-		if p.currentPath != "." {
+		if p.currentPath != p.initialPath {
 			newPath := filepath.Dir(p.currentPath)
 			p.scanDirectory(newPath)
 		}
