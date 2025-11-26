@@ -55,10 +55,17 @@ func (a *App) switchToPage(index int) {
 
 // PlaySong 播放指定的歌曲文件
 func (a *App) PlaySong(songPath string) error {
+	return a.PlaySongWithSwitch(songPath, true)
+}
+
+// PlaySongWithSwitch 播放指定的歌曲文件，可选择是否跳转到播放页面
+func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 	// 如果是同一首歌，不做任何操作
 	if a.currentSongPath == songPath && a.player != nil {
-		// 切换到播放页面
-		a.switchToPage(0) // PlayerPage
+		if switchToPlayer {
+			// 切换到播放页面
+			a.switchToPage(0) // PlayerPage
+		}
 		return nil
 	}
 
@@ -119,12 +126,14 @@ func (a *App) PlaySong(songPath string) error {
 		playerPage.UpdateSong(songPath)
 	}
 
-	// 强制清理屏幕并切换到播放页面
-	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
-	a.currentPageIndex = 0            // 直接设置页面索引
-	playerPage := a.pages[0].(*PlayerPage)
-	playerPage.Init()
-	playerPage.View()
+	// 根据参数决定是否切换到播放页面
+	if switchToPlayer {
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
+		a.currentPageIndex = 0            // 直接设置页面索引
+		playerPage := a.pages[0].(*PlayerPage)
+		playerPage.Init()
+		playerPage.View()
+	}
 
 	return nil
 }
