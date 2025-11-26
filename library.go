@@ -31,6 +31,15 @@ func NewLibrary(app *App) *Library {
 	}
 }
 
+// NewLibraryWithPath creates a new instance of Library with a specific starting path.
+func NewLibraryWithPath(app *App, startPath string) *Library {
+	return &Library{
+		app:         app,
+		currentPath: startPath,
+		selected:    make(map[string]bool),
+	}
+}
+
 // scanDirectory reads the contents of a directory and populates the entries list.
 func (p *Library) scanDirectory(path string) {
 	p.entries = make([]os.DirEntry, 0)
@@ -136,7 +145,6 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 				allSelected = false
 			}
 
-
 			for _, songPath := range songsInDir {
 				if allSelected {
 					// Deselect and remove from playlist
@@ -179,8 +187,6 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 		}
 	}
 }
-
-
 
 // HandleSignal handles window resize events.
 func (p *Library) HandleSignal(sig os.Signal) error {
@@ -271,7 +277,7 @@ func (p *Library) View() {
 
 			if isDirFullySelected {
 				line = "✓ " + entryName + "/" // Mark directory as selected
-				style += "\x1b[32m" // Green text for selected directory
+				style += "\x1b[32m"           // Green text for selected directory
 			} else {
 				line = "▸ " + entryName + "/" // Default directory indicator
 			}
@@ -308,12 +314,12 @@ func (p *Library) View() {
 
 		scrollRange := totalItems - listHeight
 		thumbRange := listHeight - thumbSize
-		
+
 		thumbStart := 0
 		if scrollRange > 0 {
 			thumbStart = p.offset * thumbRange / scrollRange
 		}
-		
+
 		for i := 0; i < listHeight; i++ {
 			if i >= thumbStart && i < thumbStart+thumbSize {
 				fmt.Printf("\x1b[%d;%dH┃", i+3, w) // Thumb
