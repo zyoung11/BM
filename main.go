@@ -30,6 +30,7 @@ type App struct {
 	currentPageIndex int
 	Playlist         []string
 	currentSongPath  string // 当前播放的歌曲路径
+	playMode         int    // 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放
 }
 
 // Page defines the interface for a TUI page.
@@ -249,6 +250,7 @@ func main() {
 		mprisServer:      nil, // 延迟初始化
 		currentPageIndex: 2,   // 默认显示Library页面
 		Playlist:         make([]string, 0),
+		playMode:         0, // 默认单曲循环
 	}
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH) // 空的初始路径
