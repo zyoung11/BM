@@ -184,8 +184,8 @@ func (p *PlayerPage) displayEmptyState() {
 	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
 
 	// 空状态消息
-	msg := "PlayList is empty."
-	msg2 := "Add songs from the Library tab."
+	msg := "PlayList is empty"
+	msg2 := "Add songs from the Library tab"
 	msgX := (w - len(msg)) / 2
 	msg2X := (w - len(msg2)) / 2
 	centerRow := h / 2
