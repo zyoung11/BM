@@ -150,14 +150,19 @@ func (p *PlayList) View() {
 	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
 
 	// Footer
-	footer := "Press <space> to remove"
+	footer := ""
 	footerX := (w - len(footer)) / 2
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
 
 	if len(p.app.Playlist) == 0 {
-		msg := "Playlist is empty. Add songs from the Library tab."
+		msg := "PlayList is empty"
+		msg2 := "Add songs from the Library tab"
 		msgX := (w - len(msg)) / 2
-		fmt.Printf("\x1b[4;%dH%s", msgX, msg) // Position message more centrally in the empty space
+		msg2X := (w - len(msg2)) / 2
+		centerRow := h / 2
+
+		fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow-1, msgX, msg)
+		fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow+1, msg2X, msg2)
 		return
 	}
 

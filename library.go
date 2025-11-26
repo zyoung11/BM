@@ -236,7 +236,7 @@ func (p *Library) View() {
 	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
 
 	// Footer
-	footer := fmt.Sprintf("Path: %s | Use arrows to navigate, space to select", p.currentPath)
+	footer := fmt.Sprintf("Path: %s", p.currentPath)
 	// Truncate footer if it's too long
 	if len(footer) > w {
 		footer = "..." + footer[len(footer)-w+3:]
