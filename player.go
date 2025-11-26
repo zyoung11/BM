@@ -194,7 +194,7 @@ func (p *PlayerPage) displayEmptyState() {
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow+1, msg2X, msg2)
 
 	// 页面切换提示
-	footer := "Press Tab to switch to Library page"
+	footer := ""
 	footerX := (w - len(footer)) / 2
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
 }
