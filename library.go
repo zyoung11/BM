@@ -116,6 +116,10 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 				}
 				if !found {
 					p.app.Playlist = append(p.app.Playlist, fullPath)
+					// 如果这是第一首歌，自动播放但不跳转页面
+					if len(p.app.Playlist) == 1 {
+						p.app.PlaySongWithSwitch(fullPath, false)
+					}
 				}
 			} else {
 				// Now deselected, remove it from the playlist
@@ -155,6 +159,10 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 					if !p.selected[songPath] {
 						p.selected[songPath] = true
 						p.app.Playlist = append(p.app.Playlist, songPath)
+						// 如果这是第一首歌，自动播放但不跳转页面
+						if len(p.app.Playlist) == 1 {
+							p.app.PlaySongWithSwitch(songPath, false)
+						}
 					}
 				}
 			}
