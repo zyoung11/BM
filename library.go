@@ -22,6 +22,7 @@ type Library struct {
 	selected    map[string]bool // Use file path as key for persistent selection
 	offset      int             // For scrolling the view
 	pathHistory map[string]int  // Store cursor position for each path
+	lastEntered string          // Store the name of the last entered directory
 }
 
 // NewLibrary creates a new instance of Library.
@@ -32,6 +33,7 @@ func NewLibrary(app *App) *Library {
 		initialPath: ".",
 		selected:    make(map[string]bool),
 		pathHistory: make(map[string]int),
+		lastEntered: "",
 	}
 }
 
@@ -43,21 +45,19 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 		initialPath: startPath,
 		selected:    make(map[string]bool),
 		pathHistory: make(map[string]int),
+		lastEntered: "",
 	}
 }
 
 // scanDirectory reads the contents of a directory and populates the entries list.
 func (p *Library) scanDirectory(path string) {
-	// Save current cursor position before changing directory
-	oldPath := p.currentPath
+	// Save current cursor position for current path before changing
+	if p.currentPath != "" {
+		p.pathHistory[p.currentPath] = p.cursor
+	}
 
 	p.entries = make([]os.DirEntry, 0)
 	p.currentPath = path
-
-	// Save cursor position for old path
-	if oldPath != "" {
-		p.pathHistory[oldPath] = p.cursor
-	}
 
 	// Restore cursor position if available, otherwise set to 0
 	if savedCursor, exists := p.pathHistory[path]; exists {
@@ -107,6 +107,8 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 		}
 	case 'l', 'd', KeyArrowRight:
 		if p.cursor < len(p.entries) && p.entries[p.cursor].IsDir() {
+			// Remember which directory we're entering
+			p.lastEntered = p.entries[p.cursor].Name()
 			newPath := filepath.Join(p.currentPath, p.entries[p.cursor].Name())
 			p.scanDirectory(newPath)
 		}
@@ -116,6 +118,17 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 		if currentAbs != initialAbs {
 			newPath := filepath.Dir(p.currentPath)
 			p.scanDirectory(newPath)
+
+			// After scanning the parent directory, find and select the directory we just exited from
+			if p.lastEntered != "" {
+				for i, entry := range p.entries {
+					if entry.Name() == p.lastEntered && entry.IsDir() {
+						p.cursor = i
+						break
+					}
+				}
+				p.lastEntered = "" // Reset after use
+			}
 		}
 	case ' ':
 		if p.cursor >= len(p.entries) {
