@@ -57,6 +57,8 @@ func (p *PlayerPage) UpdateSong(songPath string) {
 	p.imageTop = 0
 	p.imageHeight = 0
 	p.imageRightEdge = 0
+	// 强制重新渲染
+	p.View()
 }
 
 // HandleKey handles user key presses.
@@ -288,6 +290,9 @@ func (p *PlayerPage) playNextSong() {
 	// 播放下一首歌曲
 	nextSong := p.app.Playlist[nextIndex]
 	p.app.PlaySongWithSwitch(nextSong, false) // 不跳转页面
+
+	// 强制重新渲染播放页面
+	p.View()
 }
 
 // --- Audio Player (now just a data structure, no logic) ---
