@@ -69,12 +69,12 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 	switch key {
 	case '\x1b': // ESC to quit
 		return nil, errors.New("user quit") // Signal to the main loop to exit
-	case 'q', 'w': // Seek
+	case 'q', 'e': // Seek
 		speaker.Lock()
 		newPos := player.streamer.Position()
 		if key == 'q' { // seek backward
 			newPos -= player.sampleRate.N(time.Second * 5)
-		} else { // 'w', seek forward
+		} else { // 'e', seek forward
 			newPos += player.sampleRate.N(time.Second * 5)
 		}
 		if newPos < 0 {
@@ -90,12 +90,18 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 		if mprisServer != nil {
 			mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
 		}
-	case 'a', 's': // Volume
+	case 's', 'w': // Volume
 		speaker.Lock()
-		if key == 'a' { // volume down
+		if key == 's' { // volume down
 			player.volume.Volume -= 0.1
-		} else { // 's', volume up
-			player.volume.Volume += 0.1
+		} else { // 'w', volume up - 但不能超过初始音量0
+			if player.volume.Volume < 0 {
+				player.volume.Volume += 0.1
+				// 确保不超过0
+				if player.volume.Volume > 0 {
+					player.volume.Volume = 0
+				}
+			}
 		}
 		speaker.Unlock()
 		if mprisServer != nil {
@@ -129,11 +135,35 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 			})
 		}
 
-	case 'e': // Toggle color
+	case 'c': // Toggle color
 		p.useCoverColor = !p.useCoverColor
+
+	case 'a': // Previous song
+		p.playPreviousSong()
+
+	case 'd': // Next song
+		p.playNextSong()
 
 	case 'r': // Toggle play mode
 		p.app.playMode = (p.app.playMode + 1) % 3
+
+	case '\x7f', '\b': // Backspace - reset volume and speed
+		speaker.Lock()
+		if player != nil {
+			// 重置音量到初始值0
+			player.volume.Volume = 0
+			// 重置播放速度到1.0
+			player.resampler.SetRatio(1.0)
+		}
+		speaker.Unlock()
+		if mprisServer != nil {
+			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
+			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
+			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+				"Volume": volume.Value(),
+				"Rate":   rate.Value(),
+			})
+		}
 
 	default:
 		needsRedraw = false // Unhandled keys don't need a redraw
@@ -282,13 +312,47 @@ func (p *PlayerPage) playNextSong() {
 		if nextIndex == currentIndex && len(p.app.Playlist) > 1 {
 			nextIndex = (nextIndex + 1) % len(p.app.Playlist)
 		}
-	default:
-		return // 单曲循环不需要处理
+	default: // 单曲循环或手动切换
+		nextIndex = (currentIndex + 1) % len(p.app.Playlist)
 	}
 
 	// 播放下一首歌曲
 	nextSong := p.app.Playlist[nextIndex]
 	p.app.PlaySongWithSwitch(nextSong, false) // 不跳转页面，UpdateSong中会调用View()
+}
+
+// playPreviousSong 播放上一首歌曲
+func (p *PlayerPage) playPreviousSong() {
+	if len(p.app.Playlist) == 0 {
+		return
+	}
+
+	// 找到当前歌曲在播放列表中的位置
+	currentIndex := -1
+	for i, song := range p.app.Playlist {
+		if song == p.flacPath {
+			currentIndex = i
+			break
+		}
+	}
+
+	if currentIndex == -1 {
+		return
+	}
+
+	var prevIndex int
+
+	// 计算上一首索引
+	if currentIndex == 0 {
+		// 如果是第一首，循环到最后一首
+		prevIndex = len(p.app.Playlist) - 1
+	} else {
+		prevIndex = currentIndex - 1
+	}
+
+	// 播放上一首歌曲
+	prevSong := p.app.Playlist[prevIndex]
+	p.app.PlaySongWithSwitch(prevSong, false) // 不跳转页面
 }
 
 // --- Audio Player (now just a data structure, no logic) ---
@@ -300,6 +364,7 @@ type audioPlayer struct {
 	resampler  *beep.Resampler
 	volume     *effects.Volume
 	position   int
+	initialVol float64 // 初始音量，用于重置
 }
 
 func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format) (*audioPlayer, error) {
@@ -308,7 +373,9 @@ func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format) (*audioPlaye
 	ctrl := &beep.Ctrl{Streamer: loopStreamer}
 	resampler := beep.ResampleRatio(4, 1, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2}
-	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume, 0}, nil
+	// 设置初始音量为0（100%音量）
+	volume.Volume = 0
+	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume, 0, 0}, nil
 }
 
 // --- TUI / Drawing ---
