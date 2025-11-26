@@ -20,6 +20,7 @@ type Library struct {
 	cursor      int
 	selected    map[string]bool // Use file path as key for persistent selection
 	offset      int             // For scrolling the view
+	pathHistory map[string]int  // Store cursor position for each path
 }
 
 // NewLibrary creates a new instance of Library.
@@ -28,6 +29,7 @@ func NewLibrary(app *App) *Library {
 		app:         app,
 		currentPath: ".",
 		selected:    make(map[string]bool),
+		pathHistory: make(map[string]int),
 	}
 }
 
@@ -37,14 +39,26 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 		app:         app,
 		currentPath: startPath,
 		selected:    make(map[string]bool),
+		pathHistory: make(map[string]int),
 	}
 }
 
 // scanDirectory reads the contents of a directory and populates the entries list.
 func (p *Library) scanDirectory(path string) {
+	// Save current cursor position before changing directory
+	if p.currentPath != "" {
+		p.pathHistory[p.currentPath] = p.cursor
+	}
+
 	p.entries = make([]os.DirEntry, 0)
 	p.currentPath = path
-	p.cursor = 0 // Reset cursor on directory change
+
+	// Restore cursor position if available, otherwise set to 0
+	if savedCursor, exists := p.pathHistory[path]; exists {
+		p.cursor = savedCursor
+	} else {
+		p.cursor = 0
+	}
 
 	files, err := os.ReadDir(path)
 	if err != nil {
@@ -259,7 +273,7 @@ func (p *Library) View() {
 		style := "\x1b[0m" // Reset
 
 		if entry.IsDir() {
-			// Determine if the directory is "fully selected"
+			// Determine if the directory has any selected files
 			dirFullPath := filepath.Join(p.currentPath, entry.Name())
 			var songsInDir []string
 			filepath.WalkDir(dirFullPath, func(path string, d os.DirEntry, err error) error {
@@ -269,21 +283,17 @@ func (p *Library) View() {
 				return nil
 			})
 
-			isDirFullySelected := false
-			if len(songsInDir) > 0 { // Only consider fully selected if there are songs in it
-				allSongsSelected := true
+			isDirPartiallySelected := false
+			if len(songsInDir) > 0 { // Only consider if there are songs in it
 				for _, songPath := range songsInDir {
-					if !p.selected[songPath] {
-						allSongsSelected = false
+					if p.selected[songPath] {
+						isDirPartiallySelected = true
 						break
 					}
 				}
-				if allSongsSelected {
-					isDirFullySelected = true
-				}
 			}
 
-			if isDirFullySelected {
+			if isDirPartiallySelected {
 				line = "✓ " + entryName + "/" // Mark directory as selected
 				style += "\x1b[32m"           // Green text for selected directory
 			} else {

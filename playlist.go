@@ -184,8 +184,11 @@ func (p *PlayList) View() {
 		trackPath := p.app.Playlist[trackIndex]
 		trackName := filepath.Base(trackPath)
 
-		// Styling - all items are "selected"
+		// Styling - check if this is the currently playing song
 		style := "\x1b[32m" // Green text for selected
+		if trackPath == p.app.currentSongPath {
+			style = "\x1b[31m" // Red text for currently playing song
+		}
 		if trackIndex == p.cursor {
 			style += "\x1b[7m" // Reverse video for cursor
 		}
