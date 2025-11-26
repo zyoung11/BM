@@ -164,6 +164,13 @@ func (m *MPRISServer) getCurrentPosition() int64 {
 	return m.position
 }
 
+// getLoopStatus 获取循环状态
+func (m *MPRISServer) getLoopStatus() string {
+	// 这里需要访问App的playMode字段，但由于循环导入问题，暂时返回默认值
+	// 在实际使用中，应该通过某种方式获取当前的播放模式
+	return "None"
+}
+
 // 更新元数据
 func (m *MPRISServer) UpdateMetadata() {
 	m.updateMetadata()
@@ -426,7 +433,7 @@ func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *db
 		props["PlaybackStatus"] = dbus.MakeVariant(m.getPlaybackStatus())
 
 		// 其他属性
-		props["LoopStatus"] = dbus.MakeVariant("None")
+		props["LoopStatus"] = dbus.MakeVariant(m.getLoopStatus())
 		if m.player != nil {
 			props["Rate"] = dbus.MakeVariant(m.player.resampler.Ratio())
 			volume := float64(m.player.volume.Volume+5) / 5.0

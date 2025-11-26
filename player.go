@@ -8,6 +8,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
+	"math/rand"
 	"os"
 	"strconv"
 	"syscall"
@@ -130,6 +131,9 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 	case 'e': // Toggle color
 		p.useCoverColor = !p.useCoverColor
 
+	case 'r': // Toggle play mode
+		p.app.playMode = (p.app.playMode + 1) % 3
+
 	default:
 		needsRedraw = false // Unhandled keys don't need a redraw
 	}
@@ -204,6 +208,9 @@ func (p *PlayerPage) Tick() {
 	// We only need to update the status (progress bar, etc.), not the whole album art.
 	p.updateStatus()
 
+	// 检查歌曲是否结束，并根据播放模式处理下一首
+	p.checkSongEndAndHandleNext()
+
 	// Also, notify the MPRIS server of the position change.
 	if p.app.mprisServer != nil {
 		p.app.mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
@@ -219,6 +226,70 @@ func (p *PlayerPage) currentPositionInMicroseconds() int64 {
 	return int64(float64(pos) / float64(p.app.player.sampleRate) * 1e6)
 }
 
+// checkSongEndAndHandleNext 检查歌曲是否结束，并根据播放模式处理下一首
+func (p *PlayerPage) checkSongEndAndHandleNext() {
+	if p.app.player == nil || len(p.app.Playlist) == 0 {
+		return
+	}
+
+	// 检查歌曲是否结束（位置接近末尾）
+	currentPos := p.app.player.streamer.Position()
+	totalLen := p.app.player.streamer.Len()
+
+	// 如果歌曲接近结束（最后1秒），根据播放模式处理
+	if totalLen > 0 && currentPos >= totalLen-p.app.player.sampleRate.N(time.Second) {
+		// 单曲循环模式：自动循环当前歌曲，不需要额外处理
+		if p.app.playMode == 0 {
+			return
+		}
+
+		// 列表循环或随机播放模式：播放下一首
+		if p.app.playMode == 1 || p.app.playMode == 2 {
+			p.playNextSong()
+		}
+	}
+}
+
+// playNextSong 根据播放模式播放下一首歌曲
+func (p *PlayerPage) playNextSong() {
+	if len(p.app.Playlist) == 0 {
+		return
+	}
+
+	// 找到当前歌曲在播放列表中的位置
+	currentIndex := -1
+	for i, song := range p.app.Playlist {
+		if song == p.flacPath {
+			currentIndex = i
+			break
+		}
+	}
+
+	if currentIndex == -1 {
+		return
+	}
+
+	var nextIndex int
+
+	// 根据播放模式决定下一首
+	switch p.app.playMode {
+	case 1: // 列表循环
+		nextIndex = (currentIndex + 1) % len(p.app.Playlist)
+	case 2: // 随机播放
+		nextIndex = rand.Intn(len(p.app.Playlist))
+		// 避免随机到同一首歌
+		if nextIndex == currentIndex && len(p.app.Playlist) > 1 {
+			nextIndex = (nextIndex + 1) % len(p.app.Playlist)
+		}
+	default:
+		return // 单曲循环不需要处理
+	}
+
+	// 播放下一首歌曲
+	nextSong := p.app.Playlist[nextIndex]
+	p.app.PlaySongWithSwitch(nextSong, false) // 不跳转页面
+}
+
 // --- Audio Player (now just a data structure, no logic) ---
 
 type audioPlayer struct {
@@ -231,7 +302,8 @@ type audioPlayer struct {
 }
 
 func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format) (*audioPlayer, error) {
-	loopStreamer := beep.Loop(2, streamer)
+	// 默认使用无限循环（单曲循环模式）
+	loopStreamer := beep.Loop(-1, streamer)
 	ctrl := &beep.Ctrl{Streamer: loopStreamer}
 	resampler := beep.ResampleRatio(4, 1, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2}
@@ -521,9 +593,19 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 
 	playedChars := int(float64(width) * progress)
 
+	// 根据播放状态和播放模式显示图标
 	icon := "⏸"
 	if p.app.player.ctrl.Paused {
 		icon = "▶"
+	}
+
+	// 播放模式图标
+	modeIcon := "⟳" // 默认单曲循环
+	switch p.app.playMode {
+	case 1:
+		modeIcon = "⇆" // 列表循环
+	case 2:
+		modeIcon = "⤮" // 随机播放
 	}
 
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s", row, startCol-2, colorCode, icon)
@@ -542,7 +624,7 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 	}
 
 	fmt.Printf("\x1b[0m\x1b[%d;%dH%s", row, startCol, bar)
-	fmt.Printf("\x1b[0m\x1b[%d;%dH\x1b[K%s⟳\x1b[0m", row, startCol+width+1, colorCode)
+	fmt.Printf("\x1b[0m\x1b[%d;%dH\x1b[K%s%s\x1b[0m", row, startCol+width+1, colorCode, modeIcon)
 }
 
 func (p *PlayerPage) getColorCode() string {
