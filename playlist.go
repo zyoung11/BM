@@ -27,9 +27,19 @@ func (p *PlayList) Init() {}
 
 // HandleKey handles user input for the playlist.
 func (p *PlayList) HandleKey(key rune) (Page, error) {
+	needRedraw := true
+
 	switch key {
 	case '\x1b': // ESC
 		return nil, fmt.Errorf("user quit")
+	case '\r': // Enter key - play current song
+		if len(p.app.Playlist) > 0 && p.cursor >= 0 && p.cursor < len(p.app.Playlist) {
+			songPath := p.app.Playlist[p.cursor]
+			if err := p.app.PlaySong(songPath); err != nil {
+				// 可以在这里显示错误信息，暂时忽略
+			}
+		}
+		needRedraw = false // PlaySong会处理页面切换和重绘
 	case 'k', 'w', KeyArrowUp:
 		if len(p.app.Playlist) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.app.Playlist)) % len(p.app.Playlist)
@@ -41,7 +51,10 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 	case ' ': // Remove current song from playlist
 		p.removeCurrentSong()
 	}
-	p.View() // Redraw on any key press
+
+	if needRedraw {
+		p.View() // Redraw only when needed
+	}
 	return nil, nil
 }
 
@@ -150,15 +163,15 @@ func (p *PlayList) View() {
 		if thumbSize < 1 {
 			thumbSize = 1
 		}
-		
+
 		scrollRange := totalItems - listHeight
 		thumbRange := listHeight - thumbSize
-		
+
 		thumbStart := 0
 		if scrollRange > 0 {
 			thumbStart = p.offset * thumbRange / scrollRange
 		}
-		
+
 		for i := 0; i < listHeight; i++ {
 			if i >= thumbStart && i < thumbStart+thumbSize {
 				fmt.Printf("\x1b[%d;%dH┃", i+3, w) // Thumb
