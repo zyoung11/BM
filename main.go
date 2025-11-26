@@ -125,6 +125,13 @@ func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 	// 更新PlayerPage
 	if playerPage, ok := a.pages[0].(*PlayerPage); ok {
 		playerPage.UpdateSong(songPath)
+		// 无论是否跳转页面，都重新渲染播放页面
+		if !switchToPlayer {
+			// 不跳转页面时，清理屏幕并重新渲染
+			fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
+			playerPage.Init()
+			playerPage.View()
+		}
 	}
 
 	// 根据参数决定是否切换到播放页面
