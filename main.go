@@ -29,8 +29,10 @@ type App struct {
 	pages            []Page
 	currentPageIndex int
 	Playlist         []string
-	currentSongPath  string // 当前播放的歌曲路径
-	playMode         int    // 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放
+	currentSongPath  string  // 当前播放的歌曲路径
+	playMode         int     // 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放
+	volume           float64 // 保存的音量设置
+	playbackRate     float64 // 保存的播放速度设置
 }
 
 // Page defines the interface for a TUI page.
@@ -93,7 +95,7 @@ func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/30))
 
 	// 创建新的播放器
-	player, err := newAudioPlayer(streamer, format)
+	player, err := newAudioPlayer(streamer, format, a.volume, a.playbackRate)
 	if err != nil {
 		f.Close()
 		return fmt.Errorf("创建播放器失败: %v", err)
@@ -257,7 +259,9 @@ func main() {
 		mprisServer:      nil, // 延迟初始化
 		currentPageIndex: 2,   // 默认显示Library页面
 		Playlist:         make([]string, 0),
-		playMode:         0, // 默认单曲循环
+		playMode:         0,   // 默认单曲循环
+		volume:           0,   // 默认音量0（100%）
+		playbackRate:     1.0, // 默认播放速度1.0
 	}
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH) // 空的初始路径

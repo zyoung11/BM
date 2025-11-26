@@ -94,6 +94,8 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 		speaker.Lock()
 		if key == 's' { // volume down
 			player.volume.Volume -= 0.1
+			// 更新保存的音量设置
+			p.app.volume = player.volume.Volume
 		} else { // 'w', volume up - 但不能超过初始音量0
 			if player.volume.Volume < 0 {
 				player.volume.Volume += 0.1
@@ -101,6 +103,8 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 				if player.volume.Volume > 0 {
 					player.volume.Volume = 0
 				}
+				// 更新保存的音量设置
+				p.app.volume = player.volume.Volume
 			}
 		}
 		speaker.Unlock()
@@ -127,6 +131,8 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 			ratio *= 16.0 / 15.0
 		}
 		player.resampler.SetRatio(min(max(ratio, 0.1), 4.0))
+		// 更新保存的播放速度设置
+		p.app.playbackRate = player.resampler.Ratio()
 		speaker.Unlock()
 		if mprisServer != nil {
 			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
@@ -154,6 +160,18 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 			player.volume.Volume = 0
 			// 重置播放速度到1.0
 			player.resampler.SetRatio(1.0)
+			// 更新保存的设置
+			p.app.volume = 0
+			p.app.playbackRate = 1.0
+		}
+		speaker.Unlock()
+		if mprisServer != nil {
+			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
+			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
+			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+				"Volume": volume.Value(),
+				"Rate":   rate.Value(),
+			})
 		}
 		speaker.Unlock()
 		if mprisServer != nil {
@@ -367,14 +385,15 @@ type audioPlayer struct {
 	initialVol float64 // 初始音量，用于重置
 }
 
-func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format) (*audioPlayer, error) {
+func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format, volumeLevel float64, playbackRate float64) (*audioPlayer, error) {
 	// 默认使用无限循环（单曲循环模式）
 	loopStreamer := beep.Loop(-1, streamer)
 	ctrl := &beep.Ctrl{Streamer: loopStreamer}
 	resampler := beep.ResampleRatio(4, 1, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2}
-	// 设置初始音量为0（100%音量）
-	volume.Volume = 0
+	// 使用传入的音量和播放速度设置
+	volume.Volume = volumeLevel
+	resampler.SetRatio(playbackRate)
 	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume, 0, 0}, nil
 }
 
