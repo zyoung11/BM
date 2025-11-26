@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/gopxl/beep/v2/speaker"
 	"golang.org/x/term"
 )
 
@@ -63,6 +64,7 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 func (p *PlayList) removeCurrentSong() {
 	if p.cursor >= 0 && p.cursor < len(p.app.Playlist) {
 		songPath := p.app.Playlist[p.cursor] // Get path before removal
+		wasPlayingSong := (p.app.currentSongPath == songPath)
 
 		// Remove from playlist
 		p.app.Playlist = append(p.app.Playlist[:p.cursor], p.app.Playlist[p.cursor+1:]...)
@@ -81,6 +83,47 @@ func (p *PlayList) removeCurrentSong() {
 		} else if len(p.app.Playlist) == 0 {
 			p.cursor = 0 // Or handle empty list state
 		}
+
+		// 如果删除的是正在播放的歌曲
+		if wasPlayingSong {
+			if len(p.app.Playlist) > 0 {
+				// 播放下一首歌曲（播放当前cursor位置的歌曲，如果超出则播放最后一首）
+				nextIndex := p.cursor
+				if nextIndex >= len(p.app.Playlist) {
+					nextIndex = len(p.app.Playlist) - 1
+				}
+				nextSong := p.app.Playlist[nextIndex]
+				p.app.PlaySongWithSwitch(nextSong, false) // 不跳转页面
+			} else {
+				// PlayList为空，停止播放并显示空状态
+				p.stopPlaybackAndShowEmptyState()
+			}
+		}
+	}
+}
+
+// stopPlaybackAndShowEmptyState 停止播放并显示空状态
+func (p *PlayList) stopPlaybackAndShowEmptyState() {
+	// 停止当前播放
+	if p.app.player != nil {
+		speaker.Lock()
+		p.app.player.ctrl.Paused = true
+		speaker.Unlock()
+	}
+
+	// 清空播放状态
+	p.app.player = nil
+	p.app.currentSongPath = ""
+
+	// 停止MPRIS服务
+	if p.app.mprisServer != nil {
+		p.app.mprisServer.StopService()
+		p.app.mprisServer = nil
+	}
+
+	// 更新PlayerPage显示空状态
+	if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
+		playerPage.UpdateSong("")
 	}
 }
 
