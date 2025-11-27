@@ -20,6 +20,8 @@ const (
 	KeyArrowDown
 	KeyArrowLeft
 	KeyArrowRight
+	KeyEnter
+	KeyBackspace
 )
 
 // App represents the main TUI application and holds shared state.
@@ -186,7 +188,8 @@ func (a *App) Run() error {
 				return
 			}
 			if n > 0 {
-				if buf[0] == '\x1b' && n > 1 && buf[1] == '[' {
+				key := rune(buf[0])
+				if key == '\x1b' && n > 1 && buf[1] == '[' {
 					switch buf[2] {
 					case 'A':
 						keyCh <- KeyArrowUp
@@ -198,7 +201,14 @@ func (a *App) Run() error {
 						keyCh <- KeyArrowLeft
 					}
 				} else {
-					keyCh <- rune(buf[0])
+					switch key {
+					case '\r', '\n': // Handle Enter (CR and LF)
+						keyCh <- KeyEnter
+					case 8, 127: // Handle Backspace (ASCII 8 and 127)
+						keyCh <- KeyBackspace
+					default:
+						keyCh <- key
+					}
 				}
 			}
 		}
