@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"time"
 
@@ -406,9 +407,8 @@ func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *db
 		case "Metadata":
 			return dbus.MakeVariant(m.metadata), nil
 		case "Volume":
-			if m.player != nil {
-				volume := float64(m.player.volume.Volume+5) / 5.0 // 转换为 0.0-1.0 范围
-				return dbus.MakeVariant(volume), nil
+			if m.app != nil {
+				return dbus.MakeVariant(m.app.linearVolume), nil
 			}
 			return dbus.MakeVariant(1.0), nil
 		case "Position":
@@ -458,8 +458,11 @@ func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *db
 		props["LoopStatus"] = dbus.MakeVariant(m.getLoopStatus())
 		if m.player != nil {
 			props["Rate"] = dbus.MakeVariant(m.player.resampler.Ratio())
-			volume := float64(m.player.volume.Volume+5) / 5.0
-			props["Volume"] = dbus.MakeVariant(volume)
+			if m.app != nil {
+				props["Volume"] = dbus.MakeVariant(m.app.linearVolume)
+			} else {
+				props["Volume"] = dbus.MakeVariant(1.0)
+			}
 			props["Position"] = dbus.MakeVariant(m.getCurrentPosition())
 		} else {
 			props["Rate"] = dbus.MakeVariant(1.0)
@@ -489,11 +492,26 @@ func (m *MPRISServer) Set(interfaceName, propertyName string, value dbus.Variant
 	case "org.mpris.MediaPlayer2.Player":
 		switch propertyName {
 		case "Volume":
-			if m.player != nil {
-				volume := value.Value().(float64)
-				m.player.volume.Volume = volume*5.0 - 5.0 // 转换为 -5.0-0.0 范围
+			if m.player != nil && m.app != nil {
+				// The incoming value is linear 0.0-1.0
+				linearVol := value.Value().(float64)
+				
+				// Clamp it and update the app's source of truth
+				m.app.linearVolume = min(max(linearVol, 0.0), 1.0)
+
+				// Calculate the corresponding exponential volume for beep
+				if m.app.linearVolume == 0 {
+					m.app.volume = -10 // A large negative value for silence
+				} else {
+					m.app.volume = math.Log2(m.app.linearVolume)
+				}
+				
+				// Apply to the live player
+				m.player.volume.Volume = m.app.volume
+
+				// Notify D-Bus of the change
 				m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-					"Volume": volume,
+					"Volume": m.app.linearVolume,
 				})
 			}
 		case "Rate":
@@ -674,3 +692,5 @@ func (m *MPRISServer) StartUpdateLoop() {
 		}
 	}()
 }
+
+
