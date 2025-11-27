@@ -22,6 +22,22 @@ import (
 	"golang.org/x/term"
 )
 
+// Generic min function
+func min[T ~int | ~float64](a, b T) T {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// Generic max function
+func max[T ~int | ~float64](a, b T) T {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 // --- Page Implementation ---
 
 // PlayerPage holds the state for the music player view.
@@ -99,20 +115,23 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 	case 's', 'w': // Volume
 		p.volumeDisplayTimer = 10 // Show volume indicator
 		speaker.Lock()
-		if key == 's' { // volume down
-			player.volume.Volume -= 0.05
-			// 更新保存的音量设置
-			p.app.volume = player.volume.Volume
-		} else { // 'w', volume up - 但不能超过初始音量0
-			if player.volume.Volume < 0 {
-				player.volume.Volume += 0.05
-				// 确保不超过0
-				if player.volume.Volume > 0 {
-					player.volume.Volume = 0
-				}
-				// 更新保存的音量设置
-				p.app.volume = player.volume.Volume
+		if player != nil {
+			if key == 's' { // volume down
+				p.app.linearVolume -= 0.05
+			} else { // 'w', volume up
+				p.app.linearVolume += 0.05
 			}
+
+			// Clamp linearVolume between 0.0 and 1.0
+			p.app.linearVolume = min(max(p.app.linearVolume, 0.0), 1.0)
+
+			// Update beep's exponential volume from the linear value
+			if p.app.linearVolume == 0 {
+				p.app.volume = -10 // Use a large negative value for silence
+			} else {
+				p.app.volume = math.Log2(p.app.linearVolume)
+			}
+			player.volume.Volume = p.app.volume
 		}
 		speaker.Unlock()
 		if mprisServer != nil {
@@ -166,12 +185,13 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 		p.rateDisplayTimer = 10
 		speaker.Lock()
 		if player != nil {
-			// 重置音量到初始值0
+			// 重置音量
+			p.app.linearVolume = 1.0
+			p.app.volume = 0
 			player.volume.Volume = 0
 			// 重置播放速度到1.0
 			player.resampler.SetRatio(1.0)
 			// 更新保存的设置
-			p.app.volume = 0
 			p.app.playbackRate = 1.0
 		}
 		speaker.Unlock()
@@ -704,9 +724,8 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 
 		// Draw Volume Indicator
 		if p.volumeDisplayTimer > 0 {
-			// The volume is a value where 0 is 100%. The formula is multiplier = Base^Volume.
-			// With Base=2, this gives a nice exponential curve.
-			volPercent := int(math.Pow(2, p.app.player.volume.Volume) * 100)
+			// With the new linear volume, we can just multiply by 100
+			volPercent := int(p.app.linearVolume * 100)
 			volStr := fmt.Sprintf("%d%%", volPercent)
 			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, startCol, colorCode, volStr)
 		}
@@ -857,18 +876,4 @@ func analyzeCoverColor(img image.Image) (r, g, b int) {
 		}
 	}
 	return 255, 255, 255
-}
-
-func max[T ~int | ~float64](a, b T) T {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func min[T ~int | ~float64](a, b T) T {
-	if a < b {
-		return a
-	}
-	return b
 }
