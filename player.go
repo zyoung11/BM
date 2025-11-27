@@ -34,16 +34,20 @@ type PlayerPage struct {
 	imageTop, imageHeight, imageRightEdge int
 	coverColorR, coverColorG, coverColorB int
 	useCoverColor                         bool
+
+	// 防抖机制：记录上次切歌时间
+	lastSwitchTime time.Time
 }
 
 // NewPlayerPage creates a new instance of the player page.
 func NewPlayerPage(app *App, flacPath string, cellW, cellH int) *PlayerPage {
 	return &PlayerPage{
-		app:           app,
-		flacPath:      flacPath,
-		useCoverColor: true, // Default to using cover color
-		cellW:         cellW,
-		cellH:         cellH,
+		app:            app,
+		flacPath:       flacPath,
+		useCoverColor:  true, // Default to using cover color
+		cellW:          cellW,
+		cellH:          cellH,
+		lastSwitchTime: time.Now().Add(-2 * time.Second), // 初始化为2秒前，确保第一次切歌可用
 	}
 }
 
@@ -173,15 +177,6 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 				"Rate":   rate.Value(),
 			})
 		}
-		speaker.Unlock()
-		if mprisServer != nil {
-			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
-			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
-			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-				"Volume": volume.Value(),
-				"Rate":   rate.Value(),
-			})
-		}
 
 	default:
 		needsRedraw = false // Unhandled keys don't need a redraw
@@ -299,8 +294,13 @@ func (p *PlayerPage) checkSongEndAndHandleNext() {
 	}
 }
 
-// playNextSong 根据播放模式播放下一首歌曲
+// playNextSong 根据播放模式播放下一首歌曲（带防抖）
 func (p *PlayerPage) playNextSong() {
+	// 检查防抖期（1秒内只能切歌一次）
+	if time.Since(p.lastSwitchTime) < time.Second {
+		return // 在防抖期内，忽略切歌操作
+	}
+
 	if len(p.app.Playlist) == 0 {
 		return
 	}
@@ -337,10 +337,18 @@ func (p *PlayerPage) playNextSong() {
 	// 播放下一首歌曲
 	nextSong := p.app.Playlist[nextIndex]
 	p.app.PlaySongWithSwitch(nextSong, false) // 不跳转页面，UpdateSong中会调用View()
+
+	// 更新切歌时间
+	p.lastSwitchTime = time.Now()
 }
 
-// playPreviousSong 播放上一首歌曲
+// playPreviousSong 播放上一首歌曲（带防抖）
 func (p *PlayerPage) playPreviousSong() {
+	// 检查防抖期（1秒内只能切歌一次）
+	if time.Since(p.lastSwitchTime) < time.Second {
+		return // 在防抖期内，忽略切歌操作
+	}
+
 	if len(p.app.Playlist) == 0 {
 		return
 	}
@@ -371,6 +379,9 @@ func (p *PlayerPage) playPreviousSong() {
 	// 播放上一首歌曲
 	prevSong := p.app.Playlist[prevIndex]
 	p.app.PlaySongWithSwitch(prevSong, false) // 不跳转页面
+
+	// 更新切歌时间
+	p.lastSwitchTime = time.Now()
 }
 
 // --- Audio Player (now just a data structure, no logic) ---
