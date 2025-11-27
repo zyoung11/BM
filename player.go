@@ -624,22 +624,12 @@ func (p *PlayerPage) updateRightPanel(w int) {
 	title, artist, album := getSongMetadata(p.flacPath)
 
 	// Use runewidth for accurate string width calculation
-	texts := []string{title, artist, album}
-	var totalWidth int
-	for _, text := range texts {
-		totalWidth += runewidth.StringWidth(text)
-	}
-	avgWidth := 0
-	if len(texts) > 0 {
-		avgWidth = totalWidth / len(texts)
-	}
+	titleWidth := runewidth.StringWidth(title)
+	artistWidth := runewidth.StringWidth(artist)
+	albumWidth := runewidth.StringWidth(album)
 
 	availableWidth := w - p.imageRightEdge
 	centerCol := p.imageRightEdge + availableWidth/2
-	visualCenterCol := centerCol - avgWidth/2
-	if visualCenterCol < p.imageRightEdge+1 {
-		visualCenterCol = p.imageRightEdge + 1
-	}
 
 	partHeight := p.imageHeight / 3
 	artistRow := p.imageTop + partHeight + partHeight/2
@@ -658,9 +648,10 @@ func (p *PlayerPage) updateRightPanel(w int) {
 	}
 
 	colorCode := p.getColorCode()
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", titleRow, visualCenterCol, colorCode, title)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", artistRow, visualCenterCol, colorCode, artist)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", albumRow, visualCenterCol, colorCode, album)
+	// Use individual centering for each line (same as narrow terminal mode)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", titleRow, centerCol-titleWidth/2, colorCode, title)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", artistRow, centerCol-artistWidth/2, colorCode, artist)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", albumRow, centerCol-albumWidth/2, colorCode, album)
 
 	progressBarStartCol := p.imageRightEdge + 5
 	progressBarWidth := w - progressBarStartCol - 1
@@ -747,7 +738,8 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 			rateVal := p.app.player.resampler.Ratio()
 			rateStr := fmt.Sprintf("%.2fx", rateVal)
 			// Align the end of the string with the end of the progress bar
-			rateStartCol := startCol + width - len(rateStr)
+			rateWidth := runewidth.StringWidth(rateStr)
+			rateStartCol := startCol + width - rateWidth
 			if rateStartCol < startCol { // Ensure it doesn't overlap with volume
 				rateStartCol = startCol + 7 // A safe offset
 			}
