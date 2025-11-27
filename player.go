@@ -100,12 +100,12 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 		p.volumeDisplayTimer = 10 // Show volume indicator
 		speaker.Lock()
 		if key == 's' { // volume down
-			player.volume.Volume -= 0.1
+			player.volume.Volume -= 0.05
 			// 更新保存的音量设置
 			p.app.volume = player.volume.Volume
 		} else { // 'w', volume up - 但不能超过初始音量0
 			if player.volume.Volume < 0 {
-				player.volume.Volume += 0.1
+				player.volume.Volume += 0.05
 				// 确保不超过0
 				if player.volume.Volume > 0 {
 					player.volume.Volume = 0
@@ -134,9 +134,9 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 		speaker.Lock()
 		ratio := player.resampler.Ratio()
 		if key == 'z' {
-			ratio *= 15.0 / 16.0
+			ratio -= 0.05
 		} else {
-			ratio *= 16.0 / 15.0
+			ratio += 0.05
 		}
 		player.resampler.SetRatio(min(max(ratio, 0.1), 4.0))
 		// 更新保存的播放速度设置
