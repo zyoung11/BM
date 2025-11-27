@@ -207,6 +207,11 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 		if p.cursor < len(p.entries)-1 {
 			p.cursor++
 		}
+
+		// Notify MPRIS server about the playlist change
+		if p.app.mprisServer != nil {
+			p.app.mprisServer.UpdateProperties()
+		}
 	}
 	p.View() // Redraw on any key press
 	return nil, nil
@@ -226,6 +231,10 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 	for i, s := range p.app.Playlist {
 		if s == songPath {
 			p.app.Playlist = append(p.app.Playlist[:i], p.app.Playlist[i+1:]...)
+			// Notify MPRIS server about the playlist change
+			if p.app.mprisServer != nil {
+				p.app.mprisServer.UpdateProperties()
+			}
 			return // Remove only the first occurrence
 		}
 	}

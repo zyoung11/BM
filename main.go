@@ -29,10 +29,11 @@ type App struct {
 	pages            []Page
 	currentPageIndex int
 	Playlist         []string
-	currentSongPath  string  // 当前播放的歌曲路径
-	playMode         int     // 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放
-	volume           float64 // 保存的音量设置
-	playbackRate     float64 // 保存的播放速度设置
+	currentSongPath  string         // 当前播放的歌曲路径
+	playMode         int            // 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放
+	volume           float64        // 保存的音量设置
+	playbackRate     float64        // 保存的播放速度设置
+	actionQueue      chan func()    // Action queue for thread-safe UI updates
 }
 
 // Page defines the interface for a TUI page.
@@ -105,7 +106,7 @@ func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 	if a.mprisServer != nil {
 		a.mprisServer.StopService()
 	}
-	mprisServer, err := NewMPRISServer(player, songPath)
+	mprisServer, err := NewMPRISServer(a, player, songPath)
 	if err == nil {
 		if err := mprisServer.Start(); err == nil {
 			mprisServer.StartUpdateLoop()
@@ -146,6 +147,24 @@ func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 	}
 
 	return nil
+}
+
+// NextSong 切换到下一首歌曲
+func (a *App) NextSong() {
+	a.actionQueue <- func() {
+		if playerPage, ok := a.pages[0].(*PlayerPage); ok {
+			playerPage.playNextSong()
+		}
+	}
+}
+
+// PreviousSong 切换到上一首歌曲
+func (a *App) PreviousSong() {
+	a.actionQueue <- func() {
+		if playerPage, ok := a.pages[0].(*PlayerPage); ok {
+			playerPage.playPreviousSong()
+		}
+	}
 }
 
 // Run starts the application's main event loop.
@@ -193,6 +212,9 @@ func (a *App) Run() error {
 	for {
 		currentPage := a.pages[a.currentPageIndex]
 		select {
+		case action := <-a.actionQueue:
+			action()
+
 		case key := <-keyCh:
 			switch key {
 			case '\t':
@@ -262,6 +284,7 @@ func main() {
 		playMode:         0,   // 默认单曲循环
 		volume:           0,   // 默认音量0（100%）
 		playbackRate:     1.0, // 默认播放速度1.0
+		actionQueue:      make(chan func(), 10), // Initialize the action queue
 	}
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH) // 空的初始路径
