@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,6 +14,27 @@ import (
 	"github.com/gopxl/beep/v2/speaker"
 	"golang.org/x/term"
 )
+
+// fuzzyMatch performs a case-insensitive fuzzy search.
+// It returns true if all characters in 'query' appear in 'text' in the same order.
+func fuzzyMatch(query, text string) bool {
+	queryRunes := []rune(strings.ToLower(query))
+	textRunes := []rune(strings.ToLower(text))
+	if len(queryRunes) == 0 {
+		return true
+	}
+
+	queryIdx := 0
+	for _, textRune := range textRunes {
+		if textRune == queryRunes[queryIdx] {
+			queryIdx++
+			if queryIdx == len(queryRunes) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // Key constants for special keys
 const (
