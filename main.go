@@ -32,6 +32,7 @@ type App struct {
 	currentSongPath  string         // 当前播放的歌曲路径
 	playMode         int            // 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放
 	volume           float64        // 保存的音量设置
+	linearVolume     float64        // 0.0 to 1.0 linear volume for display
 	playbackRate     float64        // 保存的播放速度设置
 	actionQueue      chan func()    // Action queue for thread-safe UI updates
 }
@@ -283,6 +284,7 @@ func main() {
 		Playlist:         make([]string, 0),
 		playMode:         0,   // 默认单曲循环
 		volume:           0,   // 默认音量0（100%）
+		linearVolume:     1.0, // 默认线性音量1.0（100%）
 		playbackRate:     1.0, // 默认播放速度1.0
 		actionQueue:      make(chan func(), 10), // Initialize the action queue
 	}
