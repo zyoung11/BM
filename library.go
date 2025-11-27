@@ -15,17 +15,19 @@ import (
 type Library struct {
 	app *App
 
-	entries      []os.DirEntry   // All entries in the current directory
-	viewEntries  []os.DirEntry   // Entries currently being viewed (can be filtered)
-	currentPath  string
-	initialPath  string          // The starting path provided to the application
-	cursor       int
-	selected     map[string]bool // Use file path as key for persistent selection
-	offset       int             // For scrolling the view
-	pathHistory  map[string]int  // Store cursor position for each path
-	lastEntered  string          // Store the name of the last entered directory
-	isSearching  bool
-	searchQuery  string
+	entries     []os.DirEntry   // All entries in the current directory
+	currentPath string
+	initialPath string          // The starting path provided to the application
+	cursor      int
+	selected    map[string]bool // Use file path as key for persistent selection
+	offset      int             // For scrolling the view
+	pathHistory map[string]int  // Store cursor position for each path
+	lastEntered string          // Store the name of the last entered directory
+
+	isSearching       bool
+	searchQuery       string
+	globalFileCache   []string // Cache of all .flac file paths
+	filteredSongPaths []string // Results of the current search
 }
 
 // NewLibrary creates a new instance of Library.
@@ -36,9 +38,6 @@ func NewLibrary(app *App) *Library {
 		initialPath: ".",
 		selected:    make(map[string]bool),
 		pathHistory: make(map[string]int),
-		lastEntered: "",
-		isSearching: false,
-		searchQuery: "",
 	}
 }
 
@@ -50,18 +49,12 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 		initialPath: startPath,
 		selected:    make(map[string]bool),
 		pathHistory: make(map[string]int),
-		lastEntered: "",
-		isSearching: false,
-		searchQuery: "",
 	}
 }
 
 // scanDirectory reads the contents of a directory and populates the entries list.
+// This is used for the standard directory browsing view.
 func (p *Library) scanDirectory(path string) {
-	// Reset search when changing directories
-	p.isSearching = false
-	p.searchQuery = ""
-
 	// Save current cursor position for current path before changing
 	if p.currentPath != "" {
 		p.pathHistory[p.currentPath] = p.cursor
@@ -79,7 +72,6 @@ func (p *Library) scanDirectory(path string) {
 
 	files, err := os.ReadDir(path)
 	if err != nil {
-		// In a real app, you might want to display this error in the UI
 		return
 	}
 
@@ -95,24 +87,39 @@ func (p *Library) scanDirectory(path string) {
 		}
 		return strings.ToLower(p.entries[i].Name()) < strings.ToLower(p.entries[j].Name())
 	})
-
-	p.filterEntries() // Initially, viewEntries will be the same as entries
+	p.offset = 0
 }
 
-// filterEntries updates viewEntries based on the searchQuery.
-func (p *Library) filterEntries() {
+// ensureGlobalCache builds a cache of all .flac files if it doesn't exist.
+func (p *Library) ensureGlobalCache() {
+	if p.globalFileCache != nil {
+		return
+	}
+	p.globalFileCache = make([]string, 0)
+	filepath.WalkDir(p.initialPath, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
+			p.globalFileCache = append(p.globalFileCache, path)
+		}
+		return nil
+	})
+}
+
+// filterSongs updates filteredSongPaths based on the searchQuery.
+func (p *Library) filterSongs() {
 	if p.searchQuery == "" {
-		p.viewEntries = p.entries
+		p.filteredSongPaths = nil
+		p.scanDirectory(p.currentPath) // Refresh directory view when search is cleared
 		return
 	}
 
-	p.viewEntries = make([]os.DirEntry, 0)
-	for _, entry := range p.entries {
-		if strings.Contains(strings.ToLower(entry.Name()), strings.ToLower(p.searchQuery)) {
-			p.viewEntries = append(p.viewEntries, entry)
+	p.ensureGlobalCache()
+	p.filteredSongPaths = make([]string, 0)
+	for _, path := range p.globalFileCache {
+		// We match against the full path to allow searching for artist/album folders
+		if fuzzyMatch(p.searchQuery, path) {
+			p.filteredSongPaths = append(p.filteredSongPaths, path)
 		}
 	}
-	// Reset cursor and offset when filter changes
 	p.cursor = 0
 	p.offset = 0
 }
@@ -123,56 +130,44 @@ func (p *Library) Init() {
 	p.scanDirectory(p.currentPath)
 }
 
-// HandleKey handles user input for the library page.
-func (p *Library) HandleKey(key rune) (Page, error) {
-	if p.isSearching {
-		switch key {
-		case '\x1b': // ESC
-			p.isSearching = false
-			p.searchQuery = ""
-			p.filterEntries()
-		case KeyEnter:
-			p.isSearching = false // Exit search mode, keeping the filter
-		case KeyBackspace:
-			if len(p.searchQuery) > 0 {
-				runes := []rune(p.searchQuery)
-				p.searchQuery = string(runes[:len(runes)-1])
-				p.filterEntries()
-			}
-		default:
-			// Allow any printable character to be part of the search query
-			if key >= 32 && key <= 126 { // Printable ASCII, a simplification
-				p.searchQuery += string(key)
-				p.filterEntries()
-			}
+// handleSearchInput handles keystrokes when in search input mode.
+func (p *Library) handleSearchInput(key rune) {
+	switch key {
+	case '\x1b', KeyEnter: // ESC or Enter
+		p.isSearching = false // Exit input mode
+	case KeyBackspace:
+		if len(p.searchQuery) > 0 {
+			runes := []rune(p.searchQuery)
+			p.searchQuery = string(runes[:len(runes)-1])
+			p.filterSongs()
 		}
-		p.View()
-		return nil, nil
+	default:
+		if key >= 32 { // Allow any printable character
+			p.searchQuery += string(key)
+			p.filterSongs()
+		}
 	}
+}
 
-	// Not searching
+// handleDirViewInput handles keystrokes for the directory browsing view.
+func (p *Library) handleDirViewInput(key rune) (Page, error) {
 	switch key {
 	case '\x1b': // ESC
 		return nil, fmt.Errorf("user quit")
 	case 'f':
 		p.isSearching = true
-		p.searchQuery = ""
-		p.cursor = 0 // Reset cursor when starting search
-		p.offset = 0
-		p.filterEntries()
 	case 'k', 'w', KeyArrowUp:
-		if len(p.viewEntries) > 0 {
-			p.cursor = (p.cursor - 1 + len(p.viewEntries)) % len(p.viewEntries)
+		if len(p.entries) > 0 {
+			p.cursor = (p.cursor - 1 + len(p.entries)) % len(p.entries)
 		}
 	case 'j', 's', KeyArrowDown:
-		if len(p.viewEntries) > 0 {
-			p.cursor = (p.cursor + 1) % len(p.viewEntries)
+		if len(p.entries) > 0 {
+			p.cursor = (p.cursor + 1) % len(p.entries)
 		}
 	case 'l', 'd', KeyArrowRight:
-		if p.cursor < len(p.viewEntries) && p.viewEntries[p.cursor].IsDir() {
-			// Remember which directory we're entering
-			p.lastEntered = p.viewEntries[p.cursor].Name()
-			newPath := filepath.Join(p.currentPath, p.viewEntries[p.cursor].Name())
+		if p.cursor < len(p.entries) && p.entries[p.cursor].IsDir() {
+			p.lastEntered = p.entries[p.cursor].Name()
+			newPath := filepath.Join(p.currentPath, p.entries[p.cursor].Name())
 			p.scanDirectory(newPath)
 		}
 	case 'h', 'a', KeyArrowLeft:
@@ -181,108 +176,122 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 		if currentAbs != initialAbs {
 			newPath := filepath.Dir(p.currentPath)
 			p.scanDirectory(newPath)
-
-			// After scanning the parent directory, find and select the directory we just exited from
 			if p.lastEntered != "" {
-				for i, entry := range p.viewEntries {
+				for i, entry := range p.entries {
 					if entry.Name() == p.lastEntered && entry.IsDir() {
 						p.cursor = i
 						break
 					}
 				}
-				p.lastEntered = "" // Reset after use
+				p.lastEntered = ""
 			}
 		}
 	case ' ':
-		if p.cursor >= len(p.viewEntries) {
+		if p.cursor >= len(p.entries) {
 			break
 		}
-		entry := p.viewEntries[p.cursor]
-		fullPath := filepath.Join(p.currentPath, entry.Name())
-
-		if !entry.IsDir() {
-			// It's a file, toggle its selection
-			p.toggleSelection(fullPath)
-			if p.selected[fullPath] {
-				// Now selected, ensure it's in the playlist (without duplicates)
-				found := false
-				for _, s := range p.app.Playlist {
-					if s == fullPath {
-						found = true
-						break
-					}
-				}
-				if !found {
-					p.app.Playlist = append(p.app.Playlist, fullPath)
-					// 如果这是第一首歌，自动播放但不跳转页面
-					if len(p.app.Playlist) == 1 {
-						p.app.PlaySongWithSwitch(fullPath, false)
-					}
-				}
-			} else {
-				// Now deselected, remove it from the playlist
-				p.removeSongFromPlaylist(fullPath)
-			}
-		} else {
-			// It's a directory, toggle all files within it
-			var songsInDir []string
-			filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
-				if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
-					songsInDir = append(songsInDir, path)
-				}
-				return nil
-			})
-
-			// If any song in the directory is not selected, select them all.
-			// Otherwise, deselect them all.
-			allSelected := true
-			if len(songsInDir) > 0 {
-				for _, songPath := range songsInDir {
-					if !p.selected[songPath] {
-						allSelected = false
-						break
-					}
-				}
-			} else {
-				allSelected = false
-			}
-
-			for _, songPath := range songsInDir {
-				if allSelected {
-					// Deselect and remove from playlist
-					delete(p.selected, songPath)
-					p.removeSongFromPlaylist(songPath)
-				} else {
-					// Select and add to playlist
-					if !p.selected[songPath] {
-						p.selected[songPath] = true
-						p.app.Playlist = append(p.app.Playlist, songPath)
-						// 如果这是第一首歌，自动播放但不跳转页面
-						if len(p.app.Playlist) == 1 {
-							p.app.PlaySongWithSwitch(songPath, false)
-						}
-					}
-				}
-			}
-		}
-
-		// Auto-advance cursor
-		if p.cursor < len(p.viewEntries)-1 {
+		p.toggleSelectionForEntry(p.entries[p.cursor])
+		if p.cursor < len(p.entries)-1 {
 			p.cursor++
 		}
+	case 'e':
+		p.toggleSelectAll(false) // Toggle all in current directory view
+	}
+	return nil, nil
+}
 
-		// Notify MPRIS server about the playlist change
-		if p.app.mprisServer != nil {
-			p.app.mprisServer.UpdateProperties()
+// handleSearchViewInput handles keystrokes for the search results view.
+func (p *Library) handleSearchViewInput(key rune) (Page, error) {
+	switch key {
+	case '\x1b': // ESC
+		p.searchQuery = "" // Clear search
+		p.filterSongs()
+	case 'f', KeyEnter:
+		p.isSearching = true // Re-enter input mode
+	case 'k', 'w', KeyArrowUp:
+		if len(p.filteredSongPaths) > 0 {
+			p.cursor = (p.cursor - 1 + len(p.filteredSongPaths)) % len(p.filteredSongPaths)
+		}
+	case 'j', 's', KeyArrowDown:
+		if len(p.filteredSongPaths) > 0 {
+			p.cursor = (p.cursor + 1) % len(p.filteredSongPaths)
+		}
+	case ' ':
+		if p.cursor < len(p.filteredSongPaths) {
+			p.toggleSelection(p.filteredSongPaths[p.cursor])
+			if p.cursor < len(p.filteredSongPaths)-1 {
+				p.cursor++
+			}
 		}
 	case 'e':
-		if len(p.viewEntries) == 0 {
-			break
+		p.toggleSelectAll(true) // Toggle all in search results
+	}
+	return nil, nil
+}
+
+
+// HandleKey routes user input based on the current mode.
+func (p *Library) HandleKey(key rune) (Page, error) {
+	var err error
+	var page Page
+
+	if p.isSearching {
+		p.handleSearchInput(key)
+	} else if p.searchQuery != "" {
+		page, err = p.handleSearchViewInput(key)
+	} else {
+		page, err = p.handleDirViewInput(key)
+	}
+
+	p.View() // Redraw on any key press
+	return page, err
+}
+
+// toggleSelectionForEntry handles selection logic for a DirEntry (file or dir).
+func (p *Library) toggleSelectionForEntry(entry os.DirEntry) {
+	fullPath := filepath.Join(p.currentPath, entry.Name())
+	if !entry.IsDir() {
+		p.toggleSelection(fullPath)
+	} else {
+		var songsInDir []string
+		filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
+				songsInDir = append(songsInDir, path)
+			}
+			return nil
+		})
+		
+		allSelected := true
+		if len(songsInDir) > 0 {
+			for _, songPath := range songsInDir {
+				if !p.selected[songPath] {
+					allSelected = false
+					break
+				}
+			}
+		} else {
+			allSelected = false
 		}
 
-		// Step 1: Collect all affected song paths from the current view
-		allSongs := make([]string, 0)
-		for _, entry := range p.viewEntries {
+		for _, songPath := range songsInDir {
+			if allSelected {
+				p.toggleSelection(songPath) // Deselect
+			} else {
+				if !p.selected[songPath] {
+					p.toggleSelection(songPath) // Select
+				}
+			}
+		}
+	}
+}
+
+// toggleSelectAll toggles selection for all items in the current view (dir or search).
+func (p *Library) toggleSelectAll(isSearchView bool) {
+	var allSongs []string
+	if isSearchView {
+		allSongs = p.filteredSongPaths
+	} else {
+		for _, entry := range p.entries {
 			fullPath := filepath.Join(p.currentPath, entry.Name())
 			if !entry.IsDir() {
 				allSongs = append(allSongs, fullPath)
@@ -295,81 +304,57 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 				})
 			}
 		}
+	}
 
-		// Step 2: Decide whether to select all or deselect all
-		allCurrentlySelected := true
-		if len(allSongs) == 0 {
-			allCurrentlySelected = false // Nothing to do
-		} else {
-			for _, songPath := range allSongs {
-				if !p.selected[songPath] {
-					allCurrentlySelected = false
-					break
-				}
-			}
-		}
+	if len(allSongs) == 0 { return }
 
-		// Step 3: Apply the action
-		if allCurrentlySelected {
-			// Deselect all
-			for _, songPath := range allSongs {
-				if p.selected[songPath] {
-					delete(p.selected, songPath)
-					p.removeSongFromPlaylist(songPath)
-				}
-			}
-		} else {
-			// Select all
-			for _, songPath := range allSongs {
-				if !p.selected[songPath] {
-					p.selected[songPath] = true
-					// Avoid adding duplicates to playlist
-					found := false
-					for _, s := range p.app.Playlist {
-						if s == songPath {
-							found = true
-							break
-						}
-					}
-					if !found {
-						p.app.Playlist = append(p.app.Playlist, songPath)
-						// If this is the first song, auto-play
-						if len(p.app.Playlist) == 1 {
-							p.app.PlaySongWithSwitch(songPath, false)
-						}
-					}
-				}
-			}
-		}
-
-		// Step 4: Notify MPRIS
-		if p.app.mprisServer != nil {
-			p.app.mprisServer.UpdateProperties()
+	allCurrentlySelected := true
+	for _, songPath := range allSongs {
+		if !p.selected[songPath] {
+			allCurrentlySelected = false
+			break
 		}
 	}
-	p.View() // Redraw on any key press
-	return nil, nil
+
+	for _, songPath := range allSongs {
+		if allCurrentlySelected {
+			if p.selected[songPath] { p.toggleSelection(songPath) } // Deselect
+		} else {
+			if !p.selected[songPath] { p.toggleSelection(songPath) } // Select
+		}
+	}
 }
 
-// toggleSelection adds or removes a file path from the selection.
+// toggleSelection adds or removes a file path from the selection and playlist.
 func (p *Library) toggleSelection(path string) {
 	if p.selected[path] {
 		delete(p.selected, path)
+		p.removeSongFromPlaylist(path)
 	} else {
 		p.selected[path] = true
+		// Add to playlist, avoiding duplicates
+		found := false
+		for _, s := range p.app.Playlist {
+			if s == path { found = true; break }
+		}
+		if !found {
+			p.app.Playlist = append(p.app.Playlist, path)
+			if len(p.app.Playlist) == 1 {
+				p.app.PlaySongWithSwitch(path, false)
+			}
+		}
 	}
 }
 
-// removeSongFromPlaylist removes the first occurrence of a song path from the app's playlist.
+// removeSongFromPlaylist removes a song path from the app's playlist.
 func (p *Library) removeSongFromPlaylist(songPath string) {
 	for i, s := range p.app.Playlist {
 		if s == songPath {
 			p.app.Playlist = append(p.app.Playlist[:i], p.app.Playlist[i+1:]...)
-			// Notify MPRIS server about the playlist change
 			if p.app.mprisServer != nil {
 				p.app.mprisServer.UpdateProperties()
 			}
-			return // Remove only the first occurrence
+			return
 		}
 	}
 }
@@ -382,7 +367,7 @@ func (p *Library) HandleSignal(sig os.Signal) error {
 	return nil
 }
 
-// View renders the library file list.
+// View renders the library page based on the current mode.
 func (p *Library) View() {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
@@ -391,138 +376,132 @@ func (p *Library) View() {
 
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen
 
-	// Title
 	title := "Library"
 	titleX := (w - len(title)) / 2
 	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
 
-	// Footer
-	var footer string
-	if p.isSearching {
-		searchPrompt := "Search: "
-		footer = fmt.Sprintf("%s%s", searchPrompt, p.searchQuery)
+	listHeight := h - 4
+
+	if p.searchQuery != "" {
+		p.viewSearchResults(w, h, listHeight)
 	} else {
-		footer = fmt.Sprintf("Path: %s", p.currentPath)
+		p.viewDirectory(w, h, listHeight)
 	}
-	// Truncate footer if it's too long
-	if len(footer) > w {
-		footer = "..." + footer[len(footer)-w+3:]
-	}
+}
+
+// viewDirectory renders the standard directory browser.
+func (p *Library) viewDirectory(w, h, listHeight int) {
+	footer := fmt.Sprintf("Path: %s", p.currentPath)
+	if len(footer) > w { footer = "..." + footer[len(footer)-w+3:] }
 	footerX := (w - len(footer)) / 2
-	if footerX < 1 {
-		footerX = 1
-	}
-	// Move cursor to footer line and print
+	if footerX < 1 { footerX = 1 }
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
-	// If searching, position cursor at the end of the query
-	if p.isSearching {
-		cursorX := footerX + len("Search: ") + len(p.searchQuery)
-		if cursorX <= w {
-			fmt.Printf("\x1b[%d;%dH", h, cursorX)
-		}
-	}
 
+	if p.cursor < p.offset { p.offset = p.cursor }
+	if p.cursor >= p.offset+listHeight { p.offset = p.cursor - listHeight + 1 }
 
-	listHeight := h - 4 // Title, blank line, footer, blank line
-	if listHeight < 0 {
-		listHeight = 0
-	}
-
-	// Adjust offset for scrolling
-	if p.cursor < p.offset {
-		p.offset = p.cursor
-	}
-	if p.cursor >= p.offset+listHeight {
-		p.offset = p.cursor - listHeight + 1
-	}
-
-	// Draw entries
 	for i := 0; i < listHeight; i++ {
 		entryIndex := p.offset + i
-		if entryIndex >= len(p.viewEntries) {
-			break
-		}
+		if entryIndex >= len(p.entries) { break }
+		
+		entry := p.entries[entryIndex]
+		fullPath := filepath.Join(p.currentPath, entry.Name())
+		line, style := p.getDirEntryLine(entry, fullPath, entryIndex == p.cursor)
+		if len(line) > w-1 { line = line[:w-1] }
+		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
+	}
+	p.drawScrollbar(h, listHeight, len(p.entries))
+}
 
-		entry := p.viewEntries[entryIndex]
-		entryName := entry.Name()
-		fullPath := filepath.Join(p.currentPath, entryName)
-
-		line := ""
-		// Styling
-		style := "\x1b[0m" // Reset
-
-		if entry.IsDir() {
-			// Determine if the directory has any selected files
-			dirFullPath := filepath.Join(p.currentPath, entry.Name())
-			var songsInDir []string
-			filepath.WalkDir(dirFullPath, func(path string, d os.DirEntry, err error) error {
-				if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
-					songsInDir = append(songsInDir, path)
-				}
-				return nil
-			})
-
-			isDirPartiallySelected := false
-			if len(songsInDir) > 0 { // Only consider if there are songs in it
-				for _, songPath := range songsInDir {
-					if p.selected[songPath] {
-						isDirPartiallySelected = true
-						break
-					}
-				}
-			}
-
-			if isDirPartiallySelected {
-				line = "✓ " + entryName + "/" // Mark directory as selected
-				style += "\x1b[32m"           // Green text for selected directory
-			} else {
-				line = "▸ " + entryName + "/" // Default directory indicator
-			}
-		} else {
-			// Existing file logic
-			if p.selected[fullPath] {
-				line = "✓ " + entryName
-				style += "\x1b[32m" // Green text for selected file
-			} else {
-				line = "  " + entryName
-			}
-		}
-
-		// Apply reverse video style for cursor, always on top of selection style
-		if entryIndex == p.cursor {
-			style += "\x1b[7m" // Reverse video for cursor
-		}
-
-		// Truncate line to leave space for scrollbar
-		if len(line) > w-1 {
-			line = line[:w-1]
-		}
-
-		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line) // Start list from line 3
+// viewSearchResults renders the flat list of search results.
+func (p *Library) viewSearchResults(w, h, listHeight int) {
+	footer := fmt.Sprintf("Search: %s", p.searchQuery)
+	footerX := (w - len(footer)) / 2
+	if footerX < 1 { footerX = 1 }
+	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
+	if p.isSearching {
+		cursorX := footerX + len("Search: ") + len(p.searchQuery)
+		if cursorX <= w { fmt.Printf("\x1b[%d;%dH", h, cursorX) }
 	}
 
-	// Draw Scrollbar if needed
-	totalItems := len(p.viewEntries)
-	if totalItems > listHeight {
-		thumbSize := listHeight * listHeight / totalItems
-		if thumbSize < 1 {
-			thumbSize = 1
+	if p.cursor < p.offset { p.offset = p.cursor }
+	if p.cursor >= p.offset+listHeight { p.offset = p.cursor - listHeight + 1 }
+
+	for i := 0; i < listHeight; i++ {
+		entryIndex := p.offset + i
+		if entryIndex >= len(p.filteredSongPaths) { break }
+
+		path := p.filteredSongPaths[entryIndex]
+		line := ""
+		style := "\x1b[0m"
+		if p.selected[path] {
+			line = "✓ " + path
+			style += "\x1b[32m"
+		} else {
+			line = "  " + path
 		}
+		if entryIndex == p.cursor { style += "\x1b[7m" }
+		if len(line) > w-1 { line = line[:w-1] }
+		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
+	}
+	p.drawScrollbar(h, listHeight, len(p.filteredSongPaths))
+}
 
-		scrollRange := totalItems - listHeight
-		thumbRange := listHeight - thumbSize
+// getDirEntryLine generates the display line and style for a directory entry.
+func (p *Library) getDirEntryLine(entry os.DirEntry, fullPath string, isCursor bool) (string, string) {
+	line := ""
+	style := "\x1b[0m" // Reset
 
-		thumbStart := 0
-		if scrollRange > 0 {
-			thumbStart = p.offset * thumbRange / scrollRange
-		}
-
-		for i := 0; i < listHeight; i++ {
-			if i >= thumbStart && i < thumbStart+thumbSize {
-				fmt.Printf("\x1b[%d;%dH┃", i+3, w) // Thumb
-			} else {
-				fmt.Printf("\x1b[%d;%dH│", i+3, w) // Track
+	if entry.IsDir() {
+		// Directory-specific styling
+		isDirPartiallySelected := false
+		filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && p.selected[path] {
+				isDirPartiallySelected = true
+				return filepath.SkipDir // Optimization
 			}
+			return nil
+		})
+		if isDirPartiallySelected {
+			line = "✓ " + entry.Name() + "/"
+			style += "\x1b[32m"
+		} else {
+			line = "▸ " + entry.Name() + "/"
+		}
+	} else {
+		// File-specific styling
+		if p.selected[fullPath] {
+			line = "✓ " + entry.Name()
+			style += "\x1b[32m"
+		} else {
+			line = "  " + entry.Name()
+		}
+	}
+	if isCursor { style += "\x1b[7m" }
+	return line, style
+}
+
+// drawScrollbar draws a scrollbar on the right side of the screen.
+func (p *Library) drawScrollbar(h, listHeight, totalItems int) {
+	if totalItems <= listHeight { return }
+	
+	w, _, _ := term.GetSize(int(os.Stdout.Fd()))
+	thumbSize := listHeight * listHeight / totalItems
+	if thumbSize < 1 { thumbSize = 1 }
+
+	scrollRange := totalItems - listHeight
+	thumbRange := listHeight - thumbSize
+
+	thumbStart := 0
+	if scrollRange > 0 {
+		thumbStart = p.offset * thumbRange / scrollRange
+	}
+
+	for i := 0; i < listHeight; i++ {
+		if i >= thumbStart && i < thumbStart+thumbSize {
+			fmt.Printf("\x1b[%d;%dH┃", i+3, w)
+		} else {
+			fmt.Printf("\x1b[%d;%dH│", i+3, w)
 		}
 	}
 }
