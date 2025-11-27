@@ -14,6 +14,7 @@ import (
 // MPRIS 服务端实现
 type MPRISServer struct {
 	conn         *dbus.Conn
+	app          *App // 新增 app 字段
 	player       *audioPlayer
 	flacPath     string
 	isPlaying    bool
@@ -26,7 +27,7 @@ type MPRISServer struct {
 }
 
 // 创建 MPRIS 服务端
-func NewMPRISServer(player *audioPlayer, flacPath string) (*MPRISServer, error) {
+func NewMPRISServer(app *App, player *audioPlayer, flacPath string) (*MPRISServer, error) {
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		return nil, fmt.Errorf("连接 D-Bus 失败: %v", err)
@@ -40,6 +41,7 @@ func NewMPRISServer(player *audioPlayer, flacPath string) (*MPRISServer, error) 
 
 	server := &MPRISServer{
 		conn:         conn,
+		app:          app, // 初始化 app 字段
 		player:       player,
 		flacPath:     flacPath,
 		isPlaying:    false,
@@ -179,6 +181,18 @@ func (m *MPRISServer) UpdateMetadata() {
 	})
 }
 
+// UpdateProperties sends a PropertiesChanged signal for CanGoNext and CanGoPrevious.
+func (m *MPRISServer) UpdateProperties() {
+	if m.conn == nil {
+		return
+	}
+	changedProperties := map[string]any{
+		"CanGoNext":     len(m.app.Playlist) > 1,
+		"CanGoPrevious": len(m.app.Playlist) > 1,
+	}
+	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", changedProperties)
+}
+
 // --- org.mpris.MediaPlayer2 接口实现 ---
 
 // 退出播放器
@@ -231,11 +245,17 @@ func (m *MPRISServer) SupportedMimeTypes() ([]string, *dbus.Error) {
 
 // 下一首
 func (m *MPRISServer) Next() *dbus.Error {
+	if m.app != nil {
+		m.app.NextSong()
+	}
 	return nil
 }
 
 // 上一首
 func (m *MPRISServer) Previous() *dbus.Error {
+	if m.app != nil {
+		m.app.PreviousSong()
+	}
 	return nil
 }
 
@@ -398,9 +418,11 @@ func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *db
 		case "MaximumRate":
 			return dbus.MakeVariant(4.0), nil
 		case "CanGoNext":
-			return dbus.MakeVariant(false), nil
+			canGoNext := m.app != nil && len(m.app.Playlist) > 1
+			return dbus.MakeVariant(canGoNext), nil
 		case "CanGoPrevious":
-			return dbus.MakeVariant(false), nil
+			canGoPrevious := m.app != nil && len(m.app.Playlist) > 1
+			return dbus.MakeVariant(canGoPrevious), nil
 		case "CanPlay":
 			return dbus.MakeVariant(true), nil
 		case "CanPause":
@@ -449,8 +471,8 @@ func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *db
 		props["Metadata"] = dbus.MakeVariant(m.metadata)
 		props["MinimumRate"] = dbus.MakeVariant(0.1)
 		props["MaximumRate"] = dbus.MakeVariant(4.0)
-		props["CanGoNext"] = dbus.MakeVariant(false)
-		props["CanGoPrevious"] = dbus.MakeVariant(false)
+		props["CanGoNext"] = dbus.MakeVariant(m.app != nil && len(m.app.Playlist) > 1)
+		props["CanGoPrevious"] = dbus.MakeVariant(m.app != nil && len(m.app.Playlist) > 1)
 		props["CanPlay"] = dbus.MakeVariant(true)
 		props["CanPause"] = dbus.MakeVariant(true)
 		props["CanSeek"] = dbus.MakeVariant(true)
