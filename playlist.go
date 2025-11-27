@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/gopxl/beep/v2/speaker"
+	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 )
 
@@ -306,8 +307,12 @@ func (p *PlayList) View() {
 		}
 
 		line := fmt.Sprintf("✓ %s", trackName)
-		if len(line) > w-1 {
-			line = line[:w-1]
+		// Use runewidth for accurate string width calculation and truncation
+		if runewidth.StringWidth(line) > w-1 {
+			// Truncate the line to fit the terminal width
+			for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
+				line = line[:len(line)-1]
+			}
 		}
 		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
 	}
