@@ -15,14 +15,17 @@ import (
 type Library struct {
 	app *App
 
-	entries     []os.DirEntry
-	currentPath string
-	initialPath string // The starting path provided to the application
-	cursor      int
-	selected    map[string]bool // Use file path as key for persistent selection
-	offset      int             // For scrolling the view
-	pathHistory map[string]int  // Store cursor position for each path
-	lastEntered string          // Store the name of the last entered directory
+	entries      []os.DirEntry   // All entries in the current directory
+	viewEntries  []os.DirEntry   // Entries currently being viewed (can be filtered)
+	currentPath  string
+	initialPath  string          // The starting path provided to the application
+	cursor       int
+	selected     map[string]bool // Use file path as key for persistent selection
+	offset       int             // For scrolling the view
+	pathHistory  map[string]int  // Store cursor position for each path
+	lastEntered  string          // Store the name of the last entered directory
+	isSearching  bool
+	searchQuery  string
 }
 
 // NewLibrary creates a new instance of Library.
@@ -34,6 +37,8 @@ func NewLibrary(app *App) *Library {
 		selected:    make(map[string]bool),
 		pathHistory: make(map[string]int),
 		lastEntered: "",
+		isSearching: false,
+		searchQuery: "",
 	}
 }
 
@@ -46,11 +51,17 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 		selected:    make(map[string]bool),
 		pathHistory: make(map[string]int),
 		lastEntered: "",
+		isSearching: false,
+		searchQuery: "",
 	}
 }
 
 // scanDirectory reads the contents of a directory and populates the entries list.
 func (p *Library) scanDirectory(path string) {
+	// Reset search when changing directories
+	p.isSearching = false
+	p.searchQuery = ""
+
 	// Save current cursor position for current path before changing
 	if p.currentPath != "" {
 		p.pathHistory[p.currentPath] = p.cursor
@@ -73,7 +84,6 @@ func (p *Library) scanDirectory(path string) {
 	}
 
 	for _, file := range files {
-		// We are interested in directories and .flac files
 		if file.IsDir() || strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
 			p.entries = append(p.entries, file)
 		}
@@ -85,7 +95,28 @@ func (p *Library) scanDirectory(path string) {
 		}
 		return strings.ToLower(p.entries[i].Name()) < strings.ToLower(p.entries[j].Name())
 	})
+
+	p.filterEntries() // Initially, viewEntries will be the same as entries
 }
+
+// filterEntries updates viewEntries based on the searchQuery.
+func (p *Library) filterEntries() {
+	if p.searchQuery == "" {
+		p.viewEntries = p.entries
+		return
+	}
+
+	p.viewEntries = make([]os.DirEntry, 0)
+	for _, entry := range p.entries {
+		if strings.Contains(strings.ToLower(entry.Name()), strings.ToLower(p.searchQuery)) {
+			p.viewEntries = append(p.viewEntries, entry)
+		}
+	}
+	// Reset cursor and offset when filter changes
+	p.cursor = 0
+	p.offset = 0
+}
+
 
 // Init initializes the library by scanning the starting directory.
 func (p *Library) Init() {
@@ -94,22 +125,54 @@ func (p *Library) Init() {
 
 // HandleKey handles user input for the library page.
 func (p *Library) HandleKey(key rune) (Page, error) {
+	if p.isSearching {
+		switch key {
+		case '\x1b': // ESC
+			p.isSearching = false
+			p.searchQuery = ""
+			p.filterEntries()
+		case KeyEnter:
+			p.isSearching = false // Exit search mode, keeping the filter
+		case KeyBackspace:
+			if len(p.searchQuery) > 0 {
+				runes := []rune(p.searchQuery)
+				p.searchQuery = string(runes[:len(runes)-1])
+				p.filterEntries()
+			}
+		default:
+			// Allow any printable character to be part of the search query
+			if key >= 32 && key <= 126 { // Printable ASCII, a simplification
+				p.searchQuery += string(key)
+				p.filterEntries()
+			}
+		}
+		p.View()
+		return nil, nil
+	}
+
+	// Not searching
 	switch key {
 	case '\x1b': // ESC
 		return nil, fmt.Errorf("user quit")
+	case 'f':
+		p.isSearching = true
+		p.searchQuery = ""
+		p.cursor = 0 // Reset cursor when starting search
+		p.offset = 0
+		p.filterEntries()
 	case 'k', 'w', KeyArrowUp:
-		if len(p.entries) > 0 {
-			p.cursor = (p.cursor - 1 + len(p.entries)) % len(p.entries)
+		if len(p.viewEntries) > 0 {
+			p.cursor = (p.cursor - 1 + len(p.viewEntries)) % len(p.viewEntries)
 		}
 	case 'j', 's', KeyArrowDown:
-		if len(p.entries) > 0 {
-			p.cursor = (p.cursor + 1) % len(p.entries)
+		if len(p.viewEntries) > 0 {
+			p.cursor = (p.cursor + 1) % len(p.viewEntries)
 		}
 	case 'l', 'd', KeyArrowRight:
-		if p.cursor < len(p.entries) && p.entries[p.cursor].IsDir() {
+		if p.cursor < len(p.viewEntries) && p.viewEntries[p.cursor].IsDir() {
 			// Remember which directory we're entering
-			p.lastEntered = p.entries[p.cursor].Name()
-			newPath := filepath.Join(p.currentPath, p.entries[p.cursor].Name())
+			p.lastEntered = p.viewEntries[p.cursor].Name()
+			newPath := filepath.Join(p.currentPath, p.viewEntries[p.cursor].Name())
 			p.scanDirectory(newPath)
 		}
 	case 'h', 'a', KeyArrowLeft:
@@ -121,7 +184,7 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 
 			// After scanning the parent directory, find and select the directory we just exited from
 			if p.lastEntered != "" {
-				for i, entry := range p.entries {
+				for i, entry := range p.viewEntries {
 					if entry.Name() == p.lastEntered && entry.IsDir() {
 						p.cursor = i
 						break
@@ -131,10 +194,10 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 			}
 		}
 	case ' ':
-		if p.cursor >= len(p.entries) {
+		if p.cursor >= len(p.viewEntries) {
 			break
 		}
-		entry := p.entries[p.cursor]
+		entry := p.viewEntries[p.cursor]
 		fullPath := filepath.Join(p.currentPath, entry.Name())
 
 		if !entry.IsDir() {
@@ -204,7 +267,7 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 		}
 
 		// Auto-advance cursor
-		if p.cursor < len(p.entries)-1 {
+		if p.cursor < len(p.viewEntries)-1 {
 			p.cursor++
 		}
 
@@ -213,13 +276,13 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 			p.app.mprisServer.UpdateProperties()
 		}
 	case 'e':
-		if len(p.entries) == 0 {
+		if len(p.viewEntries) == 0 {
 			break
 		}
 
 		// Step 1: Collect all affected song paths from the current view
 		allSongs := make([]string, 0)
-		for _, entry := range p.entries {
+		for _, entry := range p.viewEntries {
 			fullPath := filepath.Join(p.currentPath, entry.Name())
 			if !entry.IsDir() {
 				allSongs = append(allSongs, fullPath)
@@ -334,7 +397,13 @@ func (p *Library) View() {
 	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
 
 	// Footer
-	footer := fmt.Sprintf("Path: %s", p.currentPath)
+	var footer string
+	if p.isSearching {
+		searchPrompt := "Search: "
+		footer = fmt.Sprintf("%s%s", searchPrompt, p.searchQuery)
+	} else {
+		footer = fmt.Sprintf("Path: %s", p.currentPath)
+	}
 	// Truncate footer if it's too long
 	if len(footer) > w {
 		footer = "..." + footer[len(footer)-w+3:]
@@ -343,7 +412,16 @@ func (p *Library) View() {
 	if footerX < 1 {
 		footerX = 1
 	}
+	// Move cursor to footer line and print
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
+	// If searching, position cursor at the end of the query
+	if p.isSearching {
+		cursorX := footerX + len("Search: ") + len(p.searchQuery)
+		if cursorX <= w {
+			fmt.Printf("\x1b[%d;%dH", h, cursorX)
+		}
+	}
+
 
 	listHeight := h - 4 // Title, blank line, footer, blank line
 	if listHeight < 0 {
@@ -361,11 +439,11 @@ func (p *Library) View() {
 	// Draw entries
 	for i := 0; i < listHeight; i++ {
 		entryIndex := p.offset + i
-		if entryIndex >= len(p.entries) {
+		if entryIndex >= len(p.viewEntries) {
 			break
 		}
 
-		entry := p.entries[entryIndex]
+		entry := p.viewEntries[entryIndex]
 		entryName := entry.Name()
 		fullPath := filepath.Join(p.currentPath, entryName)
 
@@ -424,7 +502,7 @@ func (p *Library) View() {
 	}
 
 	// Draw Scrollbar if needed
-	totalItems := len(p.entries)
+	totalItems := len(p.viewEntries)
 	if totalItems > listHeight {
 		thumbSize := listHeight * listHeight / totalItems
 		if thumbSize < 1 {
