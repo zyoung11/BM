@@ -139,7 +139,16 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 			p.cursor = (p.cursor + 1) % len(p.viewPlaylist)
 		}
 	case ' ': // Remove current song from playlist
+		// Save current cursor position before removal
+		oldCursor := p.cursor
 		p.removeCurrentSong()
+		// After removal, move to the same position or adjust if needed
+		// Since filterPlaylist() resets cursor to 0, we need to restore intended behavior
+		if oldCursor < len(p.viewPlaylist) {
+			p.cursor = oldCursor
+		} else if len(p.viewPlaylist) > 0 {
+			p.cursor = len(p.viewPlaylist) - 1
+		}
 	}
 
 	if needRedraw {
@@ -177,12 +186,9 @@ func (p *PlayList) removeCurrentSong() {
 	// After modification, we must refresh the filtered view
 	p.filterPlaylist()
 
-	// Adjust cursor if it's now out of bounds
-	if p.cursor >= len(p.viewPlaylist) && len(p.viewPlaylist) > 0 {
-		p.cursor = len(p.viewPlaylist) - 1
-	} else if len(p.viewPlaylist) == 0 {
-		p.cursor = 0
-	}
+	// Adjust cursor: move to next item if available, otherwise stay at current position
+	// But since filterPlaylist() resets cursor to 0, we need to preserve the intended behavior
+	// Instead, we'll handle cursor movement in the HandleKey method like Library page does
 
 	if wasPlayingSong {
 		if len(p.app.Playlist) > 0 {
