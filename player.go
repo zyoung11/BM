@@ -725,7 +725,7 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 		// Draw Volume Indicator
 		if p.volumeDisplayTimer > 0 {
 			// With the new linear volume, we can just multiply by 100
-			volPercent := int(p.app.linearVolume * 100)
+			volPercent := int(math.Round(p.app.linearVolume * 100))
 			volStr := fmt.Sprintf("%d%%", volPercent)
 			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, startCol, colorCode, volStr)
 		}
