@@ -34,6 +34,8 @@ type PlayerPage struct {
 	imageTop, imageHeight, imageRightEdge int
 	coverColorR, coverColorG, coverColorB int
 	useCoverColor                         bool
+	volumeDisplayTimer                    int
+	rateDisplayTimer                      int
 
 	// 防抖机制：记录上次切歌时间
 	lastSwitchTime time.Time
@@ -95,6 +97,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 			mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
 		}
 	case 's', 'w': // Volume
+		p.volumeDisplayTimer = 10 // Show volume indicator
 		speaker.Lock()
 		if key == 's' { // volume down
 			player.volume.Volume -= 0.1
@@ -127,6 +130,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 		}
 
 	case 'z', 'x': // Rate change
+		p.rateDisplayTimer = 10 // Show rate indicator
 		speaker.Lock()
 		ratio := player.resampler.Ratio()
 		if key == 'z' {
@@ -158,6 +162,8 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 		p.app.playMode = (p.app.playMode + 1) % 3
 
 	case '\x7f', '\b': // Backspace - reset volume and speed
+		p.volumeDisplayTimer = 10
+		p.rateDisplayTimer = 10
 		speaker.Lock()
 		if player != nil {
 			// 重置音量到初始值0
@@ -244,6 +250,13 @@ func (p *PlayerPage) displayEmptyState() {
 
 // Tick is called periodically by the main loop to update dynamic elements.
 func (p *PlayerPage) Tick() {
+	if p.volumeDisplayTimer > 0 {
+		p.volumeDisplayTimer--
+	}
+	if p.rateDisplayTimer > 0 {
+		p.rateDisplayTimer--
+	}
+
 	// 如果没有歌曲，不需要更新
 	if p.flacPath == "" {
 		return
@@ -680,6 +693,35 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 	// 检查player是否可用
 	if p.app.player == nil {
 		return
+	}
+
+	// --- Indicators (Volume & Rate) ---
+	indicatorRow := row - 1
+	// Ensure we don't draw at or above the first row, and there's a progress bar to align with.
+	if indicatorRow > 0 && width > 0 {
+		// Clear the indicator line to prevent stale text
+		fmt.Printf("\x1b[%d;1H\x1b[K", indicatorRow)
+
+		// Draw Volume Indicator
+		if p.volumeDisplayTimer > 0 {
+			// The volume is a value where 0 is 100%. The formula is multiplier = Base^Volume.
+			// With Base=2, this gives a nice exponential curve.
+			volPercent := int(math.Pow(2, p.app.player.volume.Volume) * 100)
+			volStr := fmt.Sprintf("%d%%", volPercent)
+			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, startCol, colorCode, volStr)
+		}
+
+		// Draw Rate Indicator
+		if p.rateDisplayTimer > 0 {
+			rateVal := p.app.player.resampler.Ratio()
+			rateStr := fmt.Sprintf("%.2fx", rateVal)
+			// Align the end of the string with the end of the progress bar
+			rateStartCol := startCol + width - len(rateStr)
+			if rateStartCol < startCol { // Ensure it doesn't overlap with volume
+				rateStartCol = startCol + 7 // A safe offset
+			}
+			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, rateStartCol, colorCode, rateStr)
+		}
 	}
 
 	currentPos := p.app.player.streamer.Position()
