@@ -91,15 +91,30 @@ func (p *Library) scanDirectory(path string) {
 	p.offset = 0
 }
 
-// ensureGlobalCache builds a cache of all .flac files if it doesn't exist.
+// ensureGlobalCache builds a cache of all .flac files and directories if it doesn't exist.
 func (p *Library) ensureGlobalCache() {
 	if p.globalFileCache != nil {
 		return
 	}
 	p.globalFileCache = make([]string, 0)
 	filepath.WalkDir(p.initialPath, func(path string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
-			p.globalFileCache = append(p.globalFileCache, path)
+		if err == nil {
+			if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
+				p.globalFileCache = append(p.globalFileCache, path)
+			} else if d.IsDir() {
+				// Only add directories that contain .flac files
+				hasFlacFiles := false
+				filepath.WalkDir(path, func(subPath string, subD os.DirEntry, subErr error) error {
+					if subErr == nil && !subD.IsDir() && strings.HasSuffix(strings.ToLower(subD.Name()), ".flac") {
+						hasFlacFiles = true
+						return filepath.SkipDir // Found at least one flac file, no need to continue
+					}
+					return nil
+				})
+				if hasFlacFiles {
+					p.globalFileCache = append(p.globalFileCache, path)
+				}
+			}
 		}
 		return nil
 	})
@@ -114,30 +129,47 @@ func (p *Library) filterSongs() {
 	}
 
 	p.ensureGlobalCache()
-	type scoredSong struct {
-		path  string
-		score int
+	type scoredItem struct {
+		path     string
+		score    int
+		isDir    bool
+		itemName string // For sorting by name within same score
 	}
-	var scoredSongs []scoredSong
+	var scoredItems []scoredItem
 
 	for _, path := range p.globalFileCache {
 		// We match against the full path to allow searching for artist/album folders
 		score := fuzzyMatch(p.searchQuery, path)
 		if score > 0 {
-			scoredSongs = append(scoredSongs, scoredSong{
-				path:  path,
-				score: score,
+			// Check if it's a directory
+			info, err := os.Stat(path)
+			isDir := err == nil && info.IsDir()
+
+			scoredItems = append(scoredItems, scoredItem{
+				path:     path,
+				score:    score,
+				isDir:    isDir,
+				itemName: filepath.Base(path),
 			})
 		}
 	}
 
-	// Sort by score (descending)
-	sort.Slice(scoredSongs, func(i, j int) bool {
-		return scoredSongs[i].score > scoredSongs[j].score
+	// Sort: directories first, then by score (descending), then by name
+	sort.Slice(scoredItems, func(i, j int) bool {
+		// Directories come first
+		if scoredItems[i].isDir != scoredItems[j].isDir {
+			return scoredItems[i].isDir
+		}
+		// Then by score (higher scores first)
+		if scoredItems[i].score != scoredItems[j].score {
+			return scoredItems[i].score > scoredItems[j].score
+		}
+		// Finally by name (alphabetical)
+		return strings.ToLower(scoredItems[i].itemName) < strings.ToLower(scoredItems[j].itemName)
 	})
 
-	p.filteredSongPaths = make([]string, 0, len(scoredSongs))
-	for _, scored := range scoredSongs {
+	p.filteredSongPaths = make([]string, 0, len(scoredItems))
+	for _, scored := range scoredItems {
 		p.filteredSongPaths = append(p.filteredSongPaths, scored.path)
 	}
 	p.cursor = 0
@@ -237,7 +269,48 @@ func (p *Library) handleSearchViewInput(key rune) (Page, error) {
 		}
 	case ' ':
 		if p.cursor < len(p.filteredSongPaths) {
-			p.toggleSelection(p.filteredSongPaths[p.cursor])
+			path := p.filteredSongPaths[p.cursor]
+			// Check if it's a directory
+			info, err := os.Stat(path)
+			if err == nil && info.IsDir() {
+				// For directories in search mode, select all songs in the directory
+				var songsInDir []string
+				filepath.WalkDir(path, func(subPath string, d os.DirEntry, err error) error {
+					if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
+						songsInDir = append(songsInDir, subPath)
+					}
+					return nil
+				})
+
+				// Check if all songs in directory are currently selected
+				allSelected := true
+				if len(songsInDir) > 0 {
+					for _, songPath := range songsInDir {
+						if !p.selected[songPath] {
+							allSelected = false
+							break
+						}
+					}
+				} else {
+					allSelected = false
+				}
+
+				// Toggle selection for all songs in directory
+				for _, songPath := range songsInDir {
+					if allSelected {
+						if p.selected[songPath] {
+							p.toggleSelection(songPath) // Deselect
+						}
+					} else {
+						if !p.selected[songPath] {
+							p.toggleSelection(songPath) // Select
+						}
+					}
+				}
+			} else {
+				// For files, use normal selection
+				p.toggleSelection(path)
+			}
 			if p.cursor < len(p.filteredSongPaths)-1 {
 				p.cursor++
 			}
@@ -491,12 +564,23 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 		path := p.filteredSongPaths[entryIndex]
 		line := ""
 		style := "\x1b[0m"
+
+		// Check if it's a directory
+		info, err := os.Stat(path)
+		isDir := err == nil && info.IsDir()
+
 		if p.selected[path] {
 			line = "✓ " + path
 			style += "\x1b[32m"
 		} else {
 			line = "  " + path
 		}
+
+		// Add directory indicator for directories
+		if isDir {
+			line += "/"
+		}
+
 		if entryIndex == p.cursor {
 			style += "\x1b[7m"
 		}
