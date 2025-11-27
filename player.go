@@ -18,6 +18,7 @@ import (
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/effects"
 	"github.com/gopxl/beep/v2/speaker"
+	"github.com/mattn/go-runewidth"
 	"github.com/nfnt/resize"
 	"golang.org/x/term"
 )
@@ -622,19 +623,20 @@ func (p *PlayerPage) updateRightPanel(w int) {
 
 	title, artist, album := getSongMetadata(p.flacPath)
 
+	// Use runewidth for accurate string width calculation
 	texts := []string{title, artist, album}
-	var totalLength int
+	var totalWidth int
 	for _, text := range texts {
-		totalLength += len(text)
+		totalWidth += runewidth.StringWidth(text)
 	}
-	avgLength := 0
+	avgWidth := 0
 	if len(texts) > 0 {
-		avgLength = totalLength / len(texts)
+		avgWidth = totalWidth / len(texts)
 	}
 
 	availableWidth := w - p.imageRightEdge
 	centerCol := p.imageRightEdge + availableWidth/2
-	visualCenterCol := centerCol - avgLength/2
+	visualCenterCol := centerCol - avgWidth/2
 	if visualCenterCol < p.imageRightEdge+1 {
 		visualCenterCol = p.imageRightEdge + 1
 	}
@@ -677,9 +679,14 @@ func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 	centerCol := w / 2
 
 	colorCode := p.getColorCode()
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, centerCol-len(title)/2, colorCode, title)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-len(artist)/2, colorCode, artist)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-len(album)/2, colorCode, album)
+	// Use runewidth for accurate string width calculation
+	titleWidth := runewidth.StringWidth(title)
+	artistWidth := runewidth.StringWidth(artist)
+	albumWidth := runewidth.StringWidth(album)
+
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, centerCol-titleWidth/2, colorCode, title)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
 
 	progressBarStartCol := 5
 	progressBarWidth := w - 10
@@ -695,9 +702,14 @@ func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 	centerRow, centerCol := h/2, w/2
 
 	colorCode := p.getColorCode()
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", centerRow-1, centerCol-len(title)/2, colorCode, title)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", centerRow, centerCol-len(artist)/2, colorCode, artist)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", centerRow+1, centerCol-len(album)/2, colorCode, album)
+	// Use runewidth for accurate string width calculation
+	titleWidth := runewidth.StringWidth(title)
+	artistWidth := runewidth.StringWidth(artist)
+	albumWidth := runewidth.StringWidth(album)
+
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", centerRow-1, centerCol-titleWidth/2, colorCode, title)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", centerRow, centerCol-artistWidth/2, colorCode, artist)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", centerRow+1, centerCol-albumWidth/2, colorCode, album)
 
 	progressBarStartCol := 5
 	progressBarWidth := w - 10
