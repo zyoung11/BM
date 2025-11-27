@@ -569,7 +569,20 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 		info, err := os.Stat(path)
 		isDir := err == nil && info.IsDir()
 
-		if p.selected[path] {
+		// For directories, check if any songs inside are selected
+		isSelected := p.selected[path]
+		if isDir && !isSelected {
+			// Check if directory contains any selected songs
+			filepath.WalkDir(path, func(subPath string, d os.DirEntry, err error) error {
+				if err == nil && !d.IsDir() && p.selected[subPath] {
+					isSelected = true
+					return filepath.SkipDir // Found at least one selected song, no need to continue
+				}
+				return nil
+			})
+		}
+
+		if isSelected {
 			line = "✓ " + path
 			style += "\x1b[32m"
 		} else {
