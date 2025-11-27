@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/gopxl/beep/v2/speaker"
@@ -52,7 +51,7 @@ func (p *PlayList) filterPlaylist() {
 	} else {
 		for i, songPath := range p.app.Playlist {
 			songName := filepath.Base(songPath)
-			if strings.Contains(strings.ToLower(songName), strings.ToLower(p.searchQuery)) {
+			if fuzzyMatch(p.searchQuery, songName) { // Use fuzzyMatch here
 				p.viewPlaylist = append(p.viewPlaylist, songPath)
 				p.originalIndices = append(p.originalIndices, i)
 			}
@@ -68,12 +67,8 @@ func (p *PlayList) filterPlaylist() {
 func (p *PlayList) HandleKey(key rune) (Page, error) {
 	if p.isSearching {
 		switch key {
-		case '\x1b': // ESC
+		case '\x1b', KeyEnter: // ESC or Enter exits input mode
 			p.isSearching = false
-			p.searchQuery = ""
-			p.filterPlaylist()
-		case KeyEnter:
-			p.isSearching = false // Exit search, keep filter
 		case KeyBackspace:
 			if len(p.searchQuery) > 0 {
 				runes := []rune(p.searchQuery)
@@ -81,7 +76,7 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 				p.filterPlaylist()
 			}
 		default:
-			if key >= 32 && key <= 126 { // Printable ASCII
+			if key >= 32 { // Allow any printable character
 				p.searchQuery += string(key)
 				p.filterPlaylist()
 			}
@@ -90,15 +85,20 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 		return nil, nil
 	}
 
-	// Not searching
+	// Not in search input mode
 	needRedraw := true
 	switch key {
 	case '\x1b': // ESC
-		return nil, fmt.Errorf("user quit")
+		if p.searchQuery != "" { // If there's an active search, clear it
+			p.searchQuery = ""
+			p.filterPlaylist()
+		} else { // No active search, quit app
+			return nil, fmt.Errorf("user quit")
+		}
 	case 'f':
 		p.isSearching = true
-		p.searchQuery = ""
-		p.filterPlaylist()
+		// p.searchQuery is not cleared here; user might want to refine existing search
+		// p.filterPlaylist() is not called here; will be called as user types
 	case KeyEnter: // Play current song
 		if len(p.viewPlaylist) > 0 && p.cursor >= 0 && p.cursor < len(p.viewPlaylist) {
 			songPath := p.viewPlaylist[p.cursor]
@@ -143,6 +143,10 @@ func (p *PlayList) removeCurrentSong() {
 	for _, page := range p.app.pages {
 		if libPage, ok := page.(*Library); ok {
 			delete(libPage.selected, songPath)
+			// Trigger a re-filter in Library page if it's currently showing search results
+			if libPage.searchQuery != "" {
+				libPage.filterSongs()
+			}
 			break
 		}
 	}
@@ -211,20 +215,27 @@ func (p *PlayList) View() {
 	titleX := (w - len(title)) / 2
 	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
 
-	// Footer
+	listHeight := h - 4
+
+	// Render Footer
 	var footer string
-	if p.isSearching {
+	if p.isSearching || p.searchQuery != "" {
 		footer = fmt.Sprintf("Search: %s", p.searchQuery)
+	} else {
+		// No custom footer for Playlist, leave empty
+		footer = ""
 	}
+	// Truncate footer if it's too long
+	if len(footer) > w { footer = "..." + footer[len(footer)-w+3:] }
 	footerX := (w - len(footer)) / 2
 	if footerX < 1 { footerX = 1 }
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
+	// If searching, position cursor at the end of the query
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
-		if cursorX <= w {
-			fmt.Printf("\x1b[%d;%dH", h, cursorX)
-		}
+		if cursorX <= w { fmt.Printf("\x1b[%d;%dH", h, cursorX) }
 	}
+
 
 	if len(p.viewPlaylist) == 0 {
 		msg := "PlayList is empty"
@@ -243,9 +254,7 @@ func (p *PlayList) View() {
 		return
 	}
 
-	listHeight := h - 4
-	if listHeight < 0 { listHeight = 0 }
-
+	// Adjust offset for scrolling
 	if p.cursor < p.offset {
 		p.offset = p.cursor
 	}
@@ -299,3 +308,4 @@ func (p *PlayList) View() {
 
 // Tick for PlayList does nothing.
 func (p *PlayList) Tick() {}
+
