@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"syscall"
 
 	"github.com/gopxl/beep/v2/speaker"
@@ -49,12 +50,33 @@ func (p *PlayList) filterPlaylist() {
 			p.originalIndices = append(p.originalIndices, i)
 		}
 	} else {
+		type scoredSong struct {
+			path  string
+			score int
+			index int
+		}
+		var scoredSongs []scoredSong
+
 		for i, songPath := range p.app.Playlist {
 			songName := filepath.Base(songPath)
-			if fuzzyMatch(p.searchQuery, songName) { // Use fuzzyMatch here
-				p.viewPlaylist = append(p.viewPlaylist, songPath)
-				p.originalIndices = append(p.originalIndices, i)
+			score := fuzzyMatch(p.searchQuery, songName)
+			if score > 0 {
+				scoredSongs = append(scoredSongs, scoredSong{
+					path:  songPath,
+					score: score,
+					index: i,
+				})
 			}
+		}
+
+		// Sort by score (descending)
+		sort.Slice(scoredSongs, func(i, j int) bool {
+			return scoredSongs[i].score > scoredSongs[j].score
+		})
+
+		for _, scored := range scoredSongs {
+			p.viewPlaylist = append(p.viewPlaylist, scored.path)
+			p.originalIndices = append(p.originalIndices, scored.index)
 		}
 	}
 
@@ -174,7 +196,6 @@ func (p *PlayList) removeCurrentSong() {
 	}
 }
 
-
 // stopPlaybackAndShowEmptyState stops playback and shows an empty state.
 func (p *PlayList) stopPlaybackAndShowEmptyState() {
 	if p.app.player != nil {
@@ -226,16 +247,21 @@ func (p *PlayList) View() {
 		footer = ""
 	}
 	// Truncate footer if it's too long
-	if len(footer) > w { footer = "..." + footer[len(footer)-w+3:] }
+	if len(footer) > w {
+		footer = "..." + footer[len(footer)-w+3:]
+	}
 	footerX := (w - len(footer)) / 2
-	if footerX < 1 { footerX = 1 }
+	if footerX < 1 {
+		footerX = 1
+	}
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
 	// If searching, position cursor at the end of the query
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
-		if cursorX <= w { fmt.Printf("\x1b[%d;%dH", h, cursorX) }
+		if cursorX <= w {
+			fmt.Printf("\x1b[%d;%dH", h, cursorX)
+		}
 	}
-
 
 	if len(p.viewPlaylist) == 0 {
 		msg := "PlayList is empty"
@@ -289,7 +315,9 @@ func (p *PlayList) View() {
 	totalItems := len(p.viewPlaylist)
 	if totalItems > listHeight {
 		thumbSize := listHeight * listHeight / totalItems
-		if thumbSize < 1 { thumbSize = 1 }
+		if thumbSize < 1 {
+			thumbSize = 1
+		}
 		scrollRange := totalItems - listHeight
 		thumbRange := listHeight - thumbSize
 		thumbStart := 0
@@ -308,4 +336,3 @@ func (p *PlayList) View() {
 
 // Tick for PlayList does nothing.
 func (p *PlayList) Tick() {}
-

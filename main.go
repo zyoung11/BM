@@ -16,24 +16,80 @@ import (
 )
 
 // fuzzyMatch performs a case-insensitive fuzzy search.
-// It returns true if all characters in 'query' appear in 'text' in the same order.
-func fuzzyMatch(query, text string) bool {
+// It returns a score indicating the quality of the match (higher is better).
+// Returns 0 if no match is found.
+func fuzzyMatch(query, text string) int {
 	queryRunes := []rune(strings.ToLower(query))
 	textRunes := []rune(strings.ToLower(text))
 	if len(queryRunes) == 0 {
-		return true
+		return 100 // Empty query matches everything with high score
 	}
 
 	queryIdx := 0
-	for _, textRune := range textRunes {
+	firstMatchIndex := -1
+	lastMatchIndex := -1
+	consecutiveMatches := 0
+	maxConsecutive := 0
+
+	for i, textRune := range textRunes {
 		if textRune == queryRunes[queryIdx] {
+			if firstMatchIndex == -1 {
+				firstMatchIndex = i
+			}
+			lastMatchIndex = i
+
+			// Track consecutive matches
+			consecutiveMatches++
+			if consecutiveMatches > maxConsecutive {
+				maxConsecutive = consecutiveMatches
+			}
+
 			queryIdx++
 			if queryIdx == len(queryRunes) {
-				return true
+				break
 			}
+		} else {
+			consecutiveMatches = 0
 		}
 	}
-	return false
+
+	// If we didn't match all query characters, return 0
+	if queryIdx < len(queryRunes) {
+		return 0
+	}
+
+	// Calculate score based on various factors
+	score := 100
+
+	// Penalty for match spread (closer matches are better)
+	matchSpread := lastMatchIndex - firstMatchIndex
+	if matchSpread > 0 {
+		spreadPenalty := (matchSpread * 10) / len(textRunes)
+		score -= spreadPenalty
+	}
+
+	// Bonus for consecutive matches
+	if maxConsecutive > 1 {
+		consecutiveBonus := maxConsecutive * 5
+		score += consecutiveBonus
+	}
+
+	// Bonus for exact prefix match
+	if firstMatchIndex == 0 {
+		score += 20
+	}
+
+	// Bonus for shorter text (more relevant)
+	if len(textRunes) < 50 {
+		score += (50 - len(textRunes)) / 5
+	}
+
+	// Ensure score is at least 1
+	if score < 1 {
+		score = 1
+	}
+
+	return score
 }
 
 // Key constants for special keys
@@ -53,12 +109,12 @@ type App struct {
 	pages            []Page
 	currentPageIndex int
 	Playlist         []string
-	currentSongPath  string         // 当前播放的歌曲路径
-	playMode         int            // 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放
-	volume           float64        // 保存的音量设置
-	linearVolume     float64        // 0.0 to 1.0 linear volume for display
-	playbackRate     float64        // 保存的播放速度设置
-	actionQueue      chan func()    // Action queue for thread-safe UI updates
+	currentSongPath  string      // 当前播放的歌曲路径
+	playMode         int         // 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放
+	volume           float64     // 保存的音量设置
+	linearVolume     float64     // 0.0 to 1.0 linear volume for display
+	playbackRate     float64     // 保存的播放速度设置
+	actionQueue      chan func() // Action queue for thread-safe UI updates
 }
 
 // Page defines the interface for a TUI page.
@@ -314,10 +370,10 @@ func main() {
 		mprisServer:      nil, // 延迟初始化
 		currentPageIndex: 2,   // 默认显示Library页面
 		Playlist:         make([]string, 0),
-		playMode:         0,   // 默认单曲循环
-		volume:           0,   // 默认音量0（100%）
-		linearVolume:     1.0, // 默认线性音量1.0（100%）
-		playbackRate:     1.0, // 默认播放速度1.0
+		playMode:         0,                     // 默认单曲循环
+		volume:           0,                     // 默认音量0（100%）
+		linearVolume:     1.0,                   // 默认线性音量1.0（100%）
+		playbackRate:     1.0,                   // 默认播放速度1.0
 		actionQueue:      make(chan func(), 10), // Initialize the action queue
 	}
 
