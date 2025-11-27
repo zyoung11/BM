@@ -719,8 +719,8 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 	indicatorRow := row - 1
 	// Ensure we don't draw at or above the first row, and there's a progress bar to align with.
 	if indicatorRow > 0 && width > 0 {
-		// Clear the indicator line to prevent stale text
-		fmt.Printf("\x1b[%d;1H\x1b[K", indicatorRow)
+		// Only clear the indicator area, not the whole line
+		fmt.Printf("\x1b[%d;%dH\x1b[K", indicatorRow, startCol)
 
 		// Draw Volume Indicator
 		if p.volumeDisplayTimer > 0 {
