@@ -654,7 +654,7 @@ func (p *PlayerPage) updateRightPanel(w int) {
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", albumRow, centerCol-albumWidth/2, colorCode, album)
 
 	progressBarStartCol := p.imageRightEdge + 5
-	progressBarWidth := w - progressBarStartCol - 1
+	progressBarWidth := w - progressBarStartCol - 2 // Reduced by 1 character
 	if progressBarWidth < 10 {
 		return
 	}
