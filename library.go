@@ -382,53 +382,71 @@ func (p *Library) View() {
 
 	listHeight := h - 4
 
+	var currentListLength int // For scrollbar and list rendering
+	var currentCursor int     // For scrollbar
+	var currentOffset int     // For scrollbar
+
+	// Determine list length, cursor, and offset based on current view mode
 	if p.searchQuery != "" {
-		p.viewSearchResults(w, h, listHeight)
+		currentListLength = len(p.filteredSongPaths)
 	} else {
-		p.viewDirectory(w, h, listHeight)
+		currentListLength = len(p.entries)
 	}
+	currentCursor = p.cursor
+	currentOffset = p.offset
+
+	// Adjust offset for scrolling
+	if currentCursor < currentOffset {
+		currentOffset = currentCursor
+	}
+	if currentCursor >= currentOffset+listHeight {
+		currentOffset = currentCursor - listHeight + 1
+	}
+
+	// Render Footer (including search prompt and cursor if searching)
+	if p.isSearching || p.searchQuery != "" {
+		p.drawSearchFooter(w, h, fmt.Sprintf("Search: %s", p.searchQuery))
+	} else {
+		p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", p.currentPath))
+	}
+	
+	// Render the list content
+	if p.searchQuery != "" { // Render filtered results
+		p.renderFilteredListContent(w, h, listHeight, currentOffset)
+	} else { // Render directory content
+		p.renderDirectoryListContent(w, h, listHeight, currentOffset)
+	}
+
+	// Draw Scrollbar
+	p.drawScrollbar(h, listHeight, currentListLength, currentOffset)
 }
 
-// viewDirectory renders the standard directory browser.
-func (p *Library) viewDirectory(w, h, listHeight int) {
-	footer := fmt.Sprintf("Path: %s", p.currentPath)
-	if len(footer) > w { footer = "..." + footer[len(footer)-w+3:] }
-	footerX := (w - len(footer)) / 2
+// Helper for drawing search footer with cursor positioning
+func (p *Library) drawSearchFooter(w, h int, footerText string) {
+	// Truncate footer if it's too long
+	if len(footerText) > w { footerText = "..." + footerText[len(footerText)-w+3:] }
+	footerX := (w - len(footerText)) / 2
 	if footerX < 1 { footerX = 1 }
-	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
-
-	if p.cursor < p.offset { p.offset = p.cursor }
-	if p.cursor >= p.offset+listHeight { p.offset = p.cursor - listHeight + 1 }
-
-	for i := 0; i < listHeight; i++ {
-		entryIndex := p.offset + i
-		if entryIndex >= len(p.entries) { break }
-		
-		entry := p.entries[entryIndex]
-		fullPath := filepath.Join(p.currentPath, entry.Name())
-		line, style := p.getDirEntryLine(entry, fullPath, entryIndex == p.cursor)
-		if len(line) > w-1 { line = line[:w-1] }
-		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
-	}
-	p.drawScrollbar(h, listHeight, len(p.entries))
-}
-
-// viewSearchResults renders the flat list of search results.
-func (p *Library) viewSearchResults(w, h, listHeight int) {
-	footer := fmt.Sprintf("Search: %s", p.searchQuery)
-	footerX := (w - len(footer)) / 2
-	if footerX < 1 { footerX = 1 }
-	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
+	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
 		if cursorX <= w { fmt.Printf("\x1b[%d;%dH", h, cursorX) }
 	}
+}
 
-	if p.cursor < p.offset { p.offset = p.cursor }
-	if p.cursor >= p.offset+listHeight { p.offset = p.cursor - listHeight + 1 }
+// Helper for drawing path footer
+func (p *Library) drawPathFooter(w, h int, footerText string) {
+	// Truncate footer if it's too long
+	if len(footerText) > w { footerText = "..." + footerText[len(footerText)-w+3:] }
+	footerX := (w - len(footerText)) / 2
+	if footerX < 1 { footerX = 1 }
+	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
+}
 
+// Helper for rendering filtered list content
+func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int) {
 	for i := 0; i < listHeight; i++ {
-		entryIndex := p.offset + i
+		entryIndex := currentOffset + i
 		if entryIndex >= len(p.filteredSongPaths) { break }
 
 		path := p.filteredSongPaths[entryIndex]
@@ -444,7 +462,20 @@ func (p *Library) viewSearchResults(w, h, listHeight int) {
 		if len(line) > w-1 { line = line[:w-1] }
 		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
 	}
-	p.drawScrollbar(h, listHeight, len(p.filteredSongPaths))
+}
+
+// Helper for rendering directory list content
+func (p *Library) renderDirectoryListContent(w, h, listHeight, currentOffset int) {
+	for i := 0; i < listHeight; i++ {
+		entryIndex := currentOffset + i
+		if entryIndex >= len(p.entries) { break }
+		
+		entry := p.entries[entryIndex]
+		fullPath := filepath.Join(p.currentPath, entry.Name())
+		line, style := p.getDirEntryLine(entry, fullPath, entryIndex == p.cursor)
+		if len(line) > w-1 { line = line[:w-1] }
+		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
+	}
 }
 
 // getDirEntryLine generates the display line and style for a directory entry.
@@ -482,7 +513,7 @@ func (p *Library) getDirEntryLine(entry os.DirEntry, fullPath string, isCursor b
 }
 
 // drawScrollbar draws a scrollbar on the right side of the screen.
-func (p *Library) drawScrollbar(h, listHeight, totalItems int) {
+func (p *Library) drawScrollbar(h, listHeight, totalItems, currentOffset int) {
 	if totalItems <= listHeight { return }
 	
 	w, _, _ := term.GetSize(int(os.Stdout.Fd()))
@@ -494,7 +525,7 @@ func (p *Library) drawScrollbar(h, listHeight, totalItems int) {
 
 	thumbStart := 0
 	if scrollRange > 0 {
-		thumbStart = p.offset * thumbRange / scrollRange
+		thumbStart = currentOffset * thumbRange / scrollRange
 	}
 
 	for i := 0; i < listHeight; i++ {
