@@ -212,6 +212,77 @@ func (p *Library) HandleKey(key rune) (Page, error) {
 		if p.app.mprisServer != nil {
 			p.app.mprisServer.UpdateProperties()
 		}
+	case 'e':
+		if len(p.entries) == 0 {
+			break
+		}
+
+		// Step 1: Collect all affected song paths from the current view
+		allSongs := make([]string, 0)
+		for _, entry := range p.entries {
+			fullPath := filepath.Join(p.currentPath, entry.Name())
+			if !entry.IsDir() {
+				allSongs = append(allSongs, fullPath)
+			} else {
+				filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
+					if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
+						allSongs = append(allSongs, path)
+					}
+					return nil
+				})
+			}
+		}
+
+		// Step 2: Decide whether to select all or deselect all
+		allCurrentlySelected := true
+		if len(allSongs) == 0 {
+			allCurrentlySelected = false // Nothing to do
+		} else {
+			for _, songPath := range allSongs {
+				if !p.selected[songPath] {
+					allCurrentlySelected = false
+					break
+				}
+			}
+		}
+
+		// Step 3: Apply the action
+		if allCurrentlySelected {
+			// Deselect all
+			for _, songPath := range allSongs {
+				if p.selected[songPath] {
+					delete(p.selected, songPath)
+					p.removeSongFromPlaylist(songPath)
+				}
+			}
+		} else {
+			// Select all
+			for _, songPath := range allSongs {
+				if !p.selected[songPath] {
+					p.selected[songPath] = true
+					// Avoid adding duplicates to playlist
+					found := false
+					for _, s := range p.app.Playlist {
+						if s == songPath {
+							found = true
+							break
+						}
+					}
+					if !found {
+						p.app.Playlist = append(p.app.Playlist, songPath)
+						// If this is the first song, auto-play
+						if len(p.app.Playlist) == 1 {
+							p.app.PlaySongWithSwitch(songPath, false)
+						}
+					}
+				}
+			}
+		}
+
+		// Step 4: Notify MPRIS
+		if p.app.mprisServer != nil {
+			p.app.mprisServer.UpdateProperties()
+		}
 	}
 	p.View() // Redraw on any key press
 	return nil, nil
