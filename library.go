@@ -15,9 +15,9 @@ import (
 type Library struct {
 	app *App
 
-	entries     []os.DirEntry   // All entries in the current directory
+	entries     []os.DirEntry // All entries in the current directory
 	currentPath string
-	initialPath string          // The starting path provided to the application
+	initialPath string // The starting path provided to the application
 	cursor      int
 	selected    map[string]bool // Use file path as key for persistent selection
 	offset      int             // For scrolling the view
@@ -113,17 +113,35 @@ func (p *Library) filterSongs() {
 	}
 
 	p.ensureGlobalCache()
-	p.filteredSongPaths = make([]string, 0)
+	type scoredSong struct {
+		path  string
+		score int
+	}
+	var scoredSongs []scoredSong
+
 	for _, path := range p.globalFileCache {
 		// We match against the full path to allow searching for artist/album folders
-		if fuzzyMatch(p.searchQuery, path) {
-			p.filteredSongPaths = append(p.filteredSongPaths, path)
+		score := fuzzyMatch(p.searchQuery, path)
+		if score > 0 {
+			scoredSongs = append(scoredSongs, scoredSong{
+				path:  path,
+				score: score,
+			})
 		}
+	}
+
+	// Sort by score (descending)
+	sort.Slice(scoredSongs, func(i, j int) bool {
+		return scoredSongs[i].score > scoredSongs[j].score
+	})
+
+	p.filteredSongPaths = make([]string, 0, len(scoredSongs))
+	for _, scored := range scoredSongs {
+		p.filteredSongPaths = append(p.filteredSongPaths, scored.path)
 	}
 	p.cursor = 0
 	p.offset = 0
 }
-
 
 // Init initializes the library by scanning the starting directory.
 func (p *Library) Init() {
@@ -229,7 +247,6 @@ func (p *Library) handleSearchViewInput(key rune) (Page, error) {
 	return nil, nil
 }
 
-
 // HandleKey routes user input based on the current mode.
 func (p *Library) HandleKey(key rune) (Page, error) {
 	var err error
@@ -260,7 +277,7 @@ func (p *Library) toggleSelectionForEntry(entry os.DirEntry) {
 			}
 			return nil
 		})
-		
+
 		allSelected := true
 		if len(songsInDir) > 0 {
 			for _, songPath := range songsInDir {
@@ -306,7 +323,9 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 		}
 	}
 
-	if len(allSongs) == 0 { return }
+	if len(allSongs) == 0 {
+		return
+	}
 
 	allCurrentlySelected := true
 	for _, songPath := range allSongs {
@@ -318,9 +337,13 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 
 	for _, songPath := range allSongs {
 		if allCurrentlySelected {
-			if p.selected[songPath] { p.toggleSelection(songPath) } // Deselect
+			if p.selected[songPath] {
+				p.toggleSelection(songPath)
+			} // Deselect
 		} else {
-			if !p.selected[songPath] { p.toggleSelection(songPath) } // Select
+			if !p.selected[songPath] {
+				p.toggleSelection(songPath)
+			} // Select
 		}
 	}
 }
@@ -335,7 +358,10 @@ func (p *Library) toggleSelection(path string) {
 		// Add to playlist, avoiding duplicates
 		found := false
 		for _, s := range p.app.Playlist {
-			if s == path { found = true; break }
+			if s == path {
+				found = true
+				break
+			}
 		}
 		if !found {
 			p.app.Playlist = append(p.app.Playlist, path)
@@ -409,7 +435,7 @@ func (p *Library) View() {
 	} else {
 		p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", p.currentPath))
 	}
-	
+
 	// Render the list content
 	if p.searchQuery != "" { // Render filtered results
 		p.renderFilteredListContent(w, h, listHeight, currentOffset)
@@ -424,22 +450,32 @@ func (p *Library) View() {
 // Helper for drawing search footer with cursor positioning
 func (p *Library) drawSearchFooter(w, h int, footerText string) {
 	// Truncate footer if it's too long
-	if len(footerText) > w { footerText = "..." + footerText[len(footerText)-w+3:] }
+	if len(footerText) > w {
+		footerText = "..." + footerText[len(footerText)-w+3:]
+	}
 	footerX := (w - len(footerText)) / 2
-	if footerX < 1 { footerX = 1 }
+	if footerX < 1 {
+		footerX = 1
+	}
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
-		if cursorX <= w { fmt.Printf("\x1b[%d;%dH", h, cursorX) }
+		if cursorX <= w {
+			fmt.Printf("\x1b[%d;%dH", h, cursorX)
+		}
 	}
 }
 
 // Helper for drawing path footer
 func (p *Library) drawPathFooter(w, h int, footerText string) {
 	// Truncate footer if it's too long
-	if len(footerText) > w { footerText = "..." + footerText[len(footerText)-w+3:] }
+	if len(footerText) > w {
+		footerText = "..." + footerText[len(footerText)-w+3:]
+	}
 	footerX := (w - len(footerText)) / 2
-	if footerX < 1 { footerX = 1 }
+	if footerX < 1 {
+		footerX = 1
+	}
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
 }
 
@@ -447,7 +483,9 @@ func (p *Library) drawPathFooter(w, h int, footerText string) {
 func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int) {
 	for i := 0; i < listHeight; i++ {
 		entryIndex := currentOffset + i
-		if entryIndex >= len(p.filteredSongPaths) { break }
+		if entryIndex >= len(p.filteredSongPaths) {
+			break
+		}
 
 		path := p.filteredSongPaths[entryIndex]
 		line := ""
@@ -458,8 +496,12 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 		} else {
 			line = "  " + path
 		}
-		if entryIndex == p.cursor { style += "\x1b[7m" }
-		if len(line) > w-1 { line = line[:w-1] }
+		if entryIndex == p.cursor {
+			style += "\x1b[7m"
+		}
+		if len(line) > w-1 {
+			line = line[:w-1]
+		}
 		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
 	}
 }
@@ -468,12 +510,16 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 func (p *Library) renderDirectoryListContent(w, h, listHeight, currentOffset int) {
 	for i := 0; i < listHeight; i++ {
 		entryIndex := currentOffset + i
-		if entryIndex >= len(p.entries) { break }
-		
+		if entryIndex >= len(p.entries) {
+			break
+		}
+
 		entry := p.entries[entryIndex]
 		fullPath := filepath.Join(p.currentPath, entry.Name())
 		line, style := p.getDirEntryLine(entry, fullPath, entryIndex == p.cursor)
-		if len(line) > w-1 { line = line[:w-1] }
+		if len(line) > w-1 {
+			line = line[:w-1]
+		}
 		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
 	}
 }
@@ -508,17 +554,23 @@ func (p *Library) getDirEntryLine(entry os.DirEntry, fullPath string, isCursor b
 			line = "  " + entry.Name()
 		}
 	}
-	if isCursor { style += "\x1b[7m" }
+	if isCursor {
+		style += "\x1b[7m"
+	}
 	return line, style
 }
 
 // drawScrollbar draws a scrollbar on the right side of the screen.
 func (p *Library) drawScrollbar(h, listHeight, totalItems, currentOffset int) {
-	if totalItems <= listHeight { return }
-	
+	if totalItems <= listHeight {
+		return
+	}
+
 	w, _, _ := term.GetSize(int(os.Stdout.Fd()))
 	thumbSize := listHeight * listHeight / totalItems
-	if thumbSize < 1 { thumbSize = 1 }
+	if thumbSize < 1 {
+		thumbSize = 1
+	}
 
 	scrollRange := totalItems - listHeight
 	thumbRange := listHeight - thumbSize
