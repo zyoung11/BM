@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 )
@@ -454,6 +455,29 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 			if p.app.mprisServer != nil {
 				p.app.mprisServer.UpdateProperties()
 			}
+
+			// Check if playlist is now empty and current song was removed
+			if len(p.app.Playlist) == 0 && p.app.currentSongPath == songPath {
+				// Stop playback and show empty state
+				if p.app.player != nil {
+					speaker.Lock()
+					if p.app.player.ctrl != nil {
+						p.app.player.ctrl.Paused = true
+					}
+					speaker.Unlock()
+				}
+				p.app.player = nil
+				p.app.currentSongPath = ""
+				if p.app.mprisServer != nil {
+					p.app.mprisServer.StopService()
+					p.app.mprisServer = nil
+				}
+				// Update player page to show empty state
+				if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
+					playerPage.UpdateSong("")
+				}
+			}
+
 			return
 		}
 	}
