@@ -17,6 +17,7 @@ import (
 	"github.com/dhowden/tag"
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/effects"
+	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
 	"github.com/nfnt/resize"
@@ -359,10 +360,18 @@ func (p *PlayerPage) playNextSong() {
 	case 1: // 列表循环
 		nextIndex = (currentIndex + 1) % len(p.app.Playlist)
 	case 2: // 随机播放
-		nextIndex = rand.Intn(len(p.app.Playlist))
-		// 避免随机到同一首歌
-		if nextIndex == currentIndex && len(p.app.Playlist) > 1 {
-			nextIndex = (nextIndex + 1) % len(p.app.Playlist)
+		// 检查是否正在历史记录中导航
+		if p.app.isNavigatingHistory && p.app.historyIndex < len(p.app.playHistory)-1 {
+			// 在历史记录中向前切歌
+			p.playNextInRandomMode()
+			return
+		} else {
+			// 不在历史记录中，随机播放
+			nextIndex = rand.Intn(len(p.app.Playlist))
+			// 避免随机到同一首歌
+			if nextIndex == currentIndex && len(p.app.Playlist) > 1 {
+				nextIndex = (nextIndex + 1) % len(p.app.Playlist)
+			}
 		}
 	default: // 单曲循环或手动切换
 		nextIndex = (currentIndex + 1) % len(p.app.Playlist)
@@ -435,6 +444,12 @@ func (p *PlayerPage) playPreviousSong() {
 	}
 
 	if len(p.app.Playlist) == 0 {
+		return
+	}
+
+	// 随机播放模式下使用历史记录
+	if p.app.playMode == 2 {
+		p.playPreviousInRandomMode()
 		return
 	}
 
@@ -522,6 +537,205 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 			return
 		}
 	}
+}
+
+// playPreviousInRandomMode 随机播放模式下的上一首逻辑
+func (p *PlayerPage) playPreviousInRandomMode() {
+	// 检查是否有历史记录
+	if p.app.historyIndex <= 0 {
+		// 没有历史记录，随机播放一首
+		p.playRandomSong()
+		return
+	}
+
+	// 设置导航标志
+	p.app.isNavigatingHistory = true
+
+	// 移动到历史记录中的上一首
+	p.app.historyIndex--
+	prevSong := p.app.playHistory[p.app.historyIndex]
+
+	// 检查歌曲是否还在播放列表中
+	if p.isSongInPlaylist(prevSong) {
+		// 播放历史记录中的歌曲（不调用 addToPlayHistory）
+		p.playSongFromHistory(prevSong, false)
+	} else {
+		// 歌曲不在播放列表中，继续向前查找
+		p.playPreviousInRandomMode()
+	}
+
+	// 更新切歌时间
+	p.lastSwitchTime = time.Now()
+}
+
+// playRandomSong 随机播放一首歌曲
+func (p *PlayerPage) playRandomSong() {
+	if len(p.app.Playlist) == 0 {
+		return
+	}
+
+	// 找到当前歌曲在播放列表中的位置
+	currentIndex := -1
+	for i, song := range p.app.Playlist {
+		if song == p.flacPath {
+			currentIndex = i
+			break
+		}
+	}
+
+	var randomIndex int
+	if len(p.app.Playlist) > 1 {
+		// 随机选择一首不同的歌曲
+		for {
+			randomIndex = rand.Intn(len(p.app.Playlist))
+			if randomIndex != currentIndex {
+				break
+			}
+		}
+	} else {
+		randomIndex = 0
+	}
+
+	// 播放随机选择的歌曲
+	p.app.PlaySongWithSwitch(p.app.Playlist[randomIndex], false)
+
+	// 更新切歌时间
+	p.lastSwitchTime = time.Now()
+}
+
+// isSongInPlaylist 检查歌曲是否在播放列表中
+func (p *PlayerPage) isSongInPlaylist(songPath string) bool {
+	for _, song := range p.app.Playlist {
+		if song == songPath {
+			return true
+		}
+	}
+	return false
+}
+
+// isCurrentSongInHistory 检查当前歌曲是否在历史记录中
+func (p *PlayerPage) isCurrentSongInHistory() bool {
+	if p.app.historyIndex < 0 || p.app.historyIndex >= len(p.app.playHistory) {
+		return false
+	}
+	return p.app.playHistory[p.app.historyIndex] == p.flacPath
+}
+
+// playSongFromHistory 从历史记录播放歌曲（不添加新的历史记录）
+func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) error {
+	// 如果是同一首歌，不做任何操作
+	if p.app.currentSongPath == songPath && p.app.player != nil {
+		if switchToPlayer {
+			// 切换到播放页面
+			p.app.switchToPage(0) // PlayerPage
+		}
+		return nil
+	}
+
+	// 停止当前播放
+	speaker.Lock()
+	if p.app.player != nil {
+		p.app.player.ctrl.Paused = true
+	}
+	speaker.Unlock()
+
+	// 加载新文件
+	f, err := os.Open(songPath)
+	if err != nil {
+		return fmt.Errorf("打开文件失败: %v", err)
+	}
+
+	streamer, format, err := flac.Decode(f)
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("解码FLAC失败: %v", err)
+	}
+
+	// 重新初始化speaker（如果采样率不同）
+	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/30))
+
+	// 创建新的播放器
+	player, err := newAudioPlayer(streamer, format, p.app.volume, p.app.playbackRate)
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("创建播放器失败: %v", err)
+	}
+
+	// 更新MPRIS服务
+	if p.app.mprisServer != nil {
+		p.app.mprisServer.StopService()
+	}
+	mprisServer, err := NewMPRISServer(p.app, player, songPath)
+	if err == nil {
+		if err := mprisServer.Start(); err == nil {
+			mprisServer.StartUpdateLoop()
+			mprisServer.UpdatePlaybackStatus(true)
+			mprisServer.UpdateMetadata()
+		}
+	}
+
+	// 更新应用状态
+	speaker.Lock()
+	p.app.player = player
+	p.app.mprisServer = mprisServer
+	p.app.currentSongPath = songPath
+	speaker.Unlock()
+
+	// 注意：这里不调用 addToPlayHistory，因为我们是在历史记录中导航
+
+	// 开始播放
+	speaker.Play(p.app.player.volume)
+
+	// 更新PlayerPage
+	p.UpdateSong(songPath)
+	// 无论是否跳转页面，都重新渲染播放页面
+	if !switchToPlayer {
+		// 不跳转页面时，清理屏幕并重新渲染
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
+		p.Init()
+		p.View()
+	}
+
+	// 根据参数决定是否切换到播放页面
+	if switchToPlayer {
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
+		p.app.currentPageIndex = 0        // 直接设置页面索引
+		p.Init()
+		p.View()
+	}
+
+	return nil
+}
+
+// playNextInRandomMode 随机播放模式下的下一首逻辑
+func (p *PlayerPage) playNextInRandomMode() {
+	// 检查是否在历史记录末尾
+	if p.app.historyIndex >= len(p.app.playHistory)-1 {
+		// 在历史记录末尾，随机播放一首
+		p.playRandomSong()
+		// 到达历史记录末尾，重置导航标志
+		p.app.isNavigatingHistory = false
+		return
+	}
+
+	// 设置导航标志
+	p.app.isNavigatingHistory = true
+
+	// 移动到历史记录中的下一首
+	p.app.historyIndex++
+	nextSong := p.app.playHistory[p.app.historyIndex]
+
+	// 检查歌曲是否还在播放列表中
+	if p.isSongInPlaylist(nextSong) {
+		// 播放历史记录中的歌曲（不调用 addToPlayHistory）
+		p.playSongFromHistory(nextSong, false)
+	} else {
+		// 歌曲不在播放列表中，继续向后查找
+		p.playNextInRandomMode()
+	}
+
+	// 更新切歌时间
+	p.lastSwitchTime = time.Now()
 }
 
 // --- Audio Player (now just a data structure, no logic) ---
