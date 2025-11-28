@@ -368,12 +368,63 @@ func (p *PlayerPage) playNextSong() {
 		nextIndex = (currentIndex + 1) % len(p.app.Playlist)
 	}
 
-	// 播放下一首歌曲
-	nextSong := p.app.Playlist[nextIndex]
-	p.app.PlaySongWithSwitch(nextSong, false) // 不跳转页面，UpdateSong中会调用View()
+	// 尝试播放下一首歌曲，如果失败则继续尝试下一首
+	p.tryPlayNextSong(currentIndex, nextIndex)
 
 	// 更新切歌时间
 	p.lastSwitchTime = time.Now()
+}
+
+// tryPlayNextSong 尝试播放下一首歌曲，如果文件损坏则跳过
+func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
+	// 记录已尝试的索引，避免无限循环
+	triedIndices := make(map[int]bool)
+
+	// 从nextIndex开始尝试播放
+	for {
+		// 如果已经尝试过这个索引，说明所有歌曲都损坏了
+		if triedIndices[nextIndex] {
+			// 所有歌曲都损坏，停止播放
+			if p.app.player != nil {
+				speaker.Lock()
+				p.app.player.ctrl.Paused = true
+				speaker.Unlock()
+			}
+			p.app.currentSongPath = ""
+			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
+				playerPage.UpdateSong("")
+			}
+			return
+		}
+
+		triedIndices[nextIndex] = true
+		nextSong := p.app.Playlist[nextIndex]
+
+		// 尝试播放歌曲
+		err := p.app.PlaySongWithSwitch(nextSong, false)
+		if err == nil {
+			// 播放成功
+			return
+		}
+
+		// 播放失败，尝试下一首
+		nextIndex = (nextIndex + 1) % len(p.app.Playlist)
+
+		// 如果回到当前歌曲，说明已经尝试了所有歌曲
+		if nextIndex == currentIndex {
+			// 所有歌曲都损坏，停止播放
+			if p.app.player != nil {
+				speaker.Lock()
+				p.app.player.ctrl.Paused = true
+				speaker.Unlock()
+			}
+			p.app.currentSongPath = ""
+			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
+				playerPage.UpdateSong("")
+			}
+			return
+		}
+	}
 }
 
 // playPreviousSong 播放上一首歌曲（带防抖）
@@ -410,12 +461,67 @@ func (p *PlayerPage) playPreviousSong() {
 		prevIndex = currentIndex - 1
 	}
 
-	// 播放上一首歌曲
-	prevSong := p.app.Playlist[prevIndex]
-	p.app.PlaySongWithSwitch(prevSong, false) // 不跳转页面
+	// 尝试播放上一首歌曲，如果失败则继续尝试上一首
+	p.tryPlayPreviousSong(currentIndex, prevIndex)
 
 	// 更新切歌时间
 	p.lastSwitchTime = time.Now()
+}
+
+// tryPlayPreviousSong 尝试播放上一首歌曲，如果文件损坏则跳过
+func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
+	// 记录已尝试的索引，避免无限循环
+	triedIndices := make(map[int]bool)
+
+	// 从prevIndex开始尝试播放
+	for {
+		// 如果已经尝试过这个索引，说明所有歌曲都损坏了
+		if triedIndices[prevIndex] {
+			// 所有歌曲都损坏，停止播放
+			if p.app.player != nil {
+				speaker.Lock()
+				p.app.player.ctrl.Paused = true
+				speaker.Unlock()
+			}
+			p.app.currentSongPath = ""
+			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
+				playerPage.UpdateSong("")
+			}
+			return
+		}
+
+		triedIndices[prevIndex] = true
+		prevSong := p.app.Playlist[prevIndex]
+
+		// 尝试播放歌曲
+		err := p.app.PlaySongWithSwitch(prevSong, false)
+		if err == nil {
+			// 播放成功
+			return
+		}
+
+		// 播放失败，尝试上一首
+		if prevIndex == 0 {
+			prevIndex = len(p.app.Playlist) - 1
+		} else {
+			prevIndex = prevIndex - 1
+		}
+
+		// 如果回到当前歌曲，说明已经尝试了所有歌曲
+		if prevIndex == currentIndex {
+			// 所有歌曲都损坏，停止播放
+			if p.app.player != nil {
+				speaker.Lock()
+				p.app.player.ctrl.Paused = true
+				speaker.Unlock()
+			}
+			p.app.currentSongPath = ""
+			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
+				playerPage.UpdateSong("")
+			}
+			return
+		}
+	}
 }
 
 // --- Audio Player (now just a data structure, no logic) ---
