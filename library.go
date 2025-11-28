@@ -184,16 +184,19 @@ func (p *Library) Init() {
 
 // handleSearchInput handles keystrokes when in search input mode.
 func (p *Library) handleSearchInput(key rune) {
-	switch key {
-	case '\x1b', KeyEnter: // ESC or Enter
+	if IsKey(key, AppConfig.Keymap.Library.ConfirmSearch) {
+		p.isSearching = false // Exit input mode, keeping the search results
+	} else if IsKey(key, AppConfig.Keymap.Library.EscapeSearch) {
 		p.isSearching = false // Exit input mode
-	case KeyBackspace:
+		p.searchQuery = ""    // Also clear the search query
+		p.filterSongs()
+	} else if IsKey(key, AppConfig.Keymap.Library.SearchBackspace) {
 		if len(p.searchQuery) > 0 {
 			runes := []rune(p.searchQuery)
 			p.searchQuery = string(runes[:len(runes)-1])
 			p.filterSongs()
 		}
-	default:
+	} else {
 		if key >= 32 { // Allow any printable character
 			p.searchQuery += string(key)
 			p.filterSongs()
@@ -203,26 +206,23 @@ func (p *Library) handleSearchInput(key rune) {
 
 // handleDirViewInput handles keystrokes for the directory browsing view.
 func (p *Library) handleDirViewInput(key rune) (Page, error) {
-	switch key {
-	case '\x1b': // ESC
-		return nil, fmt.Errorf("user quit")
-	case 'f':
+	if IsKey(key, AppConfig.Keymap.Library.Search) {
 		p.isSearching = true
-	case 'k', 'w', KeyArrowUp:
+	} else if IsKey(key, AppConfig.Keymap.Library.NavUp) {
 		if len(p.entries) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.entries)) % len(p.entries)
 		}
-	case 'j', 's', KeyArrowDown:
+	} else if IsKey(key, AppConfig.Keymap.Library.NavDown) {
 		if len(p.entries) > 0 {
 			p.cursor = (p.cursor + 1) % len(p.entries)
 		}
-	case 'l', 'd', KeyArrowRight:
+	} else if IsKey(key, AppConfig.Keymap.Library.NavEnterDir) {
 		if p.cursor < len(p.entries) && p.entries[p.cursor].IsDir() {
 			p.lastEntered = p.entries[p.cursor].Name()
 			newPath := filepath.Join(p.currentPath, p.entries[p.cursor].Name())
 			p.scanDirectory(newPath)
 		}
-	case 'h', 'a', KeyArrowLeft:
+	} else if IsKey(key, AppConfig.Keymap.Library.NavExitDir) {
 		currentAbs, _ := filepath.Abs(p.currentPath)
 		initialAbs, _ := filepath.Abs(p.initialPath)
 		if currentAbs != initialAbs {
@@ -238,15 +238,14 @@ func (p *Library) handleDirViewInput(key rune) (Page, error) {
 				p.lastEntered = ""
 			}
 		}
-	case ' ':
-		if p.cursor >= len(p.entries) {
-			break
+	} else if IsKey(key, AppConfig.Keymap.Library.ToggleSelect) {
+		if p.cursor < len(p.entries) {
+			p.toggleSelectionForEntry(p.entries[p.cursor])
+			if p.cursor < len(p.entries)-1 {
+				p.cursor++
+			}
 		}
-		p.toggleSelectionForEntry(p.entries[p.cursor])
-		if p.cursor < len(p.entries)-1 {
-			p.cursor++
-		}
-	case 'e':
+	} else if IsKey(key, AppConfig.Keymap.Library.ToggleSelectAll) {
 		p.toggleSelectAll(false) // Toggle all in current directory view
 	}
 	return nil, nil
@@ -254,27 +253,25 @@ func (p *Library) handleDirViewInput(key rune) (Page, error) {
 
 // handleSearchViewInput handles keystrokes for the search results view.
 func (p *Library) handleSearchViewInput(key rune) (Page, error) {
-	switch key {
-	case '\x1b': // ESC
+	if IsKey(key, AppConfig.Keymap.Library.EscapeSearch) {
 		p.searchQuery = "" // Clear search
 		p.filterSongs()
-	case 'f', KeyEnter:
+	} else if IsKey(key, AppConfig.Keymap.Library.Search) {
 		p.isSearching = true // Re-enter input mode
-	case 'k', 'w', KeyArrowUp:
+	} else if IsKey(key, AppConfig.Keymap.Library.NavUp) {
 		if len(p.filteredSongPaths) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.filteredSongPaths)) % len(p.filteredSongPaths)
 		}
-	case 'j', 's', KeyArrowDown:
+	} else if IsKey(key, AppConfig.Keymap.Library.NavDown) {
 		if len(p.filteredSongPaths) > 0 {
 			p.cursor = (p.cursor + 1) % len(p.filteredSongPaths)
 		}
-	case ' ':
+	} else if IsKey(key, AppConfig.Keymap.Library.ToggleSelect) {
 		if p.cursor < len(p.filteredSongPaths) {
 			path := p.filteredSongPaths[p.cursor]
-			// Check if it's a directory
 			info, err := os.Stat(path)
 			if err == nil && info.IsDir() {
-				// For directories in search mode, select all songs in the directory
+				// Directory selection logic...
 				var songsInDir []string
 				filepath.WalkDir(path, func(subPath string, d os.DirEntry, err error) error {
 					if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
@@ -282,41 +279,31 @@ func (p *Library) handleSearchViewInput(key rune) (Page, error) {
 					}
 					return nil
 				})
-
-				// Check if all songs in directory are currently selected
 				allSelected := true
 				if len(songsInDir) > 0 {
 					for _, songPath := range songsInDir {
 						if !p.selected[songPath] {
-							allSelected = false
-							break
+							allSelected = false; break
 						}
 					}
 				} else {
 					allSelected = false
 				}
-
-				// Toggle selection for all songs in directory
 				for _, songPath := range songsInDir {
 					if allSelected {
-						if p.selected[songPath] {
-							p.toggleSelection(songPath) // Deselect
-						}
+						if p.selected[songPath] { p.toggleSelection(songPath) }
 					} else {
-						if !p.selected[songPath] {
-							p.toggleSelection(songPath) // Select
-						}
+						if !p.selected[songPath] { p.toggleSelection(songPath) }
 					}
 				}
 			} else {
-				// For files, use normal selection
 				p.toggleSelection(path)
 			}
 			if p.cursor < len(p.filteredSongPaths)-1 {
 				p.cursor++
 			}
 		}
-	case 'e':
+	} else if IsKey(key, AppConfig.Keymap.Library.ToggleSelectAll) {
 		p.toggleSelectAll(true) // Toggle all in search results
 	}
 	return nil, nil
@@ -456,9 +443,8 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 				p.app.mprisServer.UpdateProperties()
 			}
 
-			// Check if playlist is now empty and current song was removed
-			if len(p.app.Playlist) == 0 && p.app.currentSongPath == songPath {
-				// Stop playback and show empty state
+			// If the playlist is now empty, stop everything.
+			if len(p.app.Playlist) == 0 {
 				if p.app.player != nil {
 					speaker.Lock()
 					if p.app.player.ctrl != nil {

@@ -89,16 +89,15 @@ func (p *PlayList) filterPlaylist() {
 // HandleKey handles user input for the playlist.
 func (p *PlayList) HandleKey(key rune) (Page, error) {
 	if p.isSearching {
-		switch key {
-		case '\x1b', KeyEnter: // ESC or Enter exits input mode
+		if IsKey(key, AppConfig.Keymap.Playlist.EscapeSearch) {
 			p.isSearching = false
-		case KeyBackspace:
+		} else if IsKey(key, AppConfig.Keymap.Playlist.SearchBackspace) {
 			if len(p.searchQuery) > 0 {
 				runes := []rune(p.searchQuery)
 				p.searchQuery = string(runes[:len(runes)-1])
 				p.filterPlaylist()
 			}
-		default:
+		} else {
 			if key >= 32 { // Allow any printable character
 				p.searchQuery += string(key)
 				p.filterPlaylist()
@@ -110,19 +109,14 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 
 	// Not in search input mode
 	needRedraw := true
-	switch key {
-	case '\x1b': // ESC
+	if IsKey(key, AppConfig.Keymap.Playlist.EscapeSearch) {
 		if p.searchQuery != "" { // If there's an active search, clear it
 			p.searchQuery = ""
 			p.filterPlaylist()
-		} else { // No active search, quit app
-			return nil, fmt.Errorf("user quit")
 		}
-	case 'f':
+	} else if IsKey(key, AppConfig.Keymap.Playlist.Search) {
 		p.isSearching = true
-		// p.searchQuery is not cleared here; user might want to refine existing search
-		// p.filterPlaylist() is not called here; will be called as user types
-	case KeyEnter: // Play current song
+	} else if IsKey(key, AppConfig.Keymap.Playlist.PlaySong) {
 		if len(p.viewPlaylist) > 0 && p.cursor >= 0 && p.cursor < len(p.viewPlaylist) {
 			songPath := p.viewPlaylist[p.cursor]
 			if err := p.app.PlaySong(songPath); err != nil {
@@ -130,25 +124,24 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 			}
 		}
 		needRedraw = false // PlaySong handles redraw
-	case 'k', 'w', KeyArrowUp:
+	} else if IsKey(key, AppConfig.Keymap.Playlist.NavUp) {
 		if len(p.viewPlaylist) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.viewPlaylist)) % len(p.viewPlaylist)
 		}
-	case 'j', 's', KeyArrowDown:
+	} else if IsKey(key, AppConfig.Keymap.Playlist.NavDown) {
 		if len(p.viewPlaylist) > 0 {
 			p.cursor = (p.cursor + 1) % len(p.viewPlaylist)
 		}
-	case ' ': // Remove current song from playlist
-		// Save current cursor position before removal
+	} else if IsKey(key, AppConfig.Keymap.Playlist.RemoveSong) {
 		oldCursor := p.cursor
 		p.removeCurrentSong()
-		// After removal, move to the same position or adjust if needed
-		// Since filterPlaylist() resets cursor to 0, we need to restore intended behavior
 		if oldCursor < len(p.viewPlaylist) {
 			p.cursor = oldCursor
 		} else if len(p.viewPlaylist) > 0 {
 			p.cursor = len(p.viewPlaylist) - 1
 		}
+	} else {
+		needRedraw = false
 	}
 
 	if needRedraw {
@@ -190,16 +183,14 @@ func (p *PlayList) removeCurrentSong() {
 	// But since filterPlaylist() resets cursor to 0, we need to preserve the intended behavior
 	// Instead, we'll handle cursor movement in the HandleKey method like Library page does
 
-	if wasPlayingSong {
-		if len(p.app.Playlist) > 0 {
-			nextIndex := originalIndex
-			if nextIndex >= len(p.app.Playlist) {
-				nextIndex = len(p.app.Playlist) - 1
-			}
-			p.app.PlaySongWithSwitch(p.app.Playlist[nextIndex], false)
-		} else {
-			p.stopPlaybackAndShowEmptyState()
+	if len(p.app.Playlist) == 0 {
+		p.stopPlaybackAndShowEmptyState()
+	} else if wasPlayingSong {
+		nextIndex := originalIndex
+		if nextIndex >= len(p.app.Playlist) {
+			nextIndex = len(p.app.Playlist) - 1
 		}
+		p.app.PlaySongWithSwitch(p.app.Playlist[nextIndex], false)
 	}
 }
 
