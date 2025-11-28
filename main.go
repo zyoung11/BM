@@ -403,7 +403,7 @@ func (a *App) Run() error {
 				} else {
 					return nil // Exit the application
 				}
-			} else if isInSearchMode(currentPage) {
+			} else if isActivelySearching(currentPage) {
 				// In search mode, pass ALL keys to the current page's handler first
 				// This ensures search input takes priority over global shortcuts
 				_, err := currentPage.HandleKey(key)
@@ -441,6 +441,17 @@ func (a *App) Run() error {
 			currentPage.Tick()
 		}
 	}
+}
+
+// isActivelySearching checks if the user is currently typing in a search prompt.
+func isActivelySearching(page Page) bool {
+	if lib, ok := page.(*Library); ok {
+		return lib.isSearching
+	}
+	if pl, ok := page.(*PlayList); ok {
+		return pl.isSearching
+	}
+	return false
 }
 
 // isInSearchMode checks if the current page is in search mode
