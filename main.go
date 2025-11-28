@@ -384,6 +384,13 @@ func (a *App) Run() error {
 				} else {
 					return nil // Exit the application
 				}
+			} else if isInSearchMode(currentPage) {
+				// In search mode, pass ALL keys to the current page's handler first
+				// This ensures search input takes priority over global shortcuts
+				_, err := currentPage.HandleKey(key)
+				if err != nil {
+					return nil
+				}
 			} else if IsKey(key, AppConfig.Keymap.Global.CyclePages) {
 				a.switchToPage((a.currentPageIndex + 1) % len(a.pages))
 			} else if IsKey(key, AppConfig.Keymap.Global.SwitchToPlayer) {
