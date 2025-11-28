@@ -118,6 +118,10 @@ var specialKeyMap = map[string]rune{
 	"arrowdown":  KeyArrowDown,
 	"arrowleft":  KeyArrowLeft,
 	"arrowright": KeyArrowRight,
+	"up":         KeyArrowUp,
+	"down":       KeyArrowDown,
+	"left":       KeyArrowLeft,
+	"right":      KeyArrowRight,
 }
 
 // stringToRune converts a key string from the config to its corresponding rune.
@@ -158,10 +162,10 @@ func getDefaultConfig() *Config {
 				Reset:           Key{"backspace"},
 			},
 			Library: LibraryKeymap{
-				NavUp:           Key{"k", "w", "arrowup"},
-				NavDown:         Key{"j", "s", "arrowdown"},
-				NavEnterDir:     Key{"l", "d", "arrowright"},
-				NavExitDir:      Key{"h", "a", "arrowleft"},
+				NavUp:           Key{"k", "w", "up"},
+				NavDown:         Key{"j", "s", "down"},
+				NavEnterDir:     Key{"l", "d", "right"},
+				NavExitDir:      Key{"h", "a", "left"},
 				ToggleSelect:    Key{"space"},
 				ToggleSelectAll: Key{"e"},
 				Search:          Key{"f"},
@@ -172,8 +176,8 @@ func getDefaultConfig() *Config {
 				},
 			},
 			Playlist: PlaylistKeymap{
-				NavUp:      Key{"k", "w", "arrowup"},
-				NavDown:    Key{"j", "s", "arrowdown"},
+				NavUp:      Key{"k", "w", "up"},
+				NavDown:    Key{"j", "s", "down"},
 				RemoveSong: Key{"space"},
 				PlaySong:   Key{"enter"},
 				Search:     Key{"f"},
