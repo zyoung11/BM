@@ -337,7 +337,16 @@ func (a *App) Run() error {
 		case key := <-keyCh:
 			// Global keybindings
 			if IsKey(key, AppConfig.Keymap.Global.Quit) {
-				return nil // Exit the application
+				// Check if we're in search mode in any page
+				if isInSearchMode(currentPage) {
+					// In search mode, let the page handle ESC key
+					_, err := currentPage.HandleKey(key)
+					if err != nil {
+						return nil
+					}
+				} else {
+					return nil // Exit the application
+				}
 			} else if IsKey(key, AppConfig.Keymap.Global.CyclePages) {
 				a.switchToPage((a.currentPageIndex + 1) % len(a.pages))
 			} else if IsKey(key, AppConfig.Keymap.Global.SwitchToPlayer) {
@@ -367,6 +376,19 @@ func (a *App) Run() error {
 			currentPage.Tick()
 		}
 	}
+}
+
+// isInSearchMode checks if the current page is in search mode
+func isInSearchMode(page Page) bool {
+	// Check for Library page in search mode
+	if lib, ok := page.(*Library); ok {
+		return lib.isSearching || lib.searchQuery != ""
+	}
+	// Check for Playlist page in search mode
+	if pl, ok := page.(*PlayList); ok {
+		return pl.isSearching || pl.searchQuery != ""
+	}
+	return false
 }
 
 func main() {
