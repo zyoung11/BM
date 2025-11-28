@@ -55,32 +55,32 @@ type GlobalKeymap struct {
 
 // PlayerKeymap holds keybindings specific to the Player page.
 type PlayerKeymap struct {
-	TogglePause   Key `toml:"TogglePause"`
-	SeekForward   Key `toml:"SeekForward"`
-	SeekBackward  Key `toml:"SeekBackward"`
-	VolumeUp      Key `toml:"VolumeUp"`
-	VolumeDown    Key `toml:"VolumeDown"`
-	RateUp        Key `toml:"RateUp"`
-	RateDown      Key `toml:"RateDown"`
-	NextSong      Key `toml:"NextSong"`
-	PrevSong      Key `toml:"PrevSong"`
-	TogglePlayMode Key `toml:"TogglePlayMode"`
+	TogglePause     Key `toml:"TogglePause"`
+	SeekForward     Key `toml:"SeekForward"`
+	SeekBackward    Key `toml:"SeekBackward"`
+	VolumeUp        Key `toml:"VolumeUp"`
+	VolumeDown      Key `toml:"VolumeDown"`
+	RateUp          Key `toml:"RateUp"`
+	RateDown        Key `toml:"RateDown"`
+	NextSong        Key `toml:"NextSong"`
+	PrevSong        Key `toml:"PrevSong"`
+	TogglePlayMode  Key `toml:"TogglePlayMode"`
 	ToggleTextColor Key `toml:"ToggleTextColor"`
-	Reset         Key `toml:"Reset"`
+	Reset           Key `toml:"Reset"`
 }
 
 // LibraryKeymap holds keybindings for the Library page.
 type LibraryKeymap struct {
-	NavUp             Key `toml:"NavUp"`
-	NavDown           Key `toml:"NavDown"`
-	NavEnterDir       Key `toml:"NavEnterDir"`
-	NavExitDir        Key `toml:"NavExitDir"`
-	ToggleSelect      Key `toml:"ToggleSelect"`
-	ToggleSelectAll   Key `toml:"ToggleSelectAll"`
-	Search            Key `toml:"Search"`
-	ConfirmSearch     Key `toml:"ConfirmSearch"`
-	EscapeSearch      Key `toml:"EscapeSearch"` // Handles both exiting search input and clearing search results
-	SearchBackspace   Key `toml:"SearchBackspace"`
+	NavUp           Key `toml:"NavUp"`
+	NavDown         Key `toml:"NavDown"`
+	NavEnterDir     Key `toml:"NavEnterDir"`
+	NavExitDir      Key `toml:"NavExitDir"`
+	ToggleSelect    Key `toml:"ToggleSelect"`
+	ToggleSelectAll Key `toml:"ToggleSelectAll"`
+	Search          Key `toml:"Search"`
+	ConfirmSearch   Key `toml:"ConfirmSearch"`
+	EscapeSearch    Key `toml:"EscapeSearch"` // Handles both exiting search input and clearing search results
+	SearchBackspace Key `toml:"SearchBackspace"`
 }
 
 // PlaylistKeymap holds keybindings for the Playlist page.
@@ -90,7 +90,8 @@ type PlaylistKeymap struct {
 	RemoveSong      Key `toml:"RemoveSong"`
 	PlaySong        Key `toml:"PlaySong"`
 	Search          Key `toml:"Search"`
-	EscapeSearch    Key `toml:"EscapeSearch"` // Handles both exiting search input and clearing search results
+	ConfirmSearch   Key `toml:"ConfirmSearch"` // Exit search input mode
+	EscapeSearch    Key `toml:"EscapeSearch"`  // Handles both exiting search input and clearing search results
 	SearchBackspace Key `toml:"SearchBackspace"`
 }
 
@@ -134,30 +135,30 @@ func getDefaultConfig() *Config {
 				SwitchToLibrary:  Key{"3"},
 			},
 			Player: PlayerKeymap{
-				TogglePause:   Key{"space"},
-				SeekForward:   Key{"e"},
-				SeekBackward:  Key{"q"},
-				VolumeUp:      Key{"w"},
-				VolumeDown:    Key{"s"},
-				RateUp:        Key{"x"},
-				RateDown:      Key{"z"},
-				NextSong:      Key{"d"},
-				PrevSong:      Key{"a"},
-				TogglePlayMode: Key{"r"},
+				TogglePause:     Key{"space"},
+				SeekForward:     Key{"e"},
+				SeekBackward:    Key{"q"},
+				VolumeUp:        Key{"w"},
+				VolumeDown:      Key{"s"},
+				RateUp:          Key{"x"},
+				RateDown:        Key{"z"},
+				NextSong:        Key{"d"},
+				PrevSong:        Key{"a"},
+				TogglePlayMode:  Key{"r"},
 				ToggleTextColor: Key{"c"},
-				Reset:         Key{"backspace"},
+				Reset:           Key{"backspace"},
 			},
 			Library: LibraryKeymap{
-				NavUp:             Key{"k", "w", "arrowup"},
-				NavDown:           Key{"j", "s", "arrowdown"},
-				NavEnterDir:       Key{"l", "d", "arrowright"},
-				NavExitDir:        Key{"h", "a", "arrowleft"},
-				ToggleSelect:      Key{"space"},
-				ToggleSelectAll:   Key{"e"},
-				Search:            Key{"f"},
-				ConfirmSearch:     Key{"enter"},
-				EscapeSearch:      Key{"esc"}, // Consolidated escape/clear search
-				SearchBackspace:   Key{"backspace"},
+				NavUp:           Key{"k", "w", "arrowup"},
+				NavDown:         Key{"j", "s", "arrowdown"},
+				NavEnterDir:     Key{"l", "d", "arrowright"},
+				NavExitDir:      Key{"h", "a", "arrowleft"},
+				ToggleSelect:    Key{"space"},
+				ToggleSelectAll: Key{"e"},
+				Search:          Key{"f"},
+				ConfirmSearch:   Key{"enter"},
+				EscapeSearch:    Key{"esc"}, // Consolidated escape/clear search
+				SearchBackspace: Key{"backspace"},
 			},
 			Playlist: PlaylistKeymap{
 				NavUp:           Key{"k", "w", "arrowup"},
@@ -165,7 +166,8 @@ func getDefaultConfig() *Config {
 				RemoveSong:      Key{"space"},
 				PlaySong:        Key{"enter"},
 				Search:          Key{"f"},
-				EscapeSearch:    Key{"esc"}, // Consolidated escape/clear search
+				ConfirmSearch:   Key{"enter"}, // Exit search input mode
+				EscapeSearch:    Key{"esc"},   // Consolidated escape/clear search
 				SearchBackspace: Key{"backspace"},
 			},
 		},
@@ -185,8 +187,8 @@ func LoadConfig() error {
 	}
 
 	configFile := filepath.Join(configPath, "config.toml")
-	
-defaultConf := getDefaultConfig()
+
+	defaultConf := getDefaultConfig()
 
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
 		// File does not exist, create it with default config
@@ -225,13 +227,19 @@ func validateKeymap(keymap Keymap) error {
 		for j := 0; j < v.NumField(); j++ {
 			field := v.Field(j)
 			fieldName := t.Field(j).Name
-			
+
 			if keys, ok := field.Interface().(Key); ok {
 				for _, keyStr := range keys {
 					r, err := stringToRune(keyStr)
 					if err != nil {
 						return fmt.Errorf("invalid key '%s' in [%s] %s", keyStr, pageNames[i], fieldName)
 					}
+
+					// Allow certain keys to be used in different modes
+					if isAllowedKeyConflict(pageNames[i], fieldName, r, assignedKeys) {
+						continue
+					}
+
 					if existing, duplicated := assignedKeys[r]; duplicated {
 						return fmt.Errorf("key conflict in [%s]: key '%s' is assigned to both '%s' and '%s'", pageNames[i], keyStr, existing, fieldName)
 					}
@@ -241,6 +249,27 @@ func validateKeymap(keymap Keymap) error {
 		}
 	}
 	return nil
+}
+
+// isAllowedKeyConflict checks if a key conflict should be allowed
+// This handles cases where the same key is used in different modes (e.g., search vs normal)
+func isAllowedKeyConflict(pageName, fieldName string, key rune, assignedKeys map[rune]string) bool {
+	// In Playlist page, allow Enter key to be used for both PlaySong and ConfirmSearch
+	// This is because they are used in different modes (search vs normal)
+	if pageName == "Playlist" && key == KeyEnter {
+		if fieldName == "ConfirmSearch" || fieldName == "PlaySong" {
+			return true
+		}
+	}
+
+	// In Library page, allow Enter key to be used for both NavEnterDir and ConfirmSearch
+	if pageName == "Library" && key == KeyEnter {
+		if fieldName == "ConfirmSearch" || fieldName == "NavEnterDir" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // IsKey checks if the given rune matches any of the keys for the given action.
