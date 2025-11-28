@@ -304,57 +304,75 @@ func (a *App) Run() error {
 
 	keyCh := make(chan rune)
 	go func() {
-		reader := bufio.NewReader(os.Stdin)
+		// This inner goroutine just reads runes and puts them on a channel.
+		// This decouples raw reading from the more complex logic of parsing escape sequences.
+		keys := make(chan rune)
+		go func() {
+			reader := bufio.NewReader(os.Stdin)
+			for {
+				r, _, err := reader.ReadRune()
+				if err != nil {
+					close(keys)
+					return
+				}
+				keys <- r
+			}
+		}()
+
 		for {
-			r, _, err := reader.ReadRune()
-			if err != nil {
+			// Wait for a rune to arrive
+			r, ok := <-keys
+			if !ok {
 				return
 			}
 
-			// Handle escape sequences for arrow keys
-			if r == '\x1b' {
-				// Read the next character to check if it's an escape sequence
-				next, err := reader.ReadByte()
-				if err != nil {
-					keyCh <- r // Just send the escape key
-					continue
-				}
-
-				if next == '[' {
-					// Read the third character
-					third, err := reader.ReadByte()
-					if err != nil {
-						keyCh <- r
-						continue
-					}
-
-					switch third {
-					case 'A':
-						keyCh <- KeyArrowUp
-					case 'B':
-						keyCh <- KeyArrowDown
-					case 'C':
-						keyCh <- KeyArrowRight
-					case 'D':
-						keyCh <- KeyArrowLeft
-					default:
-						keyCh <- r // Unknown escape sequence
-					}
-				} else {
-					// Not an arrow key sequence, put the byte back and send escape
-					reader.UnreadByte()
-					keyCh <- r
-				}
-			} else {
-				// Handle regular keys
+			// If it's not an escape character, we process it directly.
+			if r != '\x1b' {
 				switch r {
-				case '\r', '\n': // Handle Enter (CR and LF)
+				case '\r', '\n':
 					keyCh <- KeyEnter
-				case 8, 127: // Handle Backspace (ASCII 8 and 127)
+				case 8, 127:
 					keyCh <- KeyBackspace
 				default:
 					keyCh <- r
 				}
+				continue // Go back to waiting for the next rune
+			}
+
+			// It IS an escape character. Now we use a timeout to see if more characters follow.
+			select {
+			case nextRune := <-keys:
+				// Another character arrived quickly. It's a sequence.
+				if nextRune == '[' {
+					// This is likely an arrow key sequence. We need one more character.
+					select {
+					case finalRune := <-keys:
+						switch finalRune {
+						case 'A':
+							keyCh <- KeyArrowUp
+						case 'B':
+							keyCh <- KeyArrowDown
+						case 'C':
+							keyCh <- KeyArrowRight
+						case 'D':
+							keyCh <- KeyArrowLeft
+						default:
+							// Unknown CSI sequence. We can just send the original escape.
+							keyCh <- r
+						}
+					case <-time.After(25 * time.Millisecond):
+						// Incomplete sequence (e.g., just '\x1b['). Send original escape.
+						keyCh <- r
+					}
+				} else {
+					// It's some other sequence, like Alt+key, which often sends '\x1b' then the key.
+					// We'll treat it as two separate key presses.
+					keyCh <- r        // The ESC
+					keyCh <- nextRune // The key that followed
+				}
+			case <-time.After(25 * time.Millisecond):
+				// Nothing followed the escape character. It was a standalone ESC press.
+				keyCh <- r
 			}
 		}
 	}()
@@ -381,6 +399,7 @@ func (a *App) Run() error {
 					if err != nil {
 						return nil
 					}
+					currentPage.View()
 				} else {
 					return nil // Exit the application
 				}
@@ -391,6 +410,7 @@ func (a *App) Run() error {
 				if err != nil {
 					return nil
 				}
+				currentPage.View()
 			} else if IsKey(key, AppConfig.Keymap.Global.CyclePages) {
 				a.switchToPage((a.currentPageIndex + 1) % len(a.pages))
 			} else if IsKey(key, AppConfig.Keymap.Global.SwitchToPlayer) {
@@ -406,6 +426,7 @@ func (a *App) Run() error {
 					// Specific error checks can be done here if needed
 					return nil // Assume any error from HandleKey means quit
 				}
+				currentPage.View()
 			}
 
 		case sig := <-sigCh:

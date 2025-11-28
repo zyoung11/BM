@@ -93,6 +93,8 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 			p.isSearching = false // Exit input mode, keeping the search results
 		} else if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
 			p.isSearching = false
+			p.searchQuery = ""
+			p.filterPlaylist()
 		} else if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.SearchBackspace) {
 			if len(p.searchQuery) > 0 {
 				runes := []rune(p.searchQuery)
