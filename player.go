@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -90,20 +89,35 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 	mprisServer := p.app.mprisServer
 	needsRedraw := true // Most keys will need a status update
 
-	switch key {
-	case '\x1b': // ESC to quit
-		return nil, errors.New("user quit") // Signal to the main loop to exit
-	case 'q', 'e': // Seek
+	if player == nil {
+		// If there is no player, don't handle any keys
+		return nil, nil
+	}
+
+	// Player-specific keybindings
+	if IsKey(key, AppConfig.Keymap.Player.TogglePause) {
 		speaker.Lock()
-		newPos := player.streamer.Position()
-		if key == 'q' { // seek backward
-			newPos -= player.sampleRate.N(time.Second * 5)
-		} else { // 'e', seek forward
-			newPos += player.sampleRate.N(time.Second * 5)
+		player.ctrl.Paused = !player.ctrl.Paused
+		speaker.Unlock()
+		if mprisServer != nil {
+			mprisServer.UpdatePlaybackStatus(!player.ctrl.Paused)
 		}
+	} else if IsKey(key, AppConfig.Keymap.Player.SeekBackward) {
+		speaker.Lock()
+		newPos := player.streamer.Position() - player.sampleRate.N(time.Second*5)
 		if newPos < 0 {
 			newPos = 0
 		}
+		if err := player.streamer.Seek(newPos); err != nil {
+			// ignore seek errors
+		}
+		speaker.Unlock()
+		if mprisServer != nil {
+			mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
+		}
+	} else if IsKey(key, AppConfig.Keymap.Player.SeekForward) {
+		speaker.Lock()
+		newPos := player.streamer.Position() + player.sampleRate.N(time.Second*5)
 		if newPos >= player.streamer.Len() {
 			newPos = player.streamer.Len() - 1
 		}
@@ -114,88 +128,70 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 		if mprisServer != nil {
 			mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
 		}
-	case 's', 'w': // Volume
+	} else if IsKey(key, AppConfig.Keymap.Player.VolumeDown) {
 		p.volumeDisplayTimer = 10 // Show volume indicator
 		speaker.Lock()
-		if player != nil {
-			if key == 's' { // volume down
-				p.app.linearVolume -= 0.05
-			} else { // 'w', volume up
-				p.app.linearVolume += 0.05
-			}
-
-			// Clamp linearVolume between 0.0 and 1.0
-			p.app.linearVolume = min(max(p.app.linearVolume, 0.0), 1.0)
-
-			// Update beep's exponential volume from the linear value
-			if p.app.linearVolume == 0 {
-				p.app.volume = -10 // Use a large negative value for silence
-			} else {
-				p.app.volume = math.Log2(p.app.linearVolume)
-			}
-			player.volume.Volume = p.app.volume
+		p.app.linearVolume = max(p.app.linearVolume-0.05, 0.0)
+		p.app.volume = math.Log2(p.app.linearVolume)
+		if p.app.linearVolume == 0 {
+			p.app.volume = -10
 		}
+		player.volume.Volume = p.app.volume
 		speaker.Unlock()
 		if mprisServer != nil {
 			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
-			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-				"Volume": volume.Value(),
-			})
+			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Volume": volume.Value()})
 		}
-	case ' ':
+	} else if IsKey(key, AppConfig.Keymap.Player.VolumeUp) {
+		p.volumeDisplayTimer = 10 // Show volume indicator
 		speaker.Lock()
-		player.ctrl.Paused = !player.ctrl.Paused
+		p.app.linearVolume = min(p.app.linearVolume+0.05, 1.0)
+		p.app.volume = math.Log2(p.app.linearVolume)
+		player.volume.Volume = p.app.volume
 		speaker.Unlock()
 		if mprisServer != nil {
-			mprisServer.UpdatePlaybackStatus(!player.ctrl.Paused)
+			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
+			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Volume": volume.Value()})
 		}
-
-	case 'z', 'x': // Rate change
+	} else if IsKey(key, AppConfig.Keymap.Player.RateDown) {
 		p.rateDisplayTimer = 10 // Show rate indicator
 		speaker.Lock()
-		ratio := player.resampler.Ratio()
-		if key == 'z' {
-			ratio -= 0.05
-		} else {
-			ratio += 0.05
-		}
+		ratio := player.resampler.Ratio() - 0.05
 		player.resampler.SetRatio(min(max(ratio, 0.1), 4.0))
-		// 更新保存的播放速度设置
 		p.app.playbackRate = player.resampler.Ratio()
 		speaker.Unlock()
 		if mprisServer != nil {
 			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
-			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-				"Rate": rate.Value(),
-			})
+			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Rate": rate.Value()})
 		}
-
-	case 'c': // Toggle color
-		p.useCoverColor = !p.useCoverColor
-
-	case 'a': // Previous song
+	} else if IsKey(key, AppConfig.Keymap.Player.RateUp) {
+		p.rateDisplayTimer = 10 // Show rate indicator
+		speaker.Lock()
+		ratio := player.resampler.Ratio() + 0.05
+		player.resampler.SetRatio(min(max(ratio, 0.1), 4.0))
+		p.app.playbackRate = player.resampler.Ratio()
+		speaker.Unlock()
+		if mprisServer != nil {
+			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
+			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Rate": rate.Value()})
+		}
+	} else if IsKey(key, AppConfig.Keymap.Player.PrevSong) {
 		p.playPreviousSong()
-
-	case 'd': // Next song
+	} else if IsKey(key, AppConfig.Keymap.Player.NextSong) {
 		p.playNextSong()
-
-	case 'r': // Toggle play mode
+	} else if IsKey(key, AppConfig.Keymap.Player.TogglePlayMode) {
 		p.app.playMode = (p.app.playMode + 1) % 3
-
-	case KeyBackspace: // Backspace - reset volume and speed
+	} else if IsKey(key, AppConfig.Keymap.Player.ToggleTextColor) {
+		p.useCoverColor = !p.useCoverColor
+	} else if IsKey(key, AppConfig.Keymap.Player.Reset) {
 		p.volumeDisplayTimer = 10
 		p.rateDisplayTimer = 10
 		speaker.Lock()
-		if player != nil {
-			// 重置音量
-			p.app.linearVolume = 1.0
-			p.app.volume = 0
-			player.volume.Volume = 0
-			// 重置播放速度到1.0
-			player.resampler.SetRatio(1.0)
-			// 更新保存的设置
-			p.app.playbackRate = 1.0
-		}
+		p.app.linearVolume = 1.0
+		p.app.volume = 0
+		player.volume.Volume = 0
+		player.resampler.SetRatio(1.0)
+		p.app.playbackRate = 1.0
 		speaker.Unlock()
 		if mprisServer != nil {
 			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
@@ -205,8 +201,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 				"Rate":   rate.Value(),
 			})
 		}
-
-	default:
+	} else {
 		needsRedraw = false // Unhandled keys don't need a redraw
 	}
 
