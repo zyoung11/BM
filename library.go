@@ -184,13 +184,13 @@ func (p *Library) Init() {
 
 // handleSearchInput handles keystrokes when in search input mode.
 func (p *Library) handleSearchInput(key rune) {
-	if IsKey(key, AppConfig.Keymap.Library.ConfirmSearch) {
+	if IsKey(key, AppConfig.Keymap.Library.SearchMode.ConfirmSearch) {
 		p.isSearching = false // Exit input mode, keeping the search results
-	} else if IsKey(key, AppConfig.Keymap.Library.EscapeSearch) {
+	} else if IsKey(key, AppConfig.Keymap.Library.SearchMode.EscapeSearch) {
 		p.isSearching = false // Exit input mode
 		p.searchQuery = ""    // Also clear the search query
 		p.filterSongs()
-	} else if IsKey(key, AppConfig.Keymap.Library.SearchBackspace) {
+	} else if IsKey(key, AppConfig.Keymap.Library.SearchMode.SearchBackspace) {
 		if len(p.searchQuery) > 0 {
 			runes := []rune(p.searchQuery)
 			p.searchQuery = string(runes[:len(runes)-1])
@@ -253,7 +253,7 @@ func (p *Library) handleDirViewInput(key rune) (Page, error) {
 
 // handleSearchViewInput handles keystrokes for the search results view.
 func (p *Library) handleSearchViewInput(key rune) (Page, error) {
-	if IsKey(key, AppConfig.Keymap.Library.EscapeSearch) {
+	if IsKey(key, AppConfig.Keymap.Library.SearchMode.EscapeSearch) {
 		p.searchQuery = "" // Clear search
 		p.filterSongs()
 	} else if IsKey(key, AppConfig.Keymap.Library.Search) {
@@ -283,7 +283,8 @@ func (p *Library) handleSearchViewInput(key rune) (Page, error) {
 				if len(songsInDir) > 0 {
 					for _, songPath := range songsInDir {
 						if !p.selected[songPath] {
-							allSelected = false; break
+							allSelected = false
+							break
 						}
 					}
 				} else {
@@ -291,9 +292,13 @@ func (p *Library) handleSearchViewInput(key rune) (Page, error) {
 				}
 				for _, songPath := range songsInDir {
 					if allSelected {
-						if p.selected[songPath] { p.toggleSelection(songPath) }
+						if p.selected[songPath] {
+							p.toggleSelection(songPath)
+						}
 					} else {
-						if !p.selected[songPath] { p.toggleSelection(songPath) }
+						if !p.selected[songPath] {
+							p.toggleSelection(songPath)
+						}
 					}
 				}
 			} else {
