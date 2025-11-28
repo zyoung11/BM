@@ -115,6 +115,11 @@ type App struct {
 	linearVolume     float64     // 0.0 to 1.0 linear volume for display
 	playbackRate     float64     // 保存的播放速度设置
 	actionQueue      chan func() // Action queue for thread-safe UI updates
+
+	// 播放历史记录
+	playHistory         []string // 播放历史记录，最多100条
+	historyIndex        int      // 当前在历史记录中的位置
+	isNavigatingHistory bool     // 是否正在历史记录中导航
 }
 
 // Page defines the interface for a TUI page.
@@ -203,6 +208,9 @@ func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 	a.currentSongPath = songPath
 	speaker.Unlock()
 
+	// 记录播放历史
+	a.addToPlayHistory(songPath)
+
 	// 开始播放
 	speaker.Play(a.player.volume)
 
@@ -228,6 +236,28 @@ func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 	}
 
 	return nil
+}
+
+// addToPlayHistory 添加歌曲到播放历史记录
+func (a *App) addToPlayHistory(songPath string) {
+	// 如果当前在历史记录中间位置，删除当前位置之后的所有记录
+	if a.historyIndex < len(a.playHistory)-1 {
+		a.playHistory = a.playHistory[:a.historyIndex+1]
+	}
+
+	// 添加新记录
+	a.playHistory = append(a.playHistory, songPath)
+
+	// 限制历史记录最多100条
+	if len(a.playHistory) > 100 {
+		a.playHistory = a.playHistory[1:]
+	}
+
+	// 更新历史索引到最新位置
+	a.historyIndex = len(a.playHistory) - 1
+
+	// 添加新记录时，重置导航标志（表示用户开始新的播放路径）
+	a.isNavigatingHistory = false
 }
 
 // NextSong 切换到下一首歌曲
@@ -366,15 +396,18 @@ func main() {
 	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
 
 	app := &App{
-		player:           nil, // 延迟初始化
-		mprisServer:      nil, // 延迟初始化
-		currentPageIndex: 2,   // 默认显示Library页面
-		Playlist:         make([]string, 0),
-		playMode:         0,                     // 默认单曲循环
-		volume:           0,                     // 默认音量0（100%）
-		linearVolume:     1.0,                   // 默认线性音量1.0（100%）
-		playbackRate:     1.0,                   // 默认播放速度1.0
-		actionQueue:      make(chan func(), 10), // Initialize the action queue
+		player:              nil, // 延迟初始化
+		mprisServer:         nil, // 延迟初始化
+		currentPageIndex:    2,   // 默认显示Library页面
+		Playlist:            make([]string, 0),
+		playMode:            0,                     // 默认单曲循环
+		volume:              0,                     // 默认音量0（100%）
+		linearVolume:        1.0,                   // 默认线性音量1.0（100%）
+		playbackRate:        1.0,                   // 默认播放速度1.0
+		actionQueue:         make(chan func(), 10), // Initialize the action queue
+		playHistory:         make([]string, 0),     // 初始化播放历史记录
+		historyIndex:        -1,                    // 初始历史索引
+		isNavigatingHistory: false,                 // 初始不在历史记录导航中
 	}
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH) // 空的初始路径
