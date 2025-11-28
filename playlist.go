@@ -89,11 +89,11 @@ func (p *PlayList) filterPlaylist() {
 // HandleKey handles user input for the playlist.
 func (p *PlayList) HandleKey(key rune) (Page, error) {
 	if p.isSearching {
-		if IsKey(key, AppConfig.Keymap.Playlist.ConfirmSearch) {
+		if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.ConfirmSearch) {
 			p.isSearching = false // Exit input mode, keeping the search results
-		} else if IsKey(key, AppConfig.Keymap.Playlist.EscapeSearch) {
+		} else if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
 			p.isSearching = false
-		} else if IsKey(key, AppConfig.Keymap.Playlist.SearchBackspace) {
+		} else if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.SearchBackspace) {
 			if len(p.searchQuery) > 0 {
 				runes := []rune(p.searchQuery)
 				p.searchQuery = string(runes[:len(runes)-1])
@@ -111,7 +111,7 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 
 	// Not in search input mode
 	needRedraw := true
-	if IsKey(key, AppConfig.Keymap.Playlist.EscapeSearch) {
+	if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
 		if p.searchQuery != "" { // If there's an active search, clear it
 			p.searchQuery = ""
 			p.filterPlaylist()
