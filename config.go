@@ -71,6 +71,7 @@ type PlayerKeymap struct {
 
 // LibraryKeymap holds keybindings for the Library page.
 type LibraryKeymap struct {
+	// Normal mode keybindings
 	NavUp           Key `toml:"NavUp"`
 	NavDown         Key `toml:"NavDown"`
 	NavEnterDir     Key `toml:"NavEnterDir"`
@@ -78,21 +79,29 @@ type LibraryKeymap struct {
 	ToggleSelect    Key `toml:"ToggleSelect"`
 	ToggleSelectAll Key `toml:"ToggleSelectAll"`
 	Search          Key `toml:"Search"`
+
+	// Search mode keybindings
+	SearchMode SearchModeKeymap `toml:"SearchMode"`
+}
+
+// SearchModeKeymap holds keybindings specific to search mode.
+type SearchModeKeymap struct {
 	ConfirmSearch   Key `toml:"ConfirmSearch"`
-	EscapeSearch    Key `toml:"EscapeSearch"` // Handles both exiting search input and clearing search results
+	EscapeSearch    Key `toml:"EscapeSearch"`
 	SearchBackspace Key `toml:"SearchBackspace"`
 }
 
 // PlaylistKeymap holds keybindings for the Playlist page.
 type PlaylistKeymap struct {
-	NavUp           Key `toml:"NavUp"`
-	NavDown         Key `toml:"NavDown"`
-	RemoveSong      Key `toml:"RemoveSong"`
-	PlaySong        Key `toml:"PlaySong"`
-	Search          Key `toml:"Search"`
-	ConfirmSearch   Key `toml:"ConfirmSearch"` // Exit search input mode
-	EscapeSearch    Key `toml:"EscapeSearch"`  // Handles both exiting search input and clearing search results
-	SearchBackspace Key `toml:"SearchBackspace"`
+	// Normal mode keybindings
+	NavUp      Key `toml:"NavUp"`
+	NavDown    Key `toml:"NavDown"`
+	RemoveSong Key `toml:"RemoveSong"`
+	PlaySong   Key `toml:"PlaySong"`
+	Search     Key `toml:"Search"`
+
+	// Search mode keybindings
+	SearchMode SearchModeKeymap `toml:"SearchMode"`
 }
 
 // AppConfig is the global configuration instance.
@@ -156,19 +165,23 @@ func getDefaultConfig() *Config {
 				ToggleSelect:    Key{"space"},
 				ToggleSelectAll: Key{"e"},
 				Search:          Key{"f"},
-				ConfirmSearch:   Key{"enter"},
-				EscapeSearch:    Key{"esc"}, // Consolidated escape/clear search
-				SearchBackspace: Key{"backspace"},
+				SearchMode: SearchModeKeymap{
+					ConfirmSearch:   Key{"enter"},
+					EscapeSearch:    Key{"esc"}, // Consolidated escape/clear search
+					SearchBackspace: Key{"backspace"},
+				},
 			},
 			Playlist: PlaylistKeymap{
-				NavUp:           Key{"k", "w", "arrowup"},
-				NavDown:         Key{"j", "s", "arrowdown"},
-				RemoveSong:      Key{"space"},
-				PlaySong:        Key{"enter"},
-				Search:          Key{"f"},
-				ConfirmSearch:   Key{"enter"}, // Exit search input mode
-				EscapeSearch:    Key{"esc"},   // Consolidated escape/clear search
-				SearchBackspace: Key{"backspace"},
+				NavUp:      Key{"k", "w", "arrowup"},
+				NavDown:    Key{"j", "s", "arrowdown"},
+				RemoveSong: Key{"space"},
+				PlaySong:   Key{"enter"},
+				Search:     Key{"f"},
+				SearchMode: SearchModeKeymap{
+					ConfirmSearch:   Key{"enter"}, // Exit search input mode
+					EscapeSearch:    Key{"esc"},   // Consolidated escape/clear search
+					SearchBackspace: Key{"backspace"},
+				},
 			},
 		},
 	}
@@ -220,7 +233,10 @@ func validateKeymap(keymap Keymap) error {
 	pageNames := []string{"Global", "Player", "Library", "Playlist"}
 
 	for i, page := range pages {
-		assignedKeys := make(map[rune]string)
+		// Separate maps for normal mode and search mode
+		normalModeKeys := make(map[rune]string)
+		searchModeKeys := make(map[rune]string)
+
 		v := reflect.ValueOf(page)
 		t := v.Type()
 
@@ -229,47 +245,45 @@ func validateKeymap(keymap Keymap) error {
 			fieldName := t.Field(j).Name
 
 			if keys, ok := field.Interface().(Key); ok {
+				// Normal mode fields
 				for _, keyStr := range keys {
 					r, err := stringToRune(keyStr)
 					if err != nil {
 						return fmt.Errorf("invalid key '%s' in [%s] %s", keyStr, pageNames[i], fieldName)
 					}
 
-					// Allow certain keys to be used in different modes
-					if isAllowedKeyConflict(pageNames[i], fieldName, r, assignedKeys) {
-						continue
-					}
-
-					if existing, duplicated := assignedKeys[r]; duplicated {
+					if existing, duplicated := normalModeKeys[r]; duplicated {
 						return fmt.Errorf("key conflict in [%s]: key '%s' is assigned to both '%s' and '%s'", pageNames[i], keyStr, existing, fieldName)
 					}
-					assignedKeys[r] = fieldName
+					normalModeKeys[r] = fieldName
+				}
+			} else if searchMode, ok := field.Interface().(SearchModeKeymap); ok {
+				// Search mode fields
+				searchModeV := reflect.ValueOf(searchMode)
+				searchModeT := searchModeV.Type()
+
+				for k := 0; k < searchModeV.NumField(); k++ {
+					searchField := searchModeV.Field(k)
+					searchFieldName := searchModeT.Field(k).Name
+
+					if searchKeys, ok := searchField.Interface().(Key); ok {
+						for _, keyStr := range searchKeys {
+							r, err := stringToRune(keyStr)
+							if err != nil {
+								return fmt.Errorf("invalid key '%s' in [%s] SearchMode.%s", keyStr, pageNames[i], searchFieldName)
+							}
+
+							if existing, duplicated := searchModeKeys[r]; duplicated {
+								return fmt.Errorf("key conflict in [%s] SearchMode: key '%s' is assigned to both '%s' and '%s'", pageNames[i], keyStr, existing, searchFieldName)
+							}
+							searchModeKeys[r] = searchFieldName
+						}
+					}
 				}
 			}
 		}
 	}
 	return nil
-}
-
-// isAllowedKeyConflict checks if a key conflict should be allowed
-// This handles cases where the same key is used in different modes (e.g., search vs normal)
-func isAllowedKeyConflict(pageName, fieldName string, key rune, assignedKeys map[rune]string) bool {
-	// In Playlist page, allow Enter key to be used for both PlaySong and ConfirmSearch
-	// This is because they are used in different modes (search vs normal)
-	if pageName == "Playlist" && key == KeyEnter {
-		if fieldName == "ConfirmSearch" || fieldName == "PlaySong" {
-			return true
-		}
-	}
-
-	// In Library page, allow Enter key to be used for both NavEnterDir and ConfirmSearch
-	if pageName == "Library" && key == KeyEnter {
-		if fieldName == "ConfirmSearch" || fieldName == "NavEnterDir" {
-			return true
-		}
-	}
-
-	return false
 }
 
 // IsKey checks if the given rune matches any of the keys for the given action.
