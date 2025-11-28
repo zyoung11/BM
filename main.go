@@ -335,19 +335,23 @@ func (a *App) Run() error {
 			action()
 
 		case key := <-keyCh:
-			switch key {
-			case '\t':
+			// Global keybindings
+			if IsKey(key, AppConfig.Keymap.Global.Quit) {
+				return nil // Exit the application
+			} else if IsKey(key, AppConfig.Keymap.Global.CyclePages) {
 				a.switchToPage((a.currentPageIndex + 1) % len(a.pages))
-			case '1':
+			} else if IsKey(key, AppConfig.Keymap.Global.SwitchToPlayer) {
 				a.switchToPage(0) // PlayerPage
-			case '2':
+			} else if IsKey(key, AppConfig.Keymap.Global.SwitchToPlayList) {
 				a.switchToPage(1) // PlayListPage
-			case '3':
+			} else if IsKey(key, AppConfig.Keymap.Global.SwitchToLibrary) {
 				a.switchToPage(2) // LibraryPage
-			default:
+			} else {
+				// Pass the key to the current page's handler
 				_, err := currentPage.HandleKey(key)
 				if err != nil {
-					return nil
+					// Specific error checks can be done here if needed
+					return nil // Assume any error from HandleKey means quit
 				}
 			}
 
@@ -366,6 +370,11 @@ func (a *App) Run() error {
 }
 
 func main() {
+	// Load configuration first
+	if err := LoadConfig(); err != nil {
+		log.Fatalf("Error loading configuration: %v", err)
+	}
+
 	if len(os.Args) != 2 {
 		log.Fatalf("用法: %s <music_directory>", os.Args[0])
 	}
