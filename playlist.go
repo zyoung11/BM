@@ -264,7 +264,7 @@ func (p *PlayList) View() {
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
 		if cursorX <= w {
-			fmt.Printf("\x1b[%d;%dH", h, cursorX)
+			fmt.Printf("\x1b[%d;%dH█", h, cursorX)
 		}
 	}
 
