@@ -1,13 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/flac"
@@ -15,12 +16,14 @@ import (
 	"golang.org/x/term"
 )
 
-// fuzzyMatch performs a case-insensitive fuzzy search.
+// fuzzyMatch performs a case-insensitive fuzzy search with Unicode support.
 // It returns a score indicating the quality of the match (higher is better).
 // Returns 0 if no match is found.
 func fuzzyMatch(query, text string) int {
-	queryRunes := []rune(strings.ToLower(query))
-	textRunes := []rune(strings.ToLower(text))
+	// Convert both query and text to rune slices for proper Unicode handling
+	queryRunes := []rune(query)
+	textRunes := []rune(text)
+
 	if len(queryRunes) == 0 {
 		return 100 // Empty query matches everything with high score
 	}
@@ -32,7 +35,8 @@ func fuzzyMatch(query, text string) int {
 	maxConsecutive := 0
 
 	for i, textRune := range textRunes {
-		if textRune == queryRunes[queryIdx] {
+		// Use Unicode-aware case folding for case-insensitive comparison
+		if unicodeFold(textRune) == unicodeFold(queryRunes[queryIdx]) {
 			if firstMatchIndex == -1 {
 				firstMatchIndex = i
 			}
@@ -90,6 +94,17 @@ func fuzzyMatch(query, text string) int {
 	}
 
 	return score
+}
+
+// unicodeFold performs Unicode-aware case folding for case-insensitive comparison
+func unicodeFold(r rune) rune {
+	// For basic ASCII characters, use simple case conversion
+	if r >= 'A' && r <= 'Z' {
+		return r + ('a' - 'A')
+	}
+	// For non-ASCII characters, use Unicode case folding
+	// This handles characters from various languages
+	return unicode.ToLower(r)
 }
 
 // Key constants for special keys
@@ -289,16 +304,31 @@ func (a *App) Run() error {
 
 	keyCh := make(chan rune)
 	go func() {
-		buf := make([]byte, 3)
+		reader := bufio.NewReader(os.Stdin)
 		for {
-			n, err := os.Stdin.Read(buf)
+			r, _, err := reader.ReadRune()
 			if err != nil {
 				return
 			}
-			if n > 0 {
-				key := rune(buf[0])
-				if key == '\x1b' && n > 1 && buf[1] == '[' {
-					switch buf[2] {
+
+			// Handle escape sequences for arrow keys
+			if r == '\x1b' {
+				// Read the next character to check if it's an escape sequence
+				next, err := reader.ReadByte()
+				if err != nil {
+					keyCh <- r // Just send the escape key
+					continue
+				}
+
+				if next == '[' {
+					// Read the third character
+					third, err := reader.ReadByte()
+					if err != nil {
+						keyCh <- r
+						continue
+					}
+
+					switch third {
 					case 'A':
 						keyCh <- KeyArrowUp
 					case 'B':
@@ -307,16 +337,23 @@ func (a *App) Run() error {
 						keyCh <- KeyArrowRight
 					case 'D':
 						keyCh <- KeyArrowLeft
+					default:
+						keyCh <- r // Unknown escape sequence
 					}
 				} else {
-					switch key {
-					case '\r', '\n': // Handle Enter (CR and LF)
-						keyCh <- KeyEnter
-					case 8, 127: // Handle Backspace (ASCII 8 and 127)
-						keyCh <- KeyBackspace
-					default:
-						keyCh <- key
-					}
+					// Not an arrow key sequence, put the byte back and send escape
+					reader.UnreadByte()
+					keyCh <- r
+				}
+			} else {
+				// Handle regular keys
+				switch r {
+				case '\r', '\n': // Handle Enter (CR and LF)
+					keyCh <- KeyEnter
+				case 8, 127: // Handle Backspace (ASCII 8 and 127)
+					keyCh <- KeyBackspace
+				default:
+					keyCh <- r
 				}
 			}
 		}
