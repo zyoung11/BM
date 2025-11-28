@@ -99,6 +99,9 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 				p.searchQuery = string(runes[:len(runes)-1])
 				p.filterPlaylist()
 			}
+		} else if key == KeyArrowUp || key == KeyArrowDown || key == KeyArrowLeft || key == KeyArrowRight {
+			// Arrow keys confirm search and exit input mode
+			p.isSearching = false
 		} else {
 			if key >= 32 { // Allow any printable character
 				p.searchQuery += string(key)
