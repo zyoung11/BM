@@ -182,7 +182,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 	case 'r': // Toggle play mode
 		p.app.playMode = (p.app.playMode + 1) % 3
 
-	case '\x7f', '\b': // Backspace - reset volume and speed
+	case KeyBackspace: // Backspace - reset volume and speed
 		p.volumeDisplayTimer = 10
 		p.rateDisplayTimer = 10
 		speaker.Lock()
