@@ -95,14 +95,14 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 	}
 
 	// Player-specific keybindings
-	if IsKey(key, AppConfig.Keymap.Player.TogglePause) {
+	if IsKey(key, GlobalConfig.Keymap.Player.TogglePause) {
 		speaker.Lock()
 		player.ctrl.Paused = !player.ctrl.Paused
 		speaker.Unlock()
 		if mprisServer != nil {
 			mprisServer.UpdatePlaybackStatus(!player.ctrl.Paused)
 		}
-	} else if IsKey(key, AppConfig.Keymap.Player.SeekBackward) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.SeekBackward) {
 		speaker.Lock()
 		newPos := player.streamer.Position() - player.sampleRate.N(time.Second*5)
 		if newPos < 0 {
@@ -115,7 +115,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		if mprisServer != nil {
 			mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
 		}
-	} else if IsKey(key, AppConfig.Keymap.Player.SeekForward) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.SeekForward) {
 		speaker.Lock()
 		newPos := player.streamer.Position() + player.sampleRate.N(time.Second*5)
 		if newPos >= player.streamer.Len() {
@@ -128,7 +128,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		if mprisServer != nil {
 			mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
 		}
-	} else if IsKey(key, AppConfig.Keymap.Player.VolumeDown) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.VolumeDown) {
 		p.volumeDisplayTimer = 10 // Show volume indicator
 		speaker.Lock()
 		p.app.linearVolume = max(p.app.linearVolume-0.05, 0.0)
@@ -142,7 +142,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Volume": volume.Value()})
 		}
-	} else if IsKey(key, AppConfig.Keymap.Player.VolumeUp) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.VolumeUp) {
 		p.volumeDisplayTimer = 10 // Show volume indicator
 		speaker.Lock()
 		p.app.linearVolume = min(p.app.linearVolume+0.05, 1.0)
@@ -153,7 +153,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Volume": volume.Value()})
 		}
-	} else if IsKey(key, AppConfig.Keymap.Player.RateDown) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.RateDown) {
 		p.rateDisplayTimer = 10 // Show rate indicator
 		speaker.Lock()
 		ratio := player.resampler.Ratio() - 0.05
@@ -164,7 +164,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Rate": rate.Value()})
 		}
-	} else if IsKey(key, AppConfig.Keymap.Player.RateUp) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.RateUp) {
 		p.rateDisplayTimer = 10 // Show rate indicator
 		speaker.Lock()
 		ratio := player.resampler.Ratio() + 0.05
@@ -175,15 +175,15 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Rate": rate.Value()})
 		}
-	} else if IsKey(key, AppConfig.Keymap.Player.PrevSong) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.PrevSong) {
 		p.playPreviousSong()
-	} else if IsKey(key, AppConfig.Keymap.Player.NextSong) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.NextSong) {
 		p.playNextSong()
-	} else if IsKey(key, AppConfig.Keymap.Player.TogglePlayMode) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.TogglePlayMode) {
 		p.app.playMode = (p.app.playMode + 1) % 3
-	} else if IsKey(key, AppConfig.Keymap.Player.ToggleTextColor) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleTextColor) {
 		p.useCoverColor = !p.useCoverColor
-	} else if IsKey(key, AppConfig.Keymap.Player.Reset) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.Reset) {
 		p.volumeDisplayTimer = 10
 		p.rateDisplayTimer = 10
 		speaker.Lock()
@@ -327,8 +327,8 @@ func (p *PlayerPage) checkSongEndAndHandleNext() {
 
 // playNextSong 根据播放模式播放下一首歌曲（带防抖）
 func (p *PlayerPage) playNextSong() {
-	// 检查防抖期（1秒内只能切歌一次）
-	if time.Since(p.lastSwitchTime) < time.Second {
+	// 检查防抖期（使用配置的防抖时间）
+	if time.Since(p.lastSwitchTime) < time.Duration(GlobalConfig.App.SwitchDebounceMs)*time.Millisecond {
 		return // 在防抖期内，忽略切歌操作
 	}
 
@@ -436,8 +436,8 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 
 // playPreviousSong 播放上一首歌曲（带防抖）
 func (p *PlayerPage) playPreviousSong() {
-	// 检查防抖期（1秒内只能切歌一次）
-	if time.Since(p.lastSwitchTime) < time.Second {
+	// 检查防抖期（使用配置的防抖时间）
+	if time.Since(p.lastSwitchTime) < time.Duration(GlobalConfig.App.SwitchDebounceMs)*time.Millisecond {
 		return // 在防抖期内，忽略切歌操作
 	}
 

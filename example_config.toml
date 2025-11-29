@@ -1,0 +1,57 @@
+# BM 音乐播放器配置文件
+
+[app]
+# 最大历史记录数量
+max_history_size = 100
+# 切歌防抖时间（毫秒）
+switch_debounce_ms = 1000
+# 默认启动页面 (0=Player, 1=PlayList, 2=Library)
+default_page = 2
+# 默认播放模式 (0=单曲循环, 1=列表循环, 2=随机播放)
+default_play_mode = 0
+
+[keymap]
+  [keymap.global]
+    Quit = ["esc"]
+    CyclePages = ["tab"]
+    SwitchToPlayer = ["1"]
+    SwitchToPlayList = ["2"]
+    SwitchToLibrary = ["3"]
+
+  [keymap.player]
+    TogglePause = ["space"]
+    SeekForward = ["e"]
+    SeekBackward = ["q"]
+    VolumeUp = ["w"]
+    VolumeDown = ["s"]
+    RateUp = ["x"]
+    RateDown = ["z"]
+    NextSong = ["d"]
+    PrevSong = ["a"]
+    TogglePlayMode = ["r"]
+    ToggleTextColor = ["c"]
+    Reset = ["backspace"]
+
+  [keymap.library]
+    NavUp = ["k", "w", "up"]
+    NavDown = ["j", "s", "down"]
+    NavEnterDir = ["l", "d", "right"]
+    NavExitDir = ["h", "a", "left"]
+    ToggleSelect = ["space"]
+    ToggleSelectAll = ["e"]
+    Search = ["f"]
+    [keymap.library.SearchMode]
+      ConfirmSearch = ["enter"]
+      EscapeSearch = ["esc"]
+      SearchBackspace = ["backspace"]
+
+  [keymap.playlist]
+    NavUp = ["k", "w", "up"]
+    NavDown = ["j", "s", "down"]
+    RemoveSong = ["space"]
+    PlaySong = ["enter"]
+    Search = ["f"]
+    [keymap.playlist.SearchMode]
+      ConfirmSearch = ["enter"]
+      EscapeSearch = ["esc"]
+      SearchBackspace = ["backspace"]
