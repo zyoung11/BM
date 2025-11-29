@@ -21,6 +21,15 @@ default_page = 2
 # 默认值: 0 (单曲循环)
 default_play_mode = 0
 
+# 是否记录音乐库路径 - 如果为true，程序会记住上次使用的音乐库路径
+# 下次启动时如果不指定路径参数，会自动使用保存的路径
+# 默认值: true
+remember_library_path = true
+
+# 保存的音乐库路径 - 当 remember_library_path 为 true 时，程序会保存并自动使用此路径
+# 默认值: "" (空字符串)
+library_path = ""
+
 [keymap]
   # 全局快捷键 - 在所有页面都有效
   [keymap.global]
