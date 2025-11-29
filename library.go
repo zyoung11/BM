@@ -14,11 +14,18 @@ import (
 	"golang.org/x/term"
 )
 
+// LibraryEntry holds enriched information about a file or directory in the library.
+type LibraryEntry struct {
+	entry os.DirEntry
+	info  os.FileInfo
+	isDir bool // True if it's a directory or a symlink to a directory.
+}
+
 // Library browses the music directory and adds songs to the playlist.
 type Library struct {
 	app *App
 
-	entries     []os.DirEntry // All entries in the current directory
+	entries     []LibraryEntry // All entries in the current directory
 	currentPath string
 	initialPath string // The starting path provided to the application
 	cursor      int
@@ -56,14 +63,13 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 }
 
 // scanDirectory reads the contents of a directory and populates the entries list.
-// This is used for the standard directory browsing view.
 func (p *Library) scanDirectory(path string) {
 	// Save current cursor position for current path before changing
 	if p.currentPath != "" {
 		p.pathHistory[p.currentPath] = p.cursor
 	}
 
-	p.entries = make([]os.DirEntry, 0)
+	p.entries = make([]LibraryEntry, 0)
 	p.currentPath = path
 
 	// Restore cursor position if available, otherwise set to 0
@@ -79,19 +85,46 @@ func (p *Library) scanDirectory(path string) {
 	}
 
 	for _, file := range files {
-		if file.IsDir() || strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
-			p.entries = append(p.entries, file)
+		info, err := file.Info()
+		if err != nil {
+			continue // Skip files we can't get info for
+		}
+
+		isDir := info.IsDir()
+		isLink := info.Mode()&os.ModeSymlink != 0
+		isValidFlac := strings.HasSuffix(strings.ToLower(info.Name()), ".flac")
+
+		// If it's a symlink, we need to check what it points to
+		if isLink {
+			targetPath := filepath.Join(path, file.Name())
+			targetInfo, err := os.Stat(targetPath)
+			if err != nil {
+				continue // Ignore broken links
+			}
+			isDir = targetInfo.IsDir() // Update isDir based on the link's target
+			isValidFlac = strings.HasSuffix(strings.ToLower(targetInfo.Name()), ".flac")
+		}
+
+		// Add to entries if it's a directory or a valid flac file
+		if isDir || isValidFlac {
+			p.entries = append(p.entries, LibraryEntry{
+				entry: file,
+				info:  info,
+				isDir: isDir,
+			})
 		}
 	}
+
 	// Sort so directories come first, then files alphabetically
 	sort.SliceStable(p.entries, func(i, j int) bool {
-		if p.entries[i].IsDir() != p.entries[j].IsDir() {
-			return p.entries[i].IsDir()
+		if p.entries[i].isDir != p.entries[j].isDir {
+			return p.entries[i].isDir // Directories first
 		}
-		return strings.ToLower(p.entries[i].Name()) < strings.ToLower(p.entries[j].Name())
+		return strings.ToLower(p.entries[i].entry.Name()) < strings.ToLower(p.entries[j].entry.Name())
 	})
 	p.offset = 0
 }
+
 
 // ensureGlobalCache builds a cache of all .flac files and directories if it doesn't exist.
 func (p *Library) ensureGlobalCache() {
@@ -221,9 +254,9 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 			p.cursor = (p.cursor + 1) % len(p.entries)
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavEnterDir) {
-		if p.cursor < len(p.entries) && p.entries[p.cursor].IsDir() {
-			p.lastEntered = p.entries[p.cursor].Name()
-			newPath := filepath.Join(p.currentPath, p.entries[p.cursor].Name())
+		if p.cursor < len(p.entries) && p.entries[p.cursor].isDir {
+			p.lastEntered = p.entries[p.cursor].entry.Name()
+			newPath := filepath.Join(p.currentPath, p.entries[p.cursor].entry.Name())
 			p.scanDirectory(newPath)
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavExitDir) {
@@ -233,8 +266,8 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 			newPath := filepath.Dir(p.currentPath)
 			p.scanDirectory(newPath)
 			if p.lastEntered != "" {
-				for i, entry := range p.entries {
-					if entry.Name() == p.lastEntered && entry.IsDir() {
+				for i, libEntry := range p.entries {
+					if libEntry.entry.Name() == p.lastEntered && libEntry.isDir {
 						p.cursor = i
 						break
 					}
@@ -335,10 +368,10 @@ func (p *Library) HandleKey(key rune) (Page, bool, error) {
 	return page, true, err
 }
 
-// toggleSelectionForEntry handles selection logic for a DirEntry (file or dir).
-func (p *Library) toggleSelectionForEntry(entry os.DirEntry) {
-	fullPath := filepath.Join(p.currentPath, entry.Name())
-	if !entry.IsDir() {
+// toggleSelectionForEntry handles selection logic for a LibraryEntry (file or dir).
+func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
+	fullPath := filepath.Join(p.currentPath, libEntry.entry.Name())
+	if !libEntry.isDir {
 		p.toggleSelection(fullPath)
 	} else {
 		var songsInDir []string
@@ -379,9 +412,9 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 	if isSearchView {
 		allSongs = p.filteredSongPaths
 	} else {
-		for _, entry := range p.entries {
-			fullPath := filepath.Join(p.currentPath, entry.Name())
-			if !entry.IsDir() {
+		for _, libEntry := range p.entries {
+			fullPath := filepath.Join(p.currentPath, libEntry.entry.Name())
+			if !libEntry.isDir {
 				allSongs = append(allSongs, fullPath)
 			} else {
 				filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
@@ -639,9 +672,9 @@ func (p *Library) renderDirectoryListContent(w, h, listHeight, currentOffset int
 			break
 		}
 
-		entry := p.entries[entryIndex]
-		fullPath := filepath.Join(p.currentPath, entry.Name())
-		line, style := p.getDirEntryLine(entry, fullPath, entryIndex == p.cursor)
+		libEntry := p.entries[entryIndex]
+		fullPath := filepath.Join(p.currentPath, libEntry.entry.Name())
+		line, style := p.getDirEntryLine(libEntry, fullPath, entryIndex == p.cursor)
 		// Use runewidth for accurate string width calculation and truncation
 		if runewidth.StringWidth(line) > w-1 {
 			// Truncate the line to fit the terminal width
@@ -654,11 +687,17 @@ func (p *Library) renderDirectoryListContent(w, h, listHeight, currentOffset int
 }
 
 // getDirEntryLine generates the display line and style for a directory entry.
-func (p *Library) getDirEntryLine(entry os.DirEntry, fullPath string, isCursor bool) (string, string) {
+func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCursor bool) (string, string) {
 	line := ""
 	style := "\x1b[0m" // Reset
+	isLink := libEntry.info.Mode()&os.ModeSymlink != 0
+	name := libEntry.entry.Name()
 
-	if entry.IsDir() {
+	if isLink {
+		name += "@"
+	}
+
+	if libEntry.isDir {
 		// Directory-specific styling
 		isDirPartiallySelected := false
 		filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
@@ -669,18 +708,18 @@ func (p *Library) getDirEntryLine(entry os.DirEntry, fullPath string, isCursor b
 			return nil
 		})
 		if isDirPartiallySelected {
-			line = "✓ " + entry.Name() + "/"
+			line = "✓ " + name + "/"
 			style += "\x1b[32m"
 		} else {
-			line = "▸ " + entry.Name() + "/"
+			line = "▸ " + name + "/"
 		}
 	} else {
 		// File-specific styling
 		if p.selected[fullPath] {
-			line = "✓ " + entry.Name()
+			line = "✓ " + name
 			style += "\x1b[32m"
 		} else {
-			line = "  " + entry.Name()
+			line = "  " + name
 		}
 	}
 	if isCursor {
