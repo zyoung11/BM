@@ -26,6 +26,11 @@ default_play_mode = 0
 # 默认值: true
 remember_library_path = true
 
+# 是否记录播放列表 - 如果为true，程序会记录播放列表并在下次启动时加载
+# 注意: remember_library_path 也必须为 true 才能生效
+# 默认值: true
+playlist_history = true
+
 # 存储文件路径 - 用于保存用户输入的完整路径信息
 # 默认值: "~/.config/BM/storage.json"
 storage = "~/.config/BM/storage.json"

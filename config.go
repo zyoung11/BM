@@ -2,7 +2,6 @@ package main
 
 import (
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,6 +47,7 @@ type AppConfig struct {
 	DefaultPage         int    `toml:"default_page"`          // 默认启动页面
 	DefaultPlayMode     int    `toml:"default_play_mode"`     // 默认播放模式
 	RememberLibraryPath bool   `toml:"remember_library_path"` // 是否记录音乐库路径
+	PlaylistHistory     bool   `toml:"playlist_history"`      // 是否记录播放列表
 	LibraryPath         string `toml:"library_path"`          // 保存的音乐库路径
 	Storage             string `toml:"storage"`               // 存储文件路径
 }
@@ -120,11 +120,6 @@ type PlaylistKeymap struct {
 	SearchMode SearchModeKeymap `toml:"SearchMode"`
 }
 
-// StorageData holds the data stored in the storage.json file.
-type StorageData struct {
-	LibraryPath string `json:"library_path"` // 保存的完整音乐库路径
-}
-
 // GlobalConfig is the global configuration instance.
 var GlobalConfig *Config
 
@@ -195,25 +190,6 @@ func LoadConfig() error {
 	return validateKeymap(GlobalConfig.Keymap)
 }
 
-// saveLibraryPath saves the library path to the storage.json file
-func saveLibraryPath(path string) error {
-	// Load existing storage data
-	storageData, err := loadStorageData()
-	if err != nil {
-		return fmt.Errorf("could not load storage data: %v", err)
-	}
-
-	// Update the library path
-	storageData.LibraryPath = path
-
-	// Save to storage.json
-	if err := saveStorageData(storageData); err != nil {
-		return fmt.Errorf("could not save storage data: %v", err)
-	}
-
-	return nil
-}
-
 // validateKeymap checks for duplicate or invalid keybindings.
 func validateKeymap(keymap Keymap) error {
 	// Page-level validation
@@ -271,69 +247,6 @@ func validateKeymap(keymap Keymap) error {
 			}
 		}
 	}
-	return nil
-}
-
-// getStoragePath returns the absolute path to the storage file.
-func getStoragePath() (string, error) {
-	storagePath := GlobalConfig.App.Storage
-	if strings.HasPrefix(storagePath, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("could not get user home directory: %v", err)
-		}
-		storagePath = filepath.Join(home, storagePath[2:])
-	}
-	return storagePath, nil
-}
-
-// loadStorageData loads data from the storage.json file.
-func loadStorageData() (*StorageData, error) {
-	storagePath, err := getStoragePath()
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := os.Stat(storagePath); os.IsNotExist(err) {
-		// File doesn't exist, return default data
-		return &StorageData{}, nil
-	}
-
-	data, err := os.ReadFile(storagePath)
-	if err != nil {
-		return nil, fmt.Errorf("could not read storage file: %v", err)
-	}
-
-	var storageData StorageData
-	if err := json.Unmarshal(data, &storageData); err != nil {
-		return nil, fmt.Errorf("could not decode storage file: %v", err)
-	}
-
-	return &storageData, nil
-}
-
-// saveStorageData saves data to the storage.json file.
-func saveStorageData(data *StorageData) error {
-	storagePath, err := getStoragePath()
-	if err != nil {
-		return err
-	}
-
-	// Ensure the directory exists
-	dir := filepath.Dir(storagePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("could not create storage directory: %v", err)
-	}
-
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return fmt.Errorf("could not encode storage data: %v", err)
-	}
-
-	if err := os.WriteFile(storagePath, jsonData, 0644); err != nil {
-		return fmt.Errorf("could not write storage file: %v", err)
-	}
-
 	return nil
 }
 
