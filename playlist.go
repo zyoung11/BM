@@ -89,13 +89,13 @@ func (p *PlayList) filterPlaylist() {
 // HandleKey handles user input for the playlist.
 func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 	if p.isSearching {
-		if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.ConfirmSearch) {
+		if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.ConfirmSearch) {
 			p.isSearching = false // Exit input mode, keeping the search results
-		} else if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
+		} else if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
 			p.isSearching = false
 			p.searchQuery = ""
 			p.filterPlaylist()
-		} else if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.SearchBackspace) {
+		} else if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.SearchBackspace) {
 			if len(p.searchQuery) > 0 {
 				runes := []rune(p.searchQuery)
 				p.searchQuery = string(runes[:len(runes)-1])
@@ -116,14 +116,14 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 
 	// Not in search input mode
 	needRedraw := true
-	if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
+	if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
 		if p.searchQuery != "" { // If there's an active search, clear it
 			p.searchQuery = ""
 			p.filterPlaylist()
 		}
-	} else if IsKey(key, AppConfig.Keymap.Playlist.Search) {
+	} else if IsKey(key, GlobalConfig.Keymap.Playlist.Search) {
 		p.isSearching = true
-	} else if IsKey(key, AppConfig.Keymap.Playlist.PlaySong) {
+	} else if IsKey(key, GlobalConfig.Keymap.Playlist.PlaySong) {
 		if len(p.viewPlaylist) > 0 && p.cursor >= 0 && p.cursor < len(p.viewPlaylist) {
 			songPath := p.viewPlaylist[p.cursor]
 			if err := p.app.PlaySong(songPath); err != nil {
@@ -131,15 +131,15 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 			}
 		}
 		needRedraw = false // PlaySong handles redraw
-	} else if IsKey(key, AppConfig.Keymap.Playlist.NavUp) {
+	} else if IsKey(key, GlobalConfig.Keymap.Playlist.NavUp) {
 		if len(p.viewPlaylist) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.viewPlaylist)) % len(p.viewPlaylist)
 		}
-	} else if IsKey(key, AppConfig.Keymap.Playlist.NavDown) {
+	} else if IsKey(key, GlobalConfig.Keymap.Playlist.NavDown) {
 		if len(p.viewPlaylist) > 0 {
 			p.cursor = (p.cursor + 1) % len(p.viewPlaylist)
 		}
-	} else if IsKey(key, AppConfig.Keymap.Playlist.RemoveSong) {
+	} else if IsKey(key, GlobalConfig.Keymap.Playlist.RemoveSong) {
 		oldCursor := p.cursor
 		p.removeCurrentSong()
 		if oldCursor < len(p.viewPlaylist) {
