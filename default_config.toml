@@ -1,0 +1,111 @@
+# BM 音乐播放器配置文件
+# 配置文件路径: ~/.config/BM/config.toml
+# 修改配置后重启程序生效
+
+[app]
+# 最大历史记录数量 - 限制播放历史记录的最大条数
+# 默认值: 100
+max_history_size = 100
+
+# 切歌防抖时间（毫秒）- 防止快速连续切歌，避免误操作
+# 默认值: 1000 (1秒)
+switch_debounce_ms = 1000
+
+# 默认启动页面 - 程序启动时显示的页面
+# 0 = Player页面, 1 = PlayList页面, 2 = Library页面
+# 默认值: 2 (Library页面)
+default_page = 2
+
+# 默认播放模式 - 程序启动时的播放模式
+# 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放
+# 默认值: 0 (单曲循环)
+default_play_mode = 0
+
+[keymap]
+  # 全局快捷键 - 在所有页面都有效
+  [keymap.global]
+    # 退出程序
+    Quit = ["esc"]
+    # 循环切换页面
+    CyclePages = ["tab"]
+    # 切换到播放器页面
+    SwitchToPlayer = ["1"]
+    # 切换到播放列表页面
+    SwitchToPlayList = ["2"]
+    # 切换到音乐库页面
+    SwitchToLibrary = ["3"]
+
+  # 播放器页面快捷键
+  [keymap.player]
+    # 播放/暂停
+    TogglePause = ["space"]
+    # 快进5秒
+    SeekForward = ["e"]
+    # 快退5秒
+    SeekBackward = ["q"]
+    # 音量增加
+    VolumeUp = ["w"]
+    # 音量减少
+    VolumeDown = ["s"]
+    # 播放速度增加
+    RateUp = ["x"]
+    # 播放速度减少
+    RateDown = ["z"]
+    # 下一首歌曲
+    NextSong = ["d"]
+    # 上一首歌曲
+    PrevSong = ["a"]
+    # 切换播放模式
+    TogglePlayMode = ["r"]
+    # 切换文字颜色（专辑封面颜色/白色）
+    ToggleTextColor = ["c"]
+    # 重置音量和播放速度
+    Reset = ["backspace"]
+
+  # 音乐库页面快捷键
+  [keymap.library]
+    # 向上导航
+    NavUp = ["k", "w", "up"]
+    # 向下导航
+    NavDown = ["j", "s", "down"]
+    # 进入目录
+    NavEnterDir = ["l", "d", "right"]
+    # 退出目录
+    NavExitDir = ["h", "a", "left"]
+    # 切换选择当前项目
+    ToggleSelect = ["space"]
+    # 切换选择所有项目
+    ToggleSelectAll = ["e"]
+    # 进入搜索模式
+    Search = ["f"]
+    
+    # 搜索模式快捷键
+    [keymap.library.SearchMode]
+      # 确认搜索
+      ConfirmSearch = ["enter"]
+      # 退出搜索
+      EscapeSearch = ["esc"]
+      # 搜索框退格
+      SearchBackspace = ["backspace"]
+
+  # 播放列表页面快捷键
+  [keymap.playlist]
+    # 向上导航
+    NavUp = ["k", "w", "up"]
+    # 向下导航
+    NavDown = ["j", "s", "down"]
+    # 从播放列表移除歌曲
+    RemoveSong = ["space"]
+    # 播放选中的歌曲
+    PlaySong = ["enter"]
+    # 进入搜索模式
+    Search = ["f"]
+    
+    # 搜索模式快捷键
+    [keymap.playlist.SearchMode]
+      # 确认搜索
+      ConfirmSearch = ["enter"]
+      # 退出搜索
+      EscapeSearch = ["esc"]
+      # 搜索框退格
+      SearchBackspace = ["backspace"]
