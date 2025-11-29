@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	_ "embed"
 	"fmt"
 	"os"
@@ -42,10 +43,12 @@ type Config struct {
 
 // AppConfig holds application-level configuration settings.
 type AppConfig struct {
-	MaxHistorySize   int `toml:"max_history_size"`   // 最大历史记录数量
-	SwitchDebounceMs int `toml:"switch_debounce_ms"` // 切歌防抖时间（毫秒）
-	DefaultPage      int `toml:"default_page"`       // 默认启动页面
-	DefaultPlayMode  int `toml:"default_play_mode"`  // 默认播放模式
+	MaxHistorySize      int    `toml:"max_history_size"`      // 最大历史记录数量
+	SwitchDebounceMs    int    `toml:"switch_debounce_ms"`    // 切歌防抖时间（毫秒）
+	DefaultPage         int    `toml:"default_page"`          // 默认启动页面
+	DefaultPlayMode     int    `toml:"default_play_mode"`     // 默认播放模式
+	RememberLibraryPath bool   `toml:"remember_library_path"` // 是否记录音乐库路径
+	LibraryPath         string `toml:"library_path"`          // 保存的音乐库路径
 }
 
 // Keymap defines all the keybindings for the application, organized by page.
@@ -184,6 +187,37 @@ func LoadConfig() error {
 
 	// Validate the loaded keymap
 	return validateKeymap(GlobalConfig.Keymap)
+}
+
+// saveLibraryPath saves the library path to the configuration file
+func saveLibraryPath(path string) error {
+	// Update the global config
+	GlobalConfig.App.LibraryPath = path
+
+	// Get the config file path
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("could not get user home directory: %v", err)
+	}
+	configFile := filepath.Join(home, ".config", "BM", "config.toml")
+
+	// Create a buffer and encode the updated config
+	var buf bytes.Buffer
+	encoder := toml.NewEncoder(&buf)
+
+	// Use indentation for better readability
+	encoder.Indent = ""
+
+	if err := encoder.Encode(GlobalConfig); err != nil {
+		return fmt.Errorf("could not encode updated config: %v", err)
+	}
+
+	// Write the updated config back to file
+	if err := os.WriteFile(configFile, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("could not write updated config file: %v", err)
+	}
+
+	return nil
 }
 
 // validateKeymap checks for duplicate or invalid keybindings.
