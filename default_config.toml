@@ -26,9 +26,9 @@ default_play_mode = 0
 # 默认值: true
 remember_library_path = true
 
-# 保存的音乐库路径 - 当 remember_library_path 为 true 时，程序会保存并自动使用此路径
-# 默认值: "" (空字符串)
-library_path = ""
+# 存储文件路径 - 用于保存用户输入的完整路径信息
+# 默认值: "~/.config/BM/storage.json"
+storage = "~/.config/BM/storage.json"
 
 [keymap]
   # 全局快捷键 - 在所有页面都有效

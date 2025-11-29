@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 	"unicode"
@@ -499,23 +500,36 @@ func main() {
 			log.Fatalf("输入路径必须是目录，不是文件")
 		}
 
-		// 如果启用了路径记录，保存路径到配置
+		// 如果启用了路径记录，保存完整路径到storage.json
 		if GlobalConfig.App.RememberLibraryPath {
-			if err := saveLibraryPath(dirPath); err != nil {
-				log.Printf("警告: 无法保存音乐库路径: %v", err)
+			// 获取绝对路径
+			absPath, err := filepath.Abs(dirPath)
+			if err != nil {
+				log.Printf("警告: 无法获取绝对路径: %v", err)
+			} else {
+				if err := saveLibraryPath(absPath); err != nil {
+					log.Printf("警告: 无法保存音乐库路径: %v", err)
+				}
 			}
 		}
 	} else if len(os.Args) == 1 {
-		// 用户没有提供路径参数，尝试使用保存的路径
-		if GlobalConfig.App.RememberLibraryPath && GlobalConfig.App.LibraryPath != "" {
-			dirPath = GlobalConfig.App.LibraryPath
-			// 验证保存的路径是否仍然有效
-			if info, err := os.Stat(dirPath); err != nil || !info.IsDir() {
-				log.Fatalf("保存的音乐库路径无效或不存在: %s", dirPath)
+		// 用户没有提供路径参数，尝试使用storage.json中保存的路径
+		if GlobalConfig.App.RememberLibraryPath {
+			storageData, err := loadStorageData()
+			if err != nil {
+				log.Printf("警告: 无法加载存储数据: %v", err)
+			} else if storageData.LibraryPath != "" {
+				dirPath = storageData.LibraryPath
+				// 验证保存的路径是否仍然有效
+				if info, err := os.Stat(dirPath); err != nil || !info.IsDir() {
+					log.Fatalf("保存的音乐库路径无效或不存在: %s", dirPath)
+				}
+				log.Printf("使用保存的音乐库路径: %s", dirPath)
+			} else {
+				log.Fatalf("用法: %s <music_directory>\n或者启用 remember_library_path 并设置有效的 library_path", os.Args[0])
 			}
-			log.Printf("使用保存的音乐库路径: %s", dirPath)
 		} else {
-			log.Fatalf("用法: %s <music_directory>\n或者启用 remember_library_path 并设置有效的 library_path", os.Args[0])
+			log.Fatalf("用法: %s <music_directory>", os.Args[0])
 		}
 	} else {
 		log.Fatalf("用法: %s [music_directory]", os.Args[0])
