@@ -184,13 +184,13 @@ func (p *Library) Init() {
 
 // handleSearchInput handles keystrokes when in search input mode.
 func (p *Library) handleSearchInput(key rune) {
-	if IsKey(key, AppConfig.Keymap.Library.SearchMode.ConfirmSearch) {
+	if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.ConfirmSearch) {
 		p.isSearching = false // Exit input mode, keeping the search results
-	} else if IsKey(key, AppConfig.Keymap.Library.SearchMode.EscapeSearch) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.EscapeSearch) {
 		p.isSearching = false // Exit input mode
 		p.searchQuery = ""    // Also clear the search query
 		p.filterSongs()
-	} else if IsKey(key, AppConfig.Keymap.Library.SearchMode.SearchBackspace) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.SearchBackspace) {
 		if len(p.searchQuery) > 0 {
 			runes := []rune(p.searchQuery)
 			p.searchQuery = string(runes[:len(runes)-1])
@@ -209,23 +209,23 @@ func (p *Library) handleSearchInput(key rune) {
 
 // handleDirViewInput handles keystrokes for the directory browsing view.
 func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
-	if IsKey(key, AppConfig.Keymap.Library.Search) {
+	if IsKey(key, GlobalConfig.Keymap.Library.Search) {
 		p.isSearching = true
-	} else if IsKey(key, AppConfig.Keymap.Library.NavUp) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.NavUp) {
 		if len(p.entries) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.entries)) % len(p.entries)
 		}
-	} else if IsKey(key, AppConfig.Keymap.Library.NavDown) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.NavDown) {
 		if len(p.entries) > 0 {
 			p.cursor = (p.cursor + 1) % len(p.entries)
 		}
-	} else if IsKey(key, AppConfig.Keymap.Library.NavEnterDir) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.NavEnterDir) {
 		if p.cursor < len(p.entries) && p.entries[p.cursor].IsDir() {
 			p.lastEntered = p.entries[p.cursor].Name()
 			newPath := filepath.Join(p.currentPath, p.entries[p.cursor].Name())
 			p.scanDirectory(newPath)
 		}
-	} else if IsKey(key, AppConfig.Keymap.Library.NavExitDir) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.NavExitDir) {
 		currentAbs, _ := filepath.Abs(p.currentPath)
 		initialAbs, _ := filepath.Abs(p.initialPath)
 		if currentAbs != initialAbs {
@@ -241,14 +241,14 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 				p.lastEntered = ""
 			}
 		}
-	} else if IsKey(key, AppConfig.Keymap.Library.ToggleSelect) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.ToggleSelect) {
 		if p.cursor < len(p.entries) {
 			p.toggleSelectionForEntry(p.entries[p.cursor])
 			if p.cursor < len(p.entries)-1 {
 				p.cursor++
 			}
 		}
-	} else if IsKey(key, AppConfig.Keymap.Library.ToggleSelectAll) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.ToggleSelectAll) {
 		p.toggleSelectAll(false) // Toggle all in current directory view
 	}
 	return nil, false, nil
@@ -256,20 +256,20 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 
 // handleSearchViewInput handles keystrokes for the search results view.
 func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
-	if IsKey(key, AppConfig.Keymap.Library.SearchMode.EscapeSearch) {
+	if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.EscapeSearch) {
 		p.searchQuery = "" // Clear search
 		p.filterSongs()
-	} else if IsKey(key, AppConfig.Keymap.Library.Search) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.Search) {
 		p.isSearching = true // Re-enter input mode
-	} else if IsKey(key, AppConfig.Keymap.Library.NavUp) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.NavUp) {
 		if len(p.filteredSongPaths) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.filteredSongPaths)) % len(p.filteredSongPaths)
 		}
-	} else if IsKey(key, AppConfig.Keymap.Library.NavDown) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.NavDown) {
 		if len(p.filteredSongPaths) > 0 {
 			p.cursor = (p.cursor + 1) % len(p.filteredSongPaths)
 		}
-	} else if IsKey(key, AppConfig.Keymap.Library.ToggleSelect) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.ToggleSelect) {
 		if p.cursor < len(p.filteredSongPaths) {
 			path := p.filteredSongPaths[p.cursor]
 			info, err := os.Stat(path)
@@ -311,7 +311,7 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 				p.cursor++
 			}
 		}
-	} else if IsKey(key, AppConfig.Keymap.Library.ToggleSelectAll) {
+	} else if IsKey(key, GlobalConfig.Keymap.Library.ToggleSelectAll) {
 		p.toggleSelectAll(true) // Toggle all in search results
 	}
 	return nil, false, nil

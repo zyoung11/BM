@@ -267,8 +267,8 @@ func (a *App) addToPlayHistory(songPath string) {
 	// 添加新记录
 	a.playHistory = append(a.playHistory, songPath)
 
-	// 限制历史记录最多100条
-	if len(a.playHistory) > 100 {
+	// 限制历史记录数量（使用配置的最大历史记录数量）
+	if len(a.playHistory) > GlobalConfig.App.MaxHistorySize {
 		a.playHistory = a.playHistory[1:]
 	}
 
@@ -395,7 +395,7 @@ func (a *App) Run() error {
 
 		case key := <-keyCh:
 			// Global keybindings
-			if IsKey(key, AppConfig.Keymap.Global.Quit) {
+			if IsKey(key, GlobalConfig.Keymap.Global.Quit) {
 				// Check if we're in search mode in any page
 				if isInSearchMode(currentPage) {
 					// In search mode, let the page handle ESC key
@@ -419,13 +419,13 @@ func (a *App) Run() error {
 				if needsRedraw {
 					currentPage.View()
 				}
-			} else if IsKey(key, AppConfig.Keymap.Global.CyclePages) {
+			} else if IsKey(key, GlobalConfig.Keymap.Global.CyclePages) {
 				a.switchToPage((a.currentPageIndex + 1) % len(a.pages))
-			} else if IsKey(key, AppConfig.Keymap.Global.SwitchToPlayer) {
+			} else if IsKey(key, GlobalConfig.Keymap.Global.SwitchToPlayer) {
 				a.switchToPage(0) // PlayerPage
-			} else if IsKey(key, AppConfig.Keymap.Global.SwitchToPlayList) {
+			} else if IsKey(key, GlobalConfig.Keymap.Global.SwitchToPlayList) {
 				a.switchToPage(1) // PlayListPage
-			} else if IsKey(key, AppConfig.Keymap.Global.SwitchToLibrary) {
+			} else if IsKey(key, GlobalConfig.Keymap.Global.SwitchToLibrary) {
 				a.switchToPage(2) // LibraryPage
 			} else {
 				// Pass the key to the current page's handler
@@ -513,19 +513,19 @@ func main() {
 	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
 
 	app := &App{
-		player:              nil, // 延迟初始化
-		mprisServer:         nil, // 延迟初始化
-		currentPageIndex:    2,   // 默认显示Library页面
+		player:              nil,                          // 延迟初始化
+		mprisServer:         nil,                          // 延迟初始化
+		currentPageIndex:    GlobalConfig.App.DefaultPage, // 使用配置的默认页面
 		Playlist:            make([]string, 0),
-		playMode:            0,                     // 默认单曲循环
-		volume:              0,                     // 默认音量0（100%）
-		linearVolume:        1.0,                   // 默认线性音量1.0（100%）
-		playbackRate:        1.0,                   // 默认播放速度1.0
-		actionQueue:         make(chan func(), 10), // Initialize the action queue
-		playHistory:         make([]string, 0),     // 初始化播放历史记录
-		historyIndex:        -1,                    // 初始历史索引
-		isNavigatingHistory: false,                 // 初始不在历史记录导航中
-		corruptedFiles:      make(map[string]bool), // 初始化损坏文件跟踪
+		playMode:            GlobalConfig.App.DefaultPlayMode, // 使用配置的默认播放模式
+		volume:              0,                                // 默认音量0（100%）
+		linearVolume:        1.0,                              // 默认线性音量1.0（100%）
+		playbackRate:        1.0,                              // 默认播放速度1.0
+		actionQueue:         make(chan func(), 10),            // Initialize the action queue
+		playHistory:         make([]string, 0),                // 初始化播放历史记录
+		historyIndex:        -1,                               // 初始历史索引
+		isNavigatingHistory: false,                            // 初始不在历史记录导航中
+		corruptedFiles:      make(map[string]bool),            // 初始化损坏文件跟踪
 	}
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH) // 空的初始路径

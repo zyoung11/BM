@@ -33,7 +33,16 @@ func (k *Key) UnmarshalTOML(data []byte) error {
 
 // Config holds the application's configuration, loaded from a TOML file.
 type Config struct {
-	Keymap Keymap `toml:"keymap"`
+	Keymap Keymap    `toml:"keymap"`
+	App    AppConfig `toml:"app"`
+}
+
+// AppConfig holds application-level configuration settings.
+type AppConfig struct {
+	MaxHistorySize   int `toml:"max_history_size"`   // 最大历史记录数量
+	SwitchDebounceMs int `toml:"switch_debounce_ms"` // 切歌防抖时间（毫秒）
+	DefaultPage      int `toml:"default_page"`       // 默认启动页面
+	DefaultPlayMode  int `toml:"default_play_mode"`  // 默认播放模式
 }
 
 // Keymap defines all the keybindings for the application, organized by page.
@@ -104,8 +113,8 @@ type PlaylistKeymap struct {
 	SearchMode SearchModeKeymap `toml:"SearchMode"`
 }
 
-// AppConfig is the global configuration instance.
-var AppConfig *Config
+// GlobalConfig is the global configuration instance.
+var GlobalConfig *Config
 
 // specialKeyMap maps string representations of special keys to their rune values.
 var specialKeyMap = map[string]rune{
@@ -139,6 +148,12 @@ func stringToRune(s string) (rune, error) {
 // getDefaultConfig returns a Config struct with the default keybindings.
 func getDefaultConfig() *Config {
 	return &Config{
+		App: AppConfig{
+			MaxHistorySize:   100,  // 默认历史记录数量
+			SwitchDebounceMs: 1000, // 默认切歌防抖时间1秒
+			DefaultPage:      2,    // 默认启动页面（Library）
+			DefaultPlayMode:  0,    // 默认播放模式（单曲循环）
+		},
 		Keymap: Keymap{
 			Global: GlobalKeymap{
 				Quit:             Key{"esc"},
@@ -216,18 +231,18 @@ func LoadConfig() error {
 		if err := os.WriteFile(configFile, buf.Bytes(), 0644); err != nil {
 			return fmt.Errorf("could not write default config file: %v", err)
 		}
-		AppConfig = defaultConf
+		GlobalConfig = defaultConf
 	} else {
 		// File exists, load it
 		var config Config
 		if _, err := toml.DecodeFile(configFile, &config); err != nil {
 			return fmt.Errorf("could not decode config file: %v", err)
 		}
-		AppConfig = &config
+		GlobalConfig = &config
 	}
 
 	// Validate the loaded keymap
-	return validateKeymap(AppConfig.Keymap)
+	return validateKeymap(GlobalConfig.Keymap)
 }
 
 // validateKeymap checks for duplicate or invalid keybindings.
