@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +10,9 @@ import (
 
 	"github.com/BurntSushi/toml"
 )
+
+//go:embed default_config.toml
+var defaultConfigContent string
 
 // Key is a custom type to handle single keys or a list of keys in the TOML file.
 type Key []string
@@ -145,67 +148,6 @@ func stringToRune(s string) (rune, error) {
 	return 0, fmt.Errorf("invalid key: '%s'", s)
 }
 
-// getDefaultConfig returns a Config struct with the default keybindings.
-func getDefaultConfig() *Config {
-	return &Config{
-		App: AppConfig{
-			MaxHistorySize:   100,  // 默认历史记录数量
-			SwitchDebounceMs: 1000, // 默认切歌防抖时间1秒
-			DefaultPage:      2,    // 默认启动页面（Library）
-			DefaultPlayMode:  0,    // 默认播放模式（单曲循环）
-		},
-		Keymap: Keymap{
-			Global: GlobalKeymap{
-				Quit:             Key{"esc"},
-				CyclePages:       Key{"tab"},
-				SwitchToPlayer:   Key{"1"},
-				SwitchToPlayList: Key{"2"},
-				SwitchToLibrary:  Key{"3"},
-			},
-			Player: PlayerKeymap{
-				TogglePause:     Key{"space"},
-				SeekForward:     Key{"e"},
-				SeekBackward:    Key{"q"},
-				VolumeUp:        Key{"w"},
-				VolumeDown:      Key{"s"},
-				RateUp:          Key{"x"},
-				RateDown:        Key{"z"},
-				NextSong:        Key{"d"},
-				PrevSong:        Key{"a"},
-				TogglePlayMode:  Key{"r"},
-				ToggleTextColor: Key{"c"},
-				Reset:           Key{"backspace"},
-			},
-			Library: LibraryKeymap{
-				NavUp:           Key{"k", "w", "up"},
-				NavDown:         Key{"j", "s", "down"},
-				NavEnterDir:     Key{"l", "d", "right"},
-				NavExitDir:      Key{"h", "a", "left"},
-				ToggleSelect:    Key{"space"},
-				ToggleSelectAll: Key{"e"},
-				Search:          Key{"f"},
-				SearchMode: SearchModeKeymap{
-					ConfirmSearch:   Key{"enter"},
-					EscapeSearch:    Key{"esc"}, // Consolidated escape/clear search
-					SearchBackspace: Key{"backspace"},
-				},
-			},
-			Playlist: PlaylistKeymap{
-				NavUp:      Key{"k", "w", "up"},
-				NavDown:    Key{"j", "s", "down"},
-				RemoveSong: Key{"space"},
-				PlaySong:   Key{"enter"},
-				Search:     Key{"f"},
-				SearchMode: SearchModeKeymap{
-					ConfirmSearch:   Key{"enter"}, // Exit search input mode
-					EscapeSearch:    Key{"esc"},   // Consolidated escape/clear search
-					SearchBackspace: Key{"backspace"},
-				},
-			},
-		},
-	}
-}
-
 // LoadConfig loads the configuration from ~/.config/BM/config.toml.
 // If the file doesn't exist, it creates it with default values.
 func LoadConfig() error {
@@ -220,18 +162,17 @@ func LoadConfig() error {
 
 	configFile := filepath.Join(configPath, "config.toml")
 
-	defaultConf := getDefaultConfig()
-
 	if _, err := os.Stat(configFile); os.IsNotExist(err) {
-		// File does not exist, create it with default config
-		buf := new(bytes.Buffer)
-		if err := toml.NewEncoder(buf).Encode(defaultConf); err != nil {
-			return fmt.Errorf("could not encode default config: %v", err)
-		}
-		if err := os.WriteFile(configFile, buf.Bytes(), 0644); err != nil {
+		// File does not exist, create it with the embedded default config
+		if err := os.WriteFile(configFile, []byte(defaultConfigContent), 0644); err != nil {
 			return fmt.Errorf("could not write default config file: %v", err)
 		}
-		GlobalConfig = defaultConf
+		// Load the default config
+		var config Config
+		if _, err := toml.Decode(defaultConfigContent, &config); err != nil {
+			return fmt.Errorf("could not decode default config: %v", err)
+		}
+		GlobalConfig = &config
 	} else {
 		// File exists, load it
 		var config Config
