@@ -4,35 +4,28 @@
 
 [app]
 # 最大历史记录数量 - 限制播放历史记录的最大条数
-# 默认值: 100
 max_history_size = 100
 
 # 切歌防抖时间（毫秒）- 防止快速连续切歌，避免误操作
-# 默认值: 1000 (1秒)
 switch_debounce_ms = 1000
 
 # 默认启动页面 - 程序启动时显示的页面
 # 0 = Player页面, 1 = PlayList页面, 2 = Library页面
-# 默认值: 2 (Library页面)
 default_page = 2
 
 # 默认播放模式 - 程序启动时的播放模式
 # 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放
-# 默认值: 0 (单曲循环)
 default_play_mode = 0
 
 # 是否记录音乐库路径 - 如果为true，程序会记住上次使用的音乐库路径
 # 下次启动时如果不指定路径参数，会自动使用保存的路径
-# 默认值: true
 remember_library_path = true
 
 # 是否记录播放列表 - 如果为true，程序会记录播放列表并在下次启动时加载
 # 注意: remember_library_path 也必须为 true 才能生效
-# 默认值: true
 playlist_history = true
 
 # 存储文件路径 - 用于保存用户输入的完整路径信息
-# 默认值: "~/.config/BM/storage.json"
 storage = "~/.config/BM/storage.json"
 
 [keymap]
