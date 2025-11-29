@@ -132,6 +132,7 @@ type App struct {
 	linearVolume     float64     // 0.0 to 1.0 linear volume for display
 	playbackRate     float64     // 保存的播放速度设置
 	actionQueue      chan func() // Action queue for thread-safe UI updates
+	sampleRate       beep.SampleRate
 
 	// 播放历史记录
 	playHistory         []string // 播放历史记录，最多100条
@@ -199,11 +200,28 @@ func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 		return fmt.Errorf("解码FLAC失败: %v", err)
 	}
 
-	// 重新初始化speaker（如果采样率不同）
-	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/30))
+	// 如果需要，进行重采样，并使用buffer来创建一个可跳转的流 (StreamSeeker)
+	var audioStream beep.StreamSeeker = streamer
+	if format.SampleRate != a.sampleRate {
+		// 使用 ResampleRatio 创建一个重采样器
+		// 正确的比率应该是 原始采样率 / 目标采样率
+		ratio := float64(format.SampleRate) / float64(a.sampleRate)
+		resampler := beep.ResampleRatio(4, ratio, streamer)
+
+		// 创建一个新的格式，其采样率是我们的目标采样率
+		bufferFormat := format
+		bufferFormat.SampleRate = a.sampleRate
+
+		// 创建一个缓冲区并将重采样后的流加载进去
+		buffer := beep.NewBuffer(bufferFormat)
+		buffer.Append(resampler)
+
+		// 从缓冲区的开头获取一个可跳转的流
+		audioStream = buffer.Streamer(0, buffer.Len())
+	}
 
 	// 创建新的播放器
-	player, err := newAudioPlayer(streamer, format, a.volume, a.playbackRate)
+	player, err := newAudioPlayer(audioStream, format, a.volume, a.playbackRate)
 	if err != nil {
 		f.Close()
 		return fmt.Errorf("创建播放器失败: %v", err)
@@ -574,6 +592,7 @@ func main() {
 		linearVolume:        1.0,                              // 默认线性音量1.0（100%）
 		playbackRate:        1.0,                              // 默认播放速度1.0
 		actionQueue:         make(chan func(), 10),            // Initialize the action queue
+		sampleRate:          sampleRate,                       // Store the global sample rate
 		playHistory:         make([]string, 0),                // 初始化播放历史记录
 		historyIndex:        -1,                               // 初始历史索引
 		isNavigatingHistory: false,                            // 初始不在历史记录导航中
