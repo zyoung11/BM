@@ -87,7 +87,7 @@ func (p *PlayList) filterPlaylist() {
 }
 
 // HandleKey handles user input for the playlist.
-func (p *PlayList) HandleKey(key rune) (Page, error) {
+func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 	if p.isSearching {
 		if IsKey(key, AppConfig.Keymap.Playlist.SearchMode.ConfirmSearch) {
 			p.isSearching = false // Exit input mode, keeping the search results
@@ -111,7 +111,7 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 			}
 		}
 		p.View()
-		return nil, nil
+		return nil, false, nil
 	}
 
 	// Not in search input mode
@@ -154,7 +154,7 @@ func (p *PlayList) HandleKey(key rune) (Page, error) {
 	if needRedraw {
 		p.View()
 	}
-	return nil, nil
+	return nil, false, nil
 }
 
 // removeCurrentSong removes the song at the current cursor position.
@@ -306,11 +306,19 @@ func (p *PlayList) View() {
 		if trackPath == p.app.currentSongPath {
 			style = "\x1b[31m" // Red for playing
 		}
+		if p.app.IsFileCorrupted(trackPath) {
+			style = "\x1b[33m" // Yellow for corrupted files
+		}
 		if trackIndex == p.cursor {
 			style += "\x1b[7m" // Reverse for cursor
 		}
 
-		line := fmt.Sprintf("✓ %s", trackName)
+		// 根据文件状态选择前缀
+		prefix := "✓"
+		if p.app.IsFileCorrupted(trackPath) {
+			prefix = "⚠" // 警告标志
+		}
+		line := fmt.Sprintf("%s %s", prefix, trackName)
 		// Use runewidth for accurate string width calculation and truncation
 		if runewidth.StringWidth(line) > w-1 {
 			// Truncate the line to fit the terminal width

@@ -208,7 +208,7 @@ func (p *Library) handleSearchInput(key rune) {
 }
 
 // handleDirViewInput handles keystrokes for the directory browsing view.
-func (p *Library) handleDirViewInput(key rune) (Page, error) {
+func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 	if IsKey(key, AppConfig.Keymap.Library.Search) {
 		p.isSearching = true
 	} else if IsKey(key, AppConfig.Keymap.Library.NavUp) {
@@ -251,11 +251,11 @@ func (p *Library) handleDirViewInput(key rune) (Page, error) {
 	} else if IsKey(key, AppConfig.Keymap.Library.ToggleSelectAll) {
 		p.toggleSelectAll(false) // Toggle all in current directory view
 	}
-	return nil, nil
+	return nil, false, nil
 }
 
 // handleSearchViewInput handles keystrokes for the search results view.
-func (p *Library) handleSearchViewInput(key rune) (Page, error) {
+func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 	if IsKey(key, AppConfig.Keymap.Library.SearchMode.EscapeSearch) {
 		p.searchQuery = "" // Clear search
 		p.filterSongs()
@@ -314,24 +314,24 @@ func (p *Library) handleSearchViewInput(key rune) (Page, error) {
 	} else if IsKey(key, AppConfig.Keymap.Library.ToggleSelectAll) {
 		p.toggleSelectAll(true) // Toggle all in search results
 	}
-	return nil, nil
+	return nil, false, nil
 }
 
 // HandleKey routes user input based on the current mode.
-func (p *Library) HandleKey(key rune) (Page, error) {
+func (p *Library) HandleKey(key rune) (Page, bool, error) {
 	var err error
 	var page Page
 
 	if p.isSearching {
 		p.handleSearchInput(key)
 	} else if p.searchQuery != "" {
-		page, err = p.handleSearchViewInput(key)
+		page, _, err = p.handleSearchViewInput(key)
 	} else {
-		page, err = p.handleDirViewInput(key)
+		page, _, err = p.handleDirViewInput(key)
 	}
 
 	p.View() // Redraw on any key press
-	return page, err
+	return page, true, err
 }
 
 // toggleSelectionForEntry handles selection logic for a DirEntry (file or dir).

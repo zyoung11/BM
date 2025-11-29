@@ -135,12 +135,15 @@ type App struct {
 	playHistory         []string // 播放历史记录，最多100条
 	historyIndex        int      // 当前在历史记录中的位置
 	isNavigatingHistory bool     // 是否正在历史记录中导航
+
+	// 损坏文件跟踪
+	corruptedFiles map[string]bool // 记录损坏的FLAC文件
 }
 
 // Page defines the interface for a TUI page.
 type Page interface {
 	Init()
-	HandleKey(key rune) (Page, error)
+	HandleKey(key rune) (Page, bool, error)
 	HandleSignal(sig os.Signal) error
 	View()
 	Tick()
@@ -190,6 +193,7 @@ func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 	streamer, format, err := flac.Decode(f)
 	if err != nil {
 		f.Close()
+		a.MarkFileAsCorrupted(songPath) // 标记文件为损坏
 		return fmt.Errorf("解码FLAC失败: %v", err)
 	}
 
@@ -395,22 +399,26 @@ func (a *App) Run() error {
 				// Check if we're in search mode in any page
 				if isInSearchMode(currentPage) {
 					// In search mode, let the page handle ESC key
-					_, err := currentPage.HandleKey(key)
+					_, needsRedraw, err := currentPage.HandleKey(key)
 					if err != nil {
 						return nil
 					}
-					currentPage.View()
+					if needsRedraw {
+						currentPage.View()
+					}
 				} else {
 					return nil // Exit the application
 				}
 			} else if isActivelySearching(currentPage) {
 				// In search mode, pass ALL keys to the current page's handler first
 				// This ensures search input takes priority over global shortcuts
-				_, err := currentPage.HandleKey(key)
+				_, needsRedraw, err := currentPage.HandleKey(key)
 				if err != nil {
 					return nil
 				}
-				currentPage.View()
+				if needsRedraw {
+					currentPage.View()
+				}
 			} else if IsKey(key, AppConfig.Keymap.Global.CyclePages) {
 				a.switchToPage((a.currentPageIndex + 1) % len(a.pages))
 			} else if IsKey(key, AppConfig.Keymap.Global.SwitchToPlayer) {
@@ -421,12 +429,14 @@ func (a *App) Run() error {
 				a.switchToPage(2) // LibraryPage
 			} else {
 				// Pass the key to the current page's handler
-				_, err := currentPage.HandleKey(key)
+				_, needsRedraw, err := currentPage.HandleKey(key)
 				if err != nil {
 					// Specific error checks can be done here if needed
 					return nil // Assume any error from HandleKey means quit
 				}
-				currentPage.View()
+				if needsRedraw {
+					currentPage.View()
+				}
 			}
 
 		case sig := <-sigCh:
@@ -515,6 +525,7 @@ func main() {
 		playHistory:         make([]string, 0),     // 初始化播放历史记录
 		historyIndex:        -1,                    // 初始历史索引
 		isNavigatingHistory: false,                 // 初始不在历史记录导航中
+		corruptedFiles:      make(map[string]bool), // 初始化损坏文件跟踪
 	}
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH) // 空的初始路径
@@ -525,4 +536,14 @@ func main() {
 	if err := app.Run(); err != nil {
 		log.Fatalf("应用运行时出现错误: %v", err)
 	}
+}
+
+// MarkFileAsCorrupted 标记文件为损坏
+func (a *App) MarkFileAsCorrupted(filePath string) {
+	a.corruptedFiles[filePath] = true
+}
+
+// IsFileCorrupted 检查文件是否损坏
+func (a *App) IsFileCorrupted(filePath string) bool {
+	return a.corruptedFiles[filePath]
 }

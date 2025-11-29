@@ -84,14 +84,14 @@ func (p *PlayerPage) UpdateSong(songPath string) {
 }
 
 // HandleKey handles user key presses.
-func (p *PlayerPage) HandleKey(key rune) (Page, error) {
+func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 	player := p.app.player
 	mprisServer := p.app.mprisServer
 	needsRedraw := true // Most keys will need a status update
 
 	if player == nil {
 		// If there is no player, don't handle any keys
-		return nil, nil
+		return nil, false, nil
 	}
 
 	// Player-specific keybindings
@@ -206,10 +206,11 @@ func (p *PlayerPage) HandleKey(key rune) (Page, error) {
 	}
 
 	if needsRedraw {
+		// 只更新状态，不清屏重绘整个界面
 		p.updateStatus()
 	}
 
-	return nil, nil // Stay on this page
+	return nil, false, nil // Stay on this page, no full redraw needed
 }
 
 // HandleSignal handles system signals, like window resizing.
@@ -410,6 +411,8 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 			// 播放成功
 			return
 		}
+		// 播放失败，标记文件为损坏
+		p.app.MarkFileAsCorrupted(nextSong)
 
 		// 播放失败，尝试下一首
 		nextIndex = (nextIndex + 1) % len(p.app.Playlist)
@@ -509,6 +512,8 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 			// 播放成功
 			return
 		}
+		// 播放失败，标记文件为损坏
+		p.app.MarkFileAsCorrupted(prevSong)
 
 		// 播放失败，尝试上一首
 		if prevIndex == 0 {
