@@ -131,28 +131,77 @@ func (p *Library) ensureGlobalCache() {
 	if p.globalFileCache != nil {
 		return
 	}
-	p.globalFileCache = make([]string, 0)
-	filepath.WalkDir(p.initialPath, func(path string, d os.DirEntry, err error) error {
-		if err == nil {
-			if !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
-				p.globalFileCache = append(p.globalFileCache, path)
-			} else if d.IsDir() {
-				// Only add directories that contain .flac files
-				hasFlacFiles := false
-				filepath.WalkDir(path, func(subPath string, subD os.DirEntry, subErr error) error {
-					if subErr == nil && !subD.IsDir() && strings.HasSuffix(strings.ToLower(subD.Name()), ".flac") {
-						hasFlacFiles = true
-						return filepath.SkipDir // Found at least one flac file, no need to continue
+
+	allFlacFiles := make(map[string]bool)
+	dirWithFlac := make(map[string]bool)
+	visited := make(map[string]bool)
+
+	var walk func(string)
+	walk = func(dirPath string) {
+		realPath, err := filepath.EvalSymlinks(dirPath)
+		if err != nil {
+			realPath = dirPath // Use path for broken links
+		}
+		if visited[realPath] {
+			return // Avoid cycles
+		}
+		visited[realPath] = true
+
+		files, err := os.ReadDir(dirPath)
+		if err != nil {
+			return
+		}
+
+		for _, file := range files {
+			entryPath := filepath.Join(dirPath, file.Name())
+			info, err := file.Info()
+			if err != nil {
+				continue
+			}
+
+			isDir := info.IsDir()
+			if info.Mode()&os.ModeSymlink != 0 {
+				statInfo, statErr := os.Stat(entryPath)
+				if statErr == nil {
+					isDir = statInfo.IsDir()
+				} else {
+					continue // Broken link
+				}
+			}
+
+			if isDir {
+				walk(entryPath)
+			} else if strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
+				allFlacFiles[entryPath] = true
+				// Mark all parent directories as containing flac
+				tempPath := entryPath
+				for {
+					tempPath = filepath.Dir(tempPath)
+					absTemp, errT := filepath.Abs(tempPath)
+					absInitial, errI := filepath.Abs(p.initialPath)
+					if errT != nil || errI != nil || absTemp < absInitial {
+						break
 					}
-					return nil
-				})
-				if hasFlacFiles {
-					p.globalFileCache = append(p.globalFileCache, path)
+					dirWithFlac[tempPath] = true
+					if absTemp == absInitial {
+						break
+					}
 				}
 			}
 		}
-		return nil
-	})
+	}
+
+	walk(p.initialPath)
+
+	// Combine into a single cache
+	cache := make([]string, 0, len(allFlacFiles)+len(dirWithFlac))
+	for path := range allFlacFiles {
+		cache = append(cache, path)
+	}
+	for path := range dirWithFlac {
+		cache = append(cache, path)
+	}
+	p.globalFileCache = cache
 }
 
 // filterSongs updates filteredSongPaths based on the searchQuery.
@@ -310,12 +359,35 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 			if err == nil && info.IsDir() {
 				// Directory selection logic...
 				var songsInDir []string
-				filepath.WalkDir(path, func(subPath string, d os.DirEntry, err error) error {
-					if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
-						songsInDir = append(songsInDir, subPath)
+				var collectSongs func(string)
+				collectSongs = func(dirPath string) {
+					files, err := os.ReadDir(dirPath)
+					if err != nil {
+						return
 					}
-					return nil
-				})
+					for _, file := range files {
+						entryPath := filepath.Join(dirPath, file.Name())
+						info, err := file.Info()
+						if err != nil {
+							continue
+						}
+						isDir := info.IsDir()
+						if info.Mode()&os.ModeSymlink != 0 {
+							statInfo, statErr := os.Stat(entryPath)
+							if statErr == nil {
+								isDir = statInfo.IsDir()
+							} else {
+								continue // Broken link
+							}
+						}
+						if isDir {
+							collectSongs(entryPath)
+						} else if strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
+							songsInDir = append(songsInDir, entryPath)
+						}
+					}
+				}
+				collectSongs(path)
 				allSelected := true
 				if len(songsInDir) > 0 {
 					for _, songPath := range songsInDir {
@@ -375,12 +447,35 @@ func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
 		p.toggleSelection(fullPath)
 	} else {
 		var songsInDir []string
-		filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
-				songsInDir = append(songsInDir, path)
+		var collectSongs func(string)
+		collectSongs = func(dirPath string) {
+			files, err := os.ReadDir(dirPath)
+			if err != nil {
+				return
 			}
-			return nil
-		})
+			for _, file := range files {
+				entryPath := filepath.Join(dirPath, file.Name())
+				info, err := file.Info()
+				if err != nil {
+					continue
+				}
+				isDir := info.IsDir()
+				if info.Mode()&os.ModeSymlink != 0 {
+					statInfo, statErr := os.Stat(entryPath)
+					if statErr == nil {
+						isDir = statInfo.IsDir()
+					} else {
+						continue // Broken link
+					}
+				}
+				if isDir {
+					collectSongs(entryPath)
+				} else if strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
+					songsInDir = append(songsInDir, entryPath)
+				}
+			}
+		}
+		collectSongs(fullPath)
 
 		allSelected := true
 		if len(songsInDir) > 0 {
@@ -417,12 +512,35 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 			if !libEntry.isDir {
 				allSongs = append(allSongs, fullPath)
 			} else {
-				filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
-					if err == nil && !d.IsDir() && strings.HasSuffix(strings.ToLower(d.Name()), ".flac") {
-						allSongs = append(allSongs, path)
+				var collectSongs func(string)
+				collectSongs = func(dirPath string) {
+					files, err := os.ReadDir(dirPath)
+					if err != nil {
+						return
 					}
-					return nil
-				})
+					for _, file := range files {
+						entryPath := filepath.Join(dirPath, file.Name())
+						info, err := file.Info()
+						if err != nil {
+							continue
+						}
+						isDir := info.IsDir()
+						if info.Mode()&os.ModeSymlink != 0 {
+							statInfo, statErr := os.Stat(entryPath)
+							if statErr == nil {
+								isDir = statInfo.IsDir()
+							} else {
+								continue // Broken link
+							}
+						}
+						if isDir {
+							collectSongs(entryPath)
+						} else if strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
+							allSongs = append(allSongs, entryPath)
+						}
+					}
+				}
+				collectSongs(fullPath)
 			}
 		}
 	}
@@ -629,13 +747,40 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 		isSelected := p.selected[path]
 		if isDir && !isSelected {
 			// Check if directory contains any selected songs
-			filepath.WalkDir(path, func(subPath string, d os.DirEntry, err error) error {
-				if err == nil && !d.IsDir() && p.selected[subPath] {
-					isSelected = true
-					return filepath.SkipDir // Found at least one selected song, no need to continue
+			var checkSelected func(string) bool
+			checkSelected = func(dirPath string) bool {
+				files, err := os.ReadDir(dirPath)
+				if err != nil {
+					return false
 				}
-				return nil
-			})
+				for _, file := range files {
+					entryPath := filepath.Join(dirPath, file.Name())
+					info, err := file.Info()
+					if err != nil {
+						continue
+					}
+
+					isDir := info.IsDir()
+					if info.Mode()&os.ModeSymlink != 0 {
+						statInfo, statErr := os.Stat(entryPath)
+						if statErr == nil {
+							isDir = statInfo.IsDir()
+						} else {
+							continue // Broken link
+						}
+					}
+
+					if isDir {
+						if checkSelected(entryPath) {
+							return true
+						}
+					} else if p.selected[entryPath] {
+						return true
+					}
+				}
+				return false
+			}
+			isSelected = checkSelected(path)
 		}
 
 		if isSelected {
@@ -700,13 +845,40 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCurs
 	if libEntry.isDir {
 		// Directory-specific styling
 		isDirPartiallySelected := false
-		filepath.WalkDir(fullPath, func(path string, d os.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && p.selected[path] {
-				isDirPartiallySelected = true
-				return filepath.SkipDir // Optimization
+		var checkSelected func(string) bool
+		checkSelected = func(dirPath string) bool {
+			files, err := os.ReadDir(dirPath)
+			if err != nil {
+				return false
 			}
-			return nil
-		})
+			for _, file := range files {
+				entryPath := filepath.Join(dirPath, file.Name())
+				info, err := file.Info()
+				if err != nil {
+					continue
+				}
+
+				isDir := info.IsDir()
+				if info.Mode()&os.ModeSymlink != 0 {
+					statInfo, statErr := os.Stat(entryPath)
+					if statErr == nil {
+						isDir = statInfo.IsDir()
+					} else {
+						continue // Broken link
+					}
+				}
+
+				if isDir {
+					if checkSelected(entryPath) {
+						return true
+					}
+				} else if p.selected[entryPath] {
+					return true
+				}
+			}
+			return false
+		}
+		isDirPartiallySelected = checkSelected(fullPath)
 		if isDirPartiallySelected {
 			line = "✓ " + name + "/"
 			style += "\x1b[32m"
