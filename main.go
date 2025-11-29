@@ -125,6 +125,7 @@ type App struct {
 	pages            []Page
 	currentPageIndex int
 	Playlist         []string
+	LibraryPath      string      // The root path of the music library
 	currentSongPath  string      // 当前播放的歌曲路径
 	playMode         int         // 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放
 	volume           float64     // 保存的音量设置
@@ -484,6 +485,11 @@ func main() {
 		log.Fatalf("Error loading configuration: %v", err)
 	}
 
+	// Validate configuration dependencies
+	if GlobalConfig.App.PlaylistHistory && !GlobalConfig.App.RememberLibraryPath {
+		log.Fatalf("Configuration error: 'playlist_history' cannot be true if 'remember_library_path' is false.")
+	}
+
 	var dirPath string
 
 	// 处理路径参数
@@ -507,7 +513,7 @@ func main() {
 			if err != nil {
 				log.Printf("警告: 无法获取绝对路径: %v", err)
 			} else {
-				if err := saveLibraryPath(absPath); err != nil {
+				if err := SaveLibraryPath(absPath); err != nil {
 					log.Printf("警告: 无法保存音乐库路径: %v", err)
 				}
 			}
@@ -524,7 +530,7 @@ func main() {
 				if info, err := os.Stat(dirPath); err != nil || !info.IsDir() {
 					log.Fatalf("保存的音乐库路径无效或不存在: %s", dirPath)
 				}
-				log.Printf("使用保存的音乐库路径: %s", dirPath)
+				// log.Printf("使用保存的音乐库路径: %s", dirPath)
 			} else {
 				log.Fatalf("用法: %s <music_directory>\n或者启用 remember_library_path 并设置有效的 library_path", os.Args[0])
 			}
@@ -550,11 +556,19 @@ func main() {
 	sampleRate := beep.SampleRate(44100)
 	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
 
+	// Load playlist from storage
+	playlist, err := LoadPlaylist(dirPath)
+	if err != nil {
+		log.Printf("Warning: Could not load playlist: %v", err)
+		playlist = make([]string, 0) // Start with an empty playlist on error
+	}
+
 	app := &App{
 		player:              nil,                          // 延迟初始化
 		mprisServer:         nil,                          // 延迟初始化
 		currentPageIndex:    GlobalConfig.App.DefaultPage, // 使用配置的默认页面
-		Playlist:            make([]string, 0),
+		Playlist:            playlist,                     // 从storage加载的播放列表
+		LibraryPath:         dirPath,                      // 保存音乐库根路径
 		playMode:            GlobalConfig.App.DefaultPlayMode, // 使用配置的默认播放模式
 		volume:              0,                                // 默认音量0（100%）
 		linearVolume:        1.0,                              // 默认线性音量1.0（100%）

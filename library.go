@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -439,6 +440,10 @@ func (p *Library) toggleSelection(path string) {
 				p.app.PlaySongWithSwitch(path, false)
 			}
 		}
+	}
+	// Save the updated playlist
+	if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
+		log.Printf("Warning: failed to save playlist: %v", err)
 	}
 }
 
