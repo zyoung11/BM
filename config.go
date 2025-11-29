@@ -49,6 +49,7 @@ type AppConfig struct {
 	RememberLibraryPath bool   `toml:"remember_library_path"` // 是否记录音乐库路径
 	PlaylistHistory     bool   `toml:"playlist_history"`      // 是否记录播放列表
 	LibraryPath         string `toml:"library_path"`          // 保存的音乐库路径
+	TargetSampleRate    int    `toml:"target_sample_rate"`    // 目标音频采样率
 	Storage             string `toml:"storage"`               // 存储文件路径
 }
 
@@ -184,6 +185,14 @@ func LoadConfig() error {
 			return fmt.Errorf("could not decode config file: %v", err)
 		}
 		GlobalConfig = &config
+	}
+
+	// Validate and set default values for AppConfig fields if necessary
+	if GlobalConfig.App.TargetSampleRate <= 0 {
+		GlobalConfig.App.TargetSampleRate = 44100 // Default to 44.1kHz
+	}
+	if GlobalConfig.App.SwitchDebounceMs <= 0 {
+		GlobalConfig.App.SwitchDebounceMs = 200 // Default to 200ms
 	}
 
 	// Validate the loaded keymap

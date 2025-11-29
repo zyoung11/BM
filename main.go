@@ -571,7 +571,7 @@ func main() {
 	}
 
 	// 初始化speaker，但不立即播放任何音频
-	sampleRate := beep.SampleRate(44100)
+	sampleRate := beep.SampleRate(GlobalConfig.App.TargetSampleRate)
 	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
 
 	// Load playlist from storage
