@@ -53,11 +53,16 @@ func NewLibrary(app *App) *Library {
 
 // NewLibraryWithPath creates a new instance of Library with a specific starting path.
 func NewLibraryWithPath(app *App, startPath string) *Library {
+	selectedSongs := make(map[string]bool)
+	for _, songPath := range app.Playlist {
+		selectedSongs[songPath] = true
+	}
+
 	return &Library{
 		app:         app,
 		currentPath: startPath,
 		initialPath: startPath,
-		selected:    make(map[string]bool),
+		selected:    selectedSongs,
 		pathHistory: make(map[string]int),
 	}
 }
