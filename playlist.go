@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
@@ -30,6 +31,7 @@ type PlayList struct {
 	// Debounce mechanism to prevent accidental rapid removal of the current song.
 	// 防抖机制，防止快速连续移除当前播放歌曲。
 	lastRemoveTime time.Time
+	resamplingSong string // Path of the song currently being resampled. / 当前正在重采样的歌曲路径。
 }
 
 // NewPlayList creates a new instance of PlayList.
@@ -138,9 +140,16 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 	} else if IsKey(key, GlobalConfig.Keymap.Playlist.PlaySong) {
 		if len(p.viewPlaylist) > 0 && p.cursor >= 0 && p.cursor < len(p.viewPlaylist) {
 			songPath := p.viewPlaylist[p.cursor]
+			// Check if resampling is needed before playing
+			needsResample, err := p.NeedsResampling(songPath)
+			if err == nil && needsResample {
+				p.resamplingSong = songPath
+				p.View() // Update UI to show resampling message
+			}
 			if err := p.app.PlaySong(songPath); err != nil {
 				// Handle error
 			}
+			p.resamplingSong = "" // Clear resampling flag
 		}
 		needRedraw = false
 	} else if IsKey(key, GlobalConfig.Keymap.Playlist.NavUp) {
@@ -269,7 +278,9 @@ func (p *PlayList) View() {
 	listHeight := h - 4
 
 	var footer string
-	if p.isSearching || p.searchQuery != "" {
+	if p.resamplingSong != "" {
+		footer = "↻ Resampling..."
+	} else if p.isSearching || p.searchQuery != "" {
 		footer = fmt.Sprintf("Search: %s", p.searchQuery)
 	} else {
 		footer = ""
@@ -366,6 +377,25 @@ func (p *PlayList) View() {
 			}
 		}
 	}
+}
+
+// NeedsResampling checks if a song needs resampling.
+//
+// NeedsResampling 检查歌曲是否需要重采样。
+func (p *PlayList) NeedsResampling(songPath string) (bool, error) {
+	f, err := os.Open(songPath)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	streamer, format, err := flac.Decode(f)
+	if err != nil {
+		return false, err
+	}
+	streamer.Close()
+
+	return format.SampleRate != p.app.sampleRate, nil
 }
 
 // Tick for PlayList does nothing, as it's event-driven.
