@@ -45,16 +45,15 @@ remember_library_path = true
 # 注意: 'remember_library_path' 也必须为 true 才能生效。
 playlist_history = true
 
-# Whether to persistently save playback history - if true, the program will save playback history and restore it next time it starts.
-# Note: 'remember_library_path' must also be true for this to take effect.
-#
-# 是否持久化保存播放记录 - 如果为true，程序会保存播放历史记录并在下次启动时恢复。
-# 注意: 'remember_library_path' 也必须为 true 才能生效。
+# Whether to save playback history (last played song, progress, etc.)
+# 是否保存播放历史（上次播放的歌曲、进度等）
 playback_history_persistence = true
+# Autostart last played song
+# 自动播放上次播放的歌曲
+autostart_last_played = true
 
-# Whether to remember the volume - if true, the program will save the volume level and restore it on next startup.
-#
-# 是否记录音量 - 如果为true，程序会保存音量大小并在下次启动时恢复。
+# Whether to remember the volume of the last playback
+# 是否记住上次播放的音量
 remember_volume = true
 
 # Whether to remember the playback rate - if true, the program will save the playback rate and restore it on next startup.
