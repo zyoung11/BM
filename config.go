@@ -57,6 +57,7 @@ type AppConfig struct {
 	RememberLibraryPath        bool   `toml:"remember_library_path"`
 	PlaylistHistory            bool   `toml:"playlist_history"`
 	PlaybackHistoryPersistence bool   `toml:"playback_history_persistence"`
+	AutostartLastPlayed        bool   `toml:"autostart_last_played"`
 	RememberVolume             bool   `toml:"remember_volume"`
 	RememberPlaybackRate       bool   `toml:"remember_playback_rate"`
 	LibraryPath                string `toml:"library_path"`
@@ -225,6 +226,9 @@ func LoadConfig() error {
 	}
 	if GlobalConfig.App.SwitchDebounceMs <= 0 {
 		GlobalConfig.App.SwitchDebounceMs = 200
+	}
+	if GlobalConfig.App.AutostartLastPlayed && (!GlobalConfig.App.RememberLibraryPath || !GlobalConfig.App.PlaybackHistoryPersistence) {
+		return fmt.Errorf("autostart_last_played can only be enabled when both remember_library_path and playback_history_persistence are also enabled\n\nautostart_last_played 只能在 remember_library_path 和 playback_history_persistence 同时开启时才能开启")
 	}
 
 	return validateKeymap(GlobalConfig.Keymap)
