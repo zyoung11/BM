@@ -61,6 +61,23 @@ remember_volume = true
 # 是否记录播放速度 - 如果为true，程序会保存播放速度并在下次启动时恢复。
 remember_playback_rate = true
 
+# Audio resampling quality - determines the quality of audio resampling when sample rate conversion is needed.
+# Available options: "quick", "low", "medium", "high", "very_high"
+# - quick: Fastest, lowest quality (~54 dB attenuation, 8-bit precision)
+# - low: Good for speech (~102 dB attenuation, 16-bit precision)  
+# - medium: General music playback (~102 dB attenuation, 16-bit precision)
+# - high: Studio production (~126 dB attenuation, 20-bit precision)
+# - very_high: Mastering/archival (~175 dB attenuation, 28-bit precision)
+#
+# 音频重采样质量 - 当需要进行采样率转换时，决定音频重采样的质量。
+# 可用选项: "quick", "low", "medium", "high", "very_high"
+# - quick: 最快，质量最低 (~54 dB 衰减, 8位精度)
+# - low: 适合语音 (~102 dB 衰减, 16位精度)
+# - medium: 一般音乐播放 (~102 dB 衰减, 16位精度)
+# - high: 工作室制作 (~126 dB 衰减, 20位精度)
+# - very_high: 母带处理/存档 (~175 dB 衰减, 28位精度)
+resampling_quality = "very_high"
+
 # Storage file path - used to save full path information entered by the user.
 #
 # 存储文件路径 - 用于保存用户输入的完整路径信息。
