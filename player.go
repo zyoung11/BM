@@ -661,14 +661,35 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	streamer, format, err := flac.Decode(f)
 	if err != nil {
 		f.Close()
+		p.app.MarkFileAsCorrupted(songPath) // 标记文件为损坏
 		return fmt.Errorf("解码FLAC失败: %v", err)
 	}
 
+	// 如果需要，进行重采样，并使用buffer来创建一个可跳转的流 (StreamSeeker)
+	var audioStream beep.StreamSeeker = streamer
+	if format.SampleRate != p.app.sampleRate {
+		// 使用 ResampleRatio 创建一个重采样器
+		// 正确的比率应该是 原始采样率 / 目标采样率
+		ratio := float64(format.SampleRate) / float64(p.app.sampleRate)
+		resampler := beep.ResampleRatio(4, ratio, streamer)
+
+		// 创建一个新的格式，其采样率是我们的目标采样率
+		bufferFormat := format
+		bufferFormat.SampleRate = p.app.sampleRate
+
+		// 创建一个缓冲区并将重采样后的流加载进去
+		buffer := beep.NewBuffer(bufferFormat)
+		buffer.Append(resampler)
+
+		// 从缓冲区的开头获取一个可跳转的流
+		audioStream = buffer.Streamer(0, buffer.Len())
+	}
+
 	// 重新初始化speaker（如果采样率不同）
-	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/30))
+	speaker.Init(p.app.sampleRate, p.app.sampleRate.N(time.Second/30))
 
 	// 创建新的播放器
-	player, err := newAudioPlayer(streamer, format, p.app.volume, p.app.playbackRate)
+	player, err := newAudioPlayer(audioStream, format, p.app.volume, p.app.playbackRate)
 	if err != nil {
 		f.Close()
 		return fmt.Errorf("创建播放器失败: %v", err)
