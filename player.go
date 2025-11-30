@@ -628,7 +628,11 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	var audioStream beep.StreamSeeker = streamer
 	if format.SampleRate != p.app.sampleRate {
 		p.resampleDisplayTimer = 10
-		p.updateStatus()
+		// Only update status if we're on the player page
+		// 只有在播放页面时才更新状态
+		if p.app.currentPageIndex == 0 {
+			p.updateStatus()
+		}
 		ratio := float64(format.SampleRate) / float64(p.app.sampleRate)
 		resampler := beep.ResampleRatio(4, ratio, streamer)
 
@@ -877,6 +881,12 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 }
 
 func (p *PlayerPage) updateStatus() {
+	// Only update status if we're on the player page
+	// 只有在播放页面时才更新状态
+	if p.app.currentPageIndex != 0 {
+		return
+	}
+
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		return

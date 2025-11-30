@@ -217,7 +217,7 @@ func (p *PlayList) removeCurrentSong() {
 		if nextIndex >= len(p.app.Playlist) {
 			nextIndex = len(p.app.Playlist) - 1
 		}
-		p.app.PlaySongWithSwitch(p.app.Playlist[nextIndex], true)
+		p.app.PlaySongWithSwitchAndRender(p.app.Playlist[nextIndex], true, true)
 	}
 }
 
