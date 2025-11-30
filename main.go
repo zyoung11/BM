@@ -220,7 +220,6 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	if format.SampleRate != a.sampleRate {
 		if playerPage != nil {
 			playerPage.resampleDisplayTimer = 10 // Show for 10 ticks (about 5s) / 显示10个tick周期（约5秒）
-			playerPage.updateStatus()
 		}
 		// The correct resampling ratio is original_samplerate / target_samplerate.
 		// 正确的重采样率应为 原始采样率 / 目标采样率。
@@ -268,23 +267,22 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 		playerPage.resampleDisplayTimer = 0
 	}
 
-	if forceRender {
-		playerPage.UpdateSongWithRender(songPath)
-	} else {
-		playerPage.UpdateSong(songPath)
-	}
 	if switchToPlayer {
-		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
-		playerPage.Init()
-		playerPage.View()
-	}
-
-	if switchToPlayer {
+		// Only update the player page UI when switching to the player page
+		// 只有在切换到播放器页面时才更新播放器页面UI
+		if forceRender {
+			playerPage.UpdateSongWithRender(songPath)
+		} else {
+			playerPage.UpdateSong(songPath)
+		}
 		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 		a.currentPageIndex = 0 // Directly set the page index / 直接设置页面索引
-		playerPage := a.pages[0].(*PlayerPage)
 		playerPage.Init()
 		playerPage.View()
+	} else {
+		// When not switching to player page, just update the song path without rendering
+		// 当不切换到播放器页面时，只更新歌曲路径而不渲染
+		playerPage.UpdateSong(songPath)
 	}
 
 	return nil
@@ -540,7 +538,7 @@ func main() {
 			displayHelp()
 			return
 		}
-		
+
 		dirPath = os.Args[1]
 		info, err := os.Stat(dirPath)
 		if err != nil {

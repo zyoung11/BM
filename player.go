@@ -673,21 +673,17 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	p.resampleDisplayTimer = 0
 
 	if switchToPlayer {
+		// Only update the player page UI when switching to the player page
+		// 只有在切换到播放器页面时才更新播放器页面UI
 		p.UpdateSongWithRender(songPath)
-	} else {
-		p.UpdateSong(songPath)
-	}
-	if switchToPlayer {
-		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
-		p.Init()
-		p.View()
-	}
-
-	if switchToPlayer {
 		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 		p.app.currentPageIndex = 0
 		p.Init()
 		p.View()
+	} else {
+		// When not switching to player page, just update the song path without rendering
+		// 当不切换到播放器页面时，只更新歌曲路径而不渲染
+		p.UpdateSong(songPath)
 	}
 
 	return nil
