@@ -80,6 +80,16 @@ func (p *PlayerPage) UpdateSong(songPath string) {
 	p.imageTop = 0
 	p.imageHeight = 0
 	p.imageRightEdge = 0
+	// 不立即重新渲染，让Tick()方法在下一个周期自然更新
+}
+
+// UpdateSongWithRender 更新当前播放的歌曲路径并强制重新渲染
+func (p *PlayerPage) UpdateSongWithRender(songPath string) {
+	p.flacPath = songPath
+	// 重置图像相关状态，强制重新加载专辑封面
+	p.imageTop = 0
+	p.imageHeight = 0
+	p.imageRightEdge = 0
 	// 立即重新渲染整个界面，确保专辑封面和歌曲信息正确显示
 	p.View()
 }
@@ -407,7 +417,7 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 		nextSong := p.app.Playlist[nextIndex]
 
 		// 尝试播放歌曲
-		err := p.app.PlaySongWithSwitch(nextSong, false)
+		err := p.app.PlaySongWithSwitchAndRender(nextSong, false, true)
 		if err == nil {
 			// 播放成功
 			return
@@ -508,7 +518,7 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 		prevSong := p.app.Playlist[prevIndex]
 
 		// 尝试播放歌曲
-		err := p.app.PlaySongWithSwitch(prevSong, false)
+		err := p.app.PlaySongWithSwitchAndRender(prevSong, false, true)
 		if err == nil {
 			// 播放成功
 			return
@@ -558,8 +568,10 @@ func (p *PlayerPage) playPreviousInRandomMode() {
 
 	// 检查歌曲是否还在播放列表中
 	if p.isSongInPlaylist(prevSong) {
-		// 播放历史记录中的歌曲（不调用 addToPlayHistory）
+		// 播放历史记录中的歌曲（不调用 addToPlayHistory），强制重新渲染
 		p.playSongFromHistory(prevSong, false)
+		// 由于 playSongFromHistory 在 switchToPlayer=false 时不重新渲染，我们需要手动调用 View
+		p.View()
 	} else {
 		// 歌曲不在播放列表中，继续向前查找
 		p.playPreviousInRandomMode()
@@ -598,7 +610,7 @@ func (p *PlayerPage) playRandomSong() {
 	}
 
 	// 播放随机选择的歌曲
-	p.app.PlaySongWithSwitch(p.app.Playlist[randomIndex], false)
+	p.app.PlaySongWithSwitchAndRender(p.app.Playlist[randomIndex], false, true)
 
 	// 更新切歌时间
 	p.lastSwitchTime = time.Now()
@@ -688,7 +700,12 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	speaker.Play(p.app.player.volume)
 
 	// 更新PlayerPage
-	p.UpdateSong(songPath)
+	// 在播放页面切换歌曲时强制重新渲染
+	if switchToPlayer {
+		p.UpdateSongWithRender(songPath)
+	} else {
+		p.UpdateSong(songPath)
+	}
 	// 只有在跳转页面时才清理屏幕并重新渲染
 	if switchToPlayer {
 		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
@@ -727,8 +744,10 @@ func (p *PlayerPage) playNextInRandomMode() {
 
 	// 检查歌曲是否还在播放列表中
 	if p.isSongInPlaylist(nextSong) {
-		// 播放历史记录中的歌曲（不调用 addToPlayHistory）
+		// 播放历史记录中的歌曲（不调用 addToPlayHistory），强制重新渲染
 		p.playSongFromHistory(nextSong, false)
+		// 由于 playSongFromHistory 在 switchToPlayer=false 时不重新渲染，我们需要手动调用 View
+		p.View()
 	} else {
 		// 歌曲不在播放列表中，继续向后查找
 		p.playNextInRandomMode()
