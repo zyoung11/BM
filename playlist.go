@@ -15,21 +15,26 @@ import (
 )
 
 // PlayList displays the list of songs to be played.
+//
+// PlayList 显示要播放的歌曲列表。
 type PlayList struct {
 	app    *App
-	cursor int // The UI cursor on the viewPlaylist
+	cursor int // The UI cursor on the viewPlaylist. / UI在viewPlaylist上的光标。
 	offset int
 
 	isSearching     bool
 	searchQuery     string
-	viewPlaylist    []string // The filtered playlist to be displayed
-	originalIndices []int    // Map from viewPlaylist index to app.Playlist index
+	viewPlaylist    []string // The filtered playlist to be displayed. / 要显示的已过滤播放列表。
+	originalIndices []int    // Map from viewPlaylist index to app.Playlist index. / 从viewPlaylist索引到app.Playlist索引的映射。
 
-	// 防抖机制：防止快速连续移除当前播放歌曲导致的卡顿
-	lastRemoveTime time.Time // 记录上次移除操作的时间
+	// Debounce mechanism to prevent accidental rapid removal of the current song.
+	// 防抖机制，防止快速连续移除当前播放歌曲。
+	lastRemoveTime time.Time
 }
 
 // NewPlayList creates a new instance of PlayList.
+//
+// NewPlayList 创建一个新的 PlayList 实例。
 func NewPlayList(app *App) *PlayList {
 	return &PlayList{
 		app:             app,
@@ -40,12 +45,16 @@ func NewPlayList(app *App) *PlayList {
 	}
 }
 
-// Init for PlayList prepares the initial view.
+// Init prepares the initial view for the playlist.
+//
+// Init 准备播放列表的初始视图。
 func (p *PlayList) Init() {
 	p.filterPlaylist()
 }
 
 // filterPlaylist updates the viewPlaylist based on the searchQuery.
+//
+// filterPlaylist 根据 searchQuery 更新 viewPlaylist。
 func (p *PlayList) filterPlaylist() {
 	p.viewPlaylist = make([]string, 0)
 	p.originalIndices = make([]int, 0)
@@ -75,7 +84,6 @@ func (p *PlayList) filterPlaylist() {
 			}
 		}
 
-		// Sort by score (descending)
 		sort.Slice(scoredSongs, func(i, j int) bool {
 			return scoredSongs[i].score > scoredSongs[j].score
 		})
@@ -86,16 +94,17 @@ func (p *PlayList) filterPlaylist() {
 		}
 	}
 
-	// Reset cursor and offset when filter changes
 	p.cursor = 0
 	p.offset = 0
 }
 
 // HandleKey handles user input for the playlist.
+//
+// HandleKey 处理播放列表的用户输入。
 func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 	if p.isSearching {
 		if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.ConfirmSearch) {
-			p.isSearching = false // Exit input mode, keeping the search results
+			p.isSearching = false
 		} else if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
 			p.isSearching = false
 			p.searchQuery = ""
@@ -107,10 +116,9 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 				p.filterPlaylist()
 			}
 		} else if key == KeyArrowUp || key == KeyArrowDown || key == KeyArrowLeft || key == KeyArrowRight {
-			// Arrow keys confirm search and exit input mode
 			p.isSearching = false
 		} else {
-			if key >= 32 { // Allow any printable character
+			if key >= 32 {
 				p.searchQuery += string(key)
 				p.filterPlaylist()
 			}
@@ -119,10 +127,9 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 		return nil, false, nil
 	}
 
-	// Not in search input mode
 	needRedraw := true
 	if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
-		if p.searchQuery != "" { // If there's an active search, clear it
+		if p.searchQuery != "" {
 			p.searchQuery = ""
 			p.filterPlaylist()
 		}
@@ -135,7 +142,7 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 				// Handle error
 			}
 		}
-		needRedraw = false // PlaySong handles redraw
+		needRedraw = false
 	} else if IsKey(key, GlobalConfig.Keymap.Playlist.NavUp) {
 		if len(p.viewPlaylist) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.viewPlaylist)) % len(p.viewPlaylist)
@@ -163,43 +170,37 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 }
 
 // removeCurrentSong removes the song at the current cursor position.
+//
+// removeCurrentSong 删除当前光标位置的歌曲。
 func (p *PlayList) removeCurrentSong() {
 	if p.cursor < 0 || p.cursor >= len(p.viewPlaylist) {
 		return
 	}
 
-	// Get the original index before removal
 	originalIndex := p.originalIndices[p.cursor]
 	songPath := p.app.Playlist[originalIndex]
 	wasPlayingSong := (p.app.currentSongPath == songPath)
 
-	// 防抖逻辑：如果正在移除当前播放的歌曲，检查时间间隔
 	if wasPlayingSong {
 		currentTime := time.Now()
-		// 使用配置的防抖时间，如果没有配置则使用默认值200ms
 		debounceMs := GlobalConfig.App.SwitchDebounceMs
 		if debounceMs == 0 {
-			debounceMs = 200 // 默认200ms防抖
+			debounceMs = 200
 		}
-
-		// 如果距离上次移除操作时间太短，跳过本次移除
 		if currentTime.Sub(p.lastRemoveTime) < time.Duration(debounceMs)*time.Millisecond {
 			return
 		}
 		p.lastRemoveTime = currentTime
 	}
 
-	// Remove from app.Playlist
 	p.app.Playlist = append(p.app.Playlist[:originalIndex], p.app.Playlist[originalIndex+1:]...)
 	if err := SavePlaylist(p.app.Playlist, p.app.LibraryPath); err != nil {
-		log.Printf("Warning: failed to save playlist: %v", err)
+		log.Printf("Warning: failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
 
-	// Find Library page and update its selection state
 	for _, page := range p.app.pages {
 		if libPage, ok := page.(*Library); ok {
 			delete(libPage.selected, songPath)
-			// Trigger a re-filter in Library page if it's currently showing search results
 			if libPage.searchQuery != "" {
 				libPage.filterSongs()
 			}
@@ -207,12 +208,7 @@ func (p *PlayList) removeCurrentSong() {
 		}
 	}
 
-	// After modification, we must refresh the filtered view
 	p.filterPlaylist()
-
-	// Adjust cursor: move to next item if available, otherwise stay at current position
-	// But since filterPlaylist() resets cursor to 0, we need to preserve the intended behavior
-	// Instead, we'll handle cursor movement in the HandleKey method like Library page does
 
 	if len(p.app.Playlist) == 0 {
 		p.stopPlaybackAndShowEmptyState()
@@ -225,7 +221,9 @@ func (p *PlayList) removeCurrentSong() {
 	}
 }
 
-// stopPlaybackAndShowEmptyState stops playback and shows an empty state.
+// stopPlaybackAndShowEmptyState stops playback and shows an empty state for the player page.
+//
+// stopPlaybackAndShowEmptyState 停止播放并显示播放器页面的空状态。
 func (p *PlayList) stopPlaybackAndShowEmptyState() {
 	if p.app.player != nil {
 		speaker.Lock()
@@ -244,6 +242,8 @@ func (p *PlayList) stopPlaybackAndShowEmptyState() {
 }
 
 // HandleSignal redraws the view on resize.
+//
+// HandleSignal 在调整大小时重绘视图。
 func (p *PlayList) HandleSignal(sig os.Signal) error {
 	if sig == syscall.SIGWINCH {
 		p.View()
@@ -252,30 +252,28 @@ func (p *PlayList) HandleSignal(sig os.Signal) error {
 }
 
 // View renders the playlist.
+//
+// View 渲染播放列表。
 func (p *PlayList) View() {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		w, h = 80, 24
 	}
 
-	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen
+	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 
-	// Title
 	title := "PlayList"
 	titleX := (w - len(title)) / 2
 	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
 
 	listHeight := h - 4
 
-	// Render Footer
 	var footer string
 	if p.isSearching || p.searchQuery != "" {
 		footer = fmt.Sprintf("Search: %s", p.searchQuery)
 	} else {
-		// No custom footer for Playlist, leave empty
 		footer = ""
 	}
-	// Truncate footer if it's too long
 	if len(footer) > w {
 		footer = "..." + footer[len(footer)-w+3:]
 	}
@@ -284,7 +282,6 @@ func (p *PlayList) View() {
 		footerX = 1
 	}
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
-	// If searching, position cursor at the end of the query
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
 		if cursorX <= w {
@@ -309,7 +306,6 @@ func (p *PlayList) View() {
 		return
 	}
 
-	// Adjust offset for scrolling
 	if p.cursor < p.offset {
 		p.offset = p.cursor
 	}
@@ -326,26 +322,23 @@ func (p *PlayList) View() {
 		trackPath := p.viewPlaylist[trackIndex]
 		trackName := filepath.Base(trackPath)
 
-		style := "\x1b[32m" // Default green
+		style := "\x1b[32m"
 		if trackPath == p.app.currentSongPath {
-			style = "\x1b[31m" // Red for playing
+			style = "\x1b[31m"
 		}
 		if p.app.IsFileCorrupted(trackPath) {
-			style = "\x1b[33m" // Yellow for corrupted files
+			style = "\x1b[33m"
 		}
 		if trackIndex == p.cursor {
-			style += "\x1b[7m" // Reverse for cursor
+			style += "\x1b[7m"
 		}
 
-		// 根据文件状态选择前缀
 		prefix := "✓"
 		if p.app.IsFileCorrupted(trackPath) {
-			prefix = "⚠" // 警告标志
+			prefix = "⚠"
 		}
 		line := fmt.Sprintf("%s %s", prefix, trackName)
-		// Use runewidth for accurate string width calculation and truncation
 		if runewidth.StringWidth(line) > w-1 {
-			// Truncate the line to fit the terminal width
 			for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
 				line = line[:len(line)-1]
 			}
@@ -367,13 +360,15 @@ func (p *PlayList) View() {
 		}
 		for i := 0; i < listHeight; i++ {
 			if i >= thumbStart && i < thumbStart+thumbSize {
-				fmt.Printf("\x1b[%d;%dH┃", i+3, w) // Thumb
+				fmt.Printf("\x1b[%d;%dH┃", i+3, w)
 			} else {
-				fmt.Printf("\x1b[%d;%dH│", i+3, w) // Track
+				fmt.Printf("\x1b[%d;%dH│", i+3, w)
 			}
 		}
 	}
 }
 
-// Tick for PlayList does nothing.
+// Tick for PlayList does nothing, as it's event-driven.
+//
+// PlayList的Tick方法不执行任何操作，因为它是事件驱动的。
 func (p *PlayList) Tick() {}
