@@ -688,9 +688,8 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 
 	// 更新PlayerPage
 	p.UpdateSong(songPath)
-	// 无论是否跳转页面，都重新渲染播放页面
-	if !switchToPlayer {
-		// 不跳转页面时，清理屏幕并重新渲染
+	// 只有在跳转页面时才清理屏幕并重新渲染
+	if switchToPlayer {
 		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
 		p.Init()
 		p.View()
