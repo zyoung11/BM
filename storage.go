@@ -12,9 +12,11 @@ import (
 //
 // StorageData 保存存储在 storage.json 文件中的数据。
 type StorageData struct {
-	LibraryPath string   `json:"library_path"`
-	Playlist    []string `json:"playlist"`
-	PlayHistory []string `json:"play_history"`
+	LibraryPath  string   `json:"library_path"`
+	Playlist     []string `json:"playlist"`
+	PlayHistory  []string `json:"play_history"`
+	Volume       *float64 `json:"volume,omitempty"`
+	PlaybackRate *float64 `json:"playback_rate,omitempty"`
 }
 
 // getStoragePath returns the absolute path to the storage file.

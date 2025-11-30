@@ -160,6 +160,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		}
 		player.volume.Volume = p.app.volume
 		speaker.Unlock()
+		p.app.SaveSettings()
 		if mprisServer != nil {
 			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Volume": volume.Value()})
@@ -171,6 +172,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		p.app.volume = math.Log2(p.app.linearVolume)
 		player.volume.Volume = p.app.volume
 		speaker.Unlock()
+		p.app.SaveSettings()
 		if mprisServer != nil {
 			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Volume": volume.Value()})
@@ -182,6 +184,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		player.resampler.SetRatio(min(max(ratio, 0.1), 4.0))
 		p.app.playbackRate = player.resampler.Ratio()
 		speaker.Unlock()
+		p.app.SaveSettings()
 		if mprisServer != nil {
 			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Rate": rate.Value()})
@@ -193,6 +196,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		player.resampler.SetRatio(min(max(ratio, 0.1), 4.0))
 		p.app.playbackRate = player.resampler.Ratio()
 		speaker.Unlock()
+		p.app.SaveSettings()
 		if mprisServer != nil {
 			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Rate": rate.Value()})
@@ -215,6 +219,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		player.resampler.SetRatio(1.0)
 		p.app.playbackRate = 1.0
 		speaker.Unlock()
+		p.app.SaveSettings()
 		if mprisServer != nil {
 			volume, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Volume")
 			rate, _ := mprisServer.Get("org.mpris.MediaPlayer2.Player", "Rate")

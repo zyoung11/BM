@@ -57,6 +57,8 @@ type AppConfig struct {
 	RememberLibraryPath        bool   `toml:"remember_library_path"`
 	PlaylistHistory            bool   `toml:"playlist_history"`
 	PlaybackHistoryPersistence bool   `toml:"playback_history_persistence"`
+	RememberVolume             bool   `toml:"remember_volume"`
+	RememberPlaybackRate       bool   `toml:"remember_playback_rate"`
 	LibraryPath                string `toml:"library_path"`
 	TargetSampleRate           int    `toml:"target_sample_rate"`
 	Storage                    string `toml:"storage"`
