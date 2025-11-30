@@ -78,6 +78,15 @@ remember_playback_rate = true
 # - very_high: 母带处理/存档 (~175 dB 衰减, 28位精度)
 resampling_quality = "quick"
 
+# Default text color - the color used for text display when no suitable color is found from album art.
+# RGB values range from 0 to 255.
+#
+# 默认文字颜色 - 当从专辑封面中找不到合适的颜色时，用于文字显示的颜色。
+# RGB 值的范围是 0 到 255。
+default_color_r = 100
+default_color_g = 149
+default_color_b = 237
+
 # Storage file path - used to save full path information entered by the user.
 #
 # 存储文件路径 - 用于保存用户输入的完整路径信息。
