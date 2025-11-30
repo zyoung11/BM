@@ -205,9 +205,21 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 		return fmt.Errorf("解码FLAC失败: %v", err)
 	}
 
+	// 获取PlayerPage用于显示重采样提示
+	var playerPage *PlayerPage
+	if page, ok := a.pages[0].(*PlayerPage); ok {
+		playerPage = page
+	}
+
 	// 如果需要，进行重采样，并使用buffer来创建一个可跳转的流 (StreamSeeker)
 	var audioStream beep.StreamSeeker = streamer
 	if format.SampleRate != a.sampleRate {
+		// 立即显示重采样提示
+		if playerPage != nil {
+			playerPage.resampleDisplayTimer = 10 // 显示10个tick周期（约5秒）
+			// 强制更新界面以显示提示
+			playerPage.updateStatus()
+		}
 		// 使用 ResampleRatio 创建一个重采样器
 		// 正确的比率应该是 原始采样率 / 目标采样率
 		ratio := float64(format.SampleRate) / float64(a.sampleRate)
@@ -258,19 +270,22 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	// 开始播放
 	speaker.Play(a.player.volume)
 
+	// 歌曲成功播放后，立即清除重采样提示
+	if playerPage != nil {
+		playerPage.resampleDisplayTimer = 0
+	}
+
 	// 更新PlayerPage
-	if playerPage, ok := a.pages[0].(*PlayerPage); ok {
-		if forceRender {
-			playerPage.UpdateSongWithRender(songPath)
-		} else {
-			playerPage.UpdateSong(songPath)
-		}
-		// 只有在跳转页面时才清理屏幕并重新渲染
-		if switchToPlayer {
-			fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
-			playerPage.Init()
-			playerPage.View()
-		}
+	if forceRender {
+		playerPage.UpdateSongWithRender(songPath)
+	} else {
+		playerPage.UpdateSong(songPath)
+	}
+	// 只有在跳转页面时才清理屏幕并重新渲染
+	if switchToPlayer {
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
+		playerPage.Init()
+		playerPage.View()
 	}
 
 	// 根据参数决定是否切换到播放页面
