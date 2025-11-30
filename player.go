@@ -1204,22 +1204,22 @@ func getCellSize() (width, height int, err error) {
 func getSongMetadata(flacPath string) (title, artist, album string) {
 	f, err := os.Open(flacPath)
 	if err != nil {
-		return "未知", "未知", "未知"
+		return "...", "...", "..."
 	}
 	defer f.Close()
 	m, err := tag.ReadFrom(f)
 	if err != nil {
-		return "未知", "未知", "未知"
+		return "...", "...", "..."
 	}
 	title, artist, album = m.Title(), m.Artist(), m.Album()
 	if title == "" {
-		title = "未知"
+		title = "..."
 	}
 	if artist == "" {
-		artist = "未知"
+		artist = "..."
 	}
 	if album == "" {
-		album = "未知"
+		album = "..."
 	}
 	return title, artist, album
 }

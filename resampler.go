@@ -7,12 +7,34 @@ import (
 	resampling "github.com/tphakala/go-audio-resampler"
 )
 
+// getResamplingQuality converts the quality string from config to the corresponding resampling quality preset.
+func getResamplingQuality(quality string) resampling.QualityPreset {
+	switch quality {
+	case "quick":
+		return resampling.QualityQuick
+	case "low":
+		return resampling.QualityLow
+	case "medium":
+		return resampling.QualityMedium
+	case "high":
+		return resampling.QualityHigh
+	case "very_high":
+		return resampling.QualityVeryHigh
+	default:
+		// Default to very_high if invalid value
+		return resampling.QualityVeryHigh
+	}
+}
+
 // highQualityResample performs high-quality audio resampling using go-audio-resampler
-// with the highest quality preset (QualityVeryHigh).
+// with the quality preset specified in the configuration.
 func highQualityResample(streamer beep.Streamer, inputRate, outputRate beep.SampleRate) (beep.StreamSeeker, error) {
 	// Convert sample rates to float64 for the resampler
 	inputRateHz := float64(inputRate)
 	outputRateHz := float64(outputRate)
+
+	// Get the quality preset from configuration
+	qualityPreset := getResamplingQuality(GlobalConfig.App.ResamplingQuality)
 
 	// Read all samples from the streamer
 	var inputSamples []float64
@@ -31,8 +53,8 @@ func highQualityResample(streamer beep.Streamer, inputRate, outputRate beep.Samp
 		}
 	}
 
-	// Resample the audio using the highest quality preset
-	outputSamples, err := resampling.ResampleMono(inputSamples, inputRateHz, outputRateHz, resampling.QualityVeryHigh)
+	// Resample the audio using the configured quality preset
+	outputSamples, err := resampling.ResampleMono(inputSamples, inputRateHz, outputRateHz, qualityPreset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resample audio: %v", err)
 	}

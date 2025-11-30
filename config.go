@@ -60,6 +60,7 @@ type AppConfig struct {
 	AutostartLastPlayed        bool   `toml:"autostart_last_played"`
 	RememberVolume             bool   `toml:"remember_volume"`
 	RememberPlaybackRate       bool   `toml:"remember_playback_rate"`
+	ResamplingQuality          string `toml:"resampling_quality"`
 	LibraryPath                string `toml:"library_path"`
 	TargetSampleRate           int    `toml:"target_sample_rate"`
 	Storage                    string `toml:"storage"`
