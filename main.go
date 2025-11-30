@@ -353,10 +353,12 @@ func (a *App) SaveSettings() {
 	}
 
 	if GlobalConfig.App.RememberVolume {
-		storageData.Volume = &a.linearVolume
+		roundedVolume := math.Round(a.linearVolume*100) / 100
+		storageData.Volume = &roundedVolume
 	}
 	if GlobalConfig.App.RememberPlaybackRate {
-		storageData.PlaybackRate = &a.playbackRate
+		roundedPlaybackRate := math.Round(a.playbackRate*100) / 100
+		storageData.PlaybackRate = &roundedPlaybackRate
 	}
 
 	if err := saveStorageData(storageData); err != nil {
