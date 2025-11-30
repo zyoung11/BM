@@ -53,6 +53,7 @@ type PlayerPage struct {
 	useCoverColor                         bool
 	volumeDisplayTimer                    int
 	rateDisplayTimer                      int
+	resampleDisplayTimer                  int // 重采样提示显示计时器
 
 	// 防抖机制：记录上次切歌时间
 	lastSwitchTime time.Time
@@ -284,6 +285,9 @@ func (p *PlayerPage) Tick() {
 	}
 	if p.rateDisplayTimer > 0 {
 		p.rateDisplayTimer--
+	}
+	if p.resampleDisplayTimer > 0 {
+		p.resampleDisplayTimer--
 	}
 
 	// 如果没有歌曲，不需要更新
@@ -626,14 +630,6 @@ func (p *PlayerPage) isSongInPlaylist(songPath string) bool {
 	return false
 }
 
-// isCurrentSongInHistory 检查当前歌曲是否在历史记录中
-func (p *PlayerPage) isCurrentSongInHistory() bool {
-	if p.app.historyIndex < 0 || p.app.historyIndex >= len(p.app.playHistory) {
-		return false
-	}
-	return p.app.playHistory[p.app.historyIndex] == p.flacPath
-}
-
 // playSongFromHistory 从历史记录播放歌曲（不添加新的历史记录）
 func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) error {
 	// 如果是同一首歌，不做任何操作
@@ -668,6 +664,10 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	// 如果需要，进行重采样，并使用buffer来创建一个可跳转的流 (StreamSeeker)
 	var audioStream beep.StreamSeeker = streamer
 	if format.SampleRate != p.app.sampleRate {
+		// 立即显示重采样提示
+		p.resampleDisplayTimer = 10 // 显示10个tick周期（约5秒）
+		// 强制更新界面以显示提示
+		p.updateStatus()
 		// 使用 ResampleRatio 创建一个重采样器
 		// 正确的比率应该是 原始采样率 / 目标采样率
 		ratio := float64(format.SampleRate) / float64(p.app.sampleRate)
@@ -719,6 +719,9 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 
 	// 开始播放
 	speaker.Play(p.app.player.volume)
+
+	// 歌曲成功播放后，立即清除重采样提示
+	p.resampleDisplayTimer = 0
 
 	// 更新PlayerPage
 	// 在播放页面切换歌曲时强制重新渲染
@@ -1078,32 +1081,44 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 		return
 	}
 
-	// --- Indicators (Volume & Rate) ---
+	// --- Indicators (Volume & Rate & Resample) ---
 	indicatorRow := row - 1
 	// Ensure we don't draw at or above the first row, and there's a progress bar to align with.
 	if indicatorRow > 0 && width > 0 {
 		// Only clear the indicator area, not the whole line
 		fmt.Printf("\x1b[%d;%dH\x1b[K", indicatorRow, startCol)
 
-		// Draw Volume Indicator
-		if p.volumeDisplayTimer > 0 {
-			// With the new linear volume, we can just multiply by 100
-			volPercent := int(math.Round(p.app.linearVolume * 100))
-			volStr := fmt.Sprintf("%d%%", volPercent)
-			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, startCol, colorCode, volStr)
-		}
-
-		// Draw Rate Indicator
-		if p.rateDisplayTimer > 0 {
-			rateVal := p.app.player.resampler.Ratio()
-			rateStr := fmt.Sprintf("%.2fx", rateVal)
-			// Align the end of the string with the end of the progress bar
-			rateWidth := runewidth.StringWidth(rateStr)
-			rateStartCol := startCol + width - rateWidth
-			if rateStartCol < startCol { // Ensure it doesn't overlap with volume
-				rateStartCol = startCol + 7 // A safe offset
+		// Draw Resample Indicator (居中显示，优先级最高)
+		if p.resampleDisplayTimer > 0 {
+			resampleStr := "↻ Resampling"
+			resampleWidth := runewidth.StringWidth(resampleStr)
+			resampleStartCol := startCol + (width-resampleWidth)/2
+			if resampleStartCol < startCol {
+				resampleStartCol = startCol
 			}
-			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, rateStartCol, colorCode, rateStr)
+			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, resampleStartCol, colorCode, resampleStr)
+		} else {
+			// 如果没有重采样提示，显示音量和播放速度
+			// Draw Volume Indicator
+			if p.volumeDisplayTimer > 0 {
+				// With the new linear volume, we can just multiply by 100
+				volPercent := int(math.Round(p.app.linearVolume * 100))
+				volStr := fmt.Sprintf("%d%%", volPercent)
+				fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, startCol, colorCode, volStr)
+			}
+
+			// Draw Rate Indicator
+			if p.rateDisplayTimer > 0 {
+				rateVal := p.app.player.resampler.Ratio()
+				rateStr := fmt.Sprintf("%.2fx", rateVal)
+				// Align the end of the string with the end of the progress bar
+				rateWidth := runewidth.StringWidth(rateStr)
+				rateStartCol := startCol + width - rateWidth
+				if rateStartCol < startCol { // Ensure it doesn't overlap with volume
+					rateStartCol = startCol + 7 // A safe offset
+				}
+				fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, rateStartCol, colorCode, rateStr)
+			}
 		}
 	}
 
@@ -1136,7 +1151,7 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 	var bar string
 	if playedChars > 0 {
 		bar += fmt.Sprintf("\x1b[2m%s", colorCode) // Dim played part
-		for i := 0; i < playedChars; i++ {
+		for range playedChars {
 			bar += "━"
 		}
 		bar += "\x1b[0m"
