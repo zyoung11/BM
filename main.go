@@ -560,6 +560,31 @@ func main() {
 		}
 	}
 
+	// Check configuration and path requirements BEFORE terminal setup
+	if err := LoadConfig(); err != nil {
+		log.Fatalf("Error loading configuration: %v\n\n错误: 加载配置失败: %v", err, err)
+	}
+
+	if GlobalConfig.App.PlaylistHistory && !GlobalConfig.App.RememberLibraryPath {
+		log.Fatalf("Configuration error: 'playlist_history' cannot be true if 'remember_library_path' is false.\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false。")
+	}
+
+	// Check if remember_library_path is enabled but no path is saved
+	if GlobalConfig.App.RememberLibraryPath && len(os.Args) < 2 {
+		storageData, err := loadStorageData()
+		if err != nil {
+			log.Fatalf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
+		}
+		if storageData.LibraryPath == "" {
+			log.Fatalf("`remember_library_path` is enabled, but no path is saved yet.\nPlease run with a directory path once to save it for future use.\n\n`remember_library_path` 已启用，但尚未保存任何路径。\n请提供一次目录路径以便将来使用。 \n\nUsage: %s <music_directory>", os.Args[0])
+		}
+	}
+
+	// Check if no path is provided and remember_library_path is disabled
+	if !GlobalConfig.App.RememberLibraryPath && len(os.Args) < 2 {
+		log.Fatalf("Please provide a music directory path.\nTo have the app remember the path for future sessions, set `remember_library_path = true` in the config file.\n\n请输入音乐目录路径。\n如果希望应用记住该路径，请在配置文件中设置 `remember_library_path = true`。\n\nUsage: %s <music_directory>", os.Args[0])
+	}
+
 	// --- Terminal Setup ---
 	fmt.Print("\x1b[?1049h\x1b[?25l")
 	defer fmt.Print("\x1b[2J\x1b[?1049l\x1b[?25h") // Clear screen and restore on exit
@@ -578,14 +603,6 @@ func main() {
 }
 
 func runApplication() error {
-	if err := LoadConfig(); err != nil {
-		return fmt.Errorf("Error loading configuration: %v\n\n错误: 加载配置失败: %v", err, err)
-	}
-
-	if GlobalConfig.App.PlaylistHistory && !GlobalConfig.App.RememberLibraryPath {
-		return fmt.Errorf("Configuration error: 'playlist_history' cannot be true if 'remember_library_path' is false.\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false。")
-	}
-
 	var dirPath string
 	storageData, err := loadStorageData()
 	if err != nil {
@@ -613,17 +630,11 @@ func runApplication() error {
 			}
 		}
 	} else {
-		if GlobalConfig.App.RememberLibraryPath {
-			if storageData.LibraryPath != "" {
-				dirPath = storageData.LibraryPath
-				if _, err := os.Stat(dirPath); err != nil {
-					return fmt.Errorf("The saved music library path is invalid or no longer exists: %s\n\n保存的音乐库路径无效或不存在: %s", dirPath, dirPath)
-				}
-			} else {
-				return fmt.Errorf("`remember_library_path` is enabled, but no path is saved yet.\nPlease run with a directory path once to save it for future use.\n\n`remember_library_path` 已启用，但尚未保存任何路径。\n请提供一次目录路径以便将来使用。 \n\nUsage: %s <music_directory>", os.Args[0])
-			}
-		} else {
-			return fmt.Errorf("Please provide a music directory path.\nTo have the app remember the path for future sessions, set `remember_library_path = true` in the config file.\n\n请输入音乐目录路径。\n如果希望应用记住该路径，请在配置文件中设置 `remember_library_path = true`。\n\nUsage: %s <music_directory>", os.Args[0])
+		// This branch should only be reached if remember_library_path is true and path exists
+		// 这个分支应该只在 remember_library_path 为 true 且路径存在时到达
+		dirPath = storageData.LibraryPath
+		if _, err := os.Stat(dirPath); err != nil {
+			return fmt.Errorf("The saved music library path is invalid or no longer exists: %s\n\n保存的音乐库路径无效或不存在: %s", dirPath, dirPath)
 		}
 	}
 
