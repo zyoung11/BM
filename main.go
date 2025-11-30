@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -337,6 +338,32 @@ func (a *App) PreviousSong() {
 	}
 }
 
+// SaveSettings saves the current volume and playback rate to the storage file.
+//
+// SaveSettings 将当前的音量和播放速度保存到存储文件。
+func (a *App) SaveSettings() {
+	if !GlobalConfig.App.RememberVolume && !GlobalConfig.App.RememberPlaybackRate {
+		return
+	}
+
+	storageData, err := loadStorageData()
+	if err != nil {
+		log.Printf("Warning: could not load storage data to save settings: %v", err)
+		return
+	}
+
+	if GlobalConfig.App.RememberVolume {
+		storageData.Volume = &a.linearVolume
+	}
+	if GlobalConfig.App.RememberPlaybackRate {
+		storageData.PlaybackRate = &a.playbackRate
+	}
+
+	if err := saveStorageData(storageData); err != nil {
+		log.Printf("Warning: could not save settings to storage: %v", err)
+	}
+}
+
 // Run starts the application's main event loop.
 //
 // Run 启动应用程序的主事件循环。
@@ -536,6 +563,10 @@ func main() {
 	}
 
 	var dirPath string
+	storageData, err := loadStorageData()
+	if err != nil {
+		log.Fatalf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
+	}
 
 	if len(os.Args) >= 2 {
 		// Handle help command
@@ -566,10 +597,6 @@ func main() {
 	} else {
 		// Handle no directory argument
 		if GlobalConfig.App.RememberLibraryPath {
-			storageData, err := loadStorageData()
-			if err != nil {
-				log.Fatalf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
-			}
 			if storageData.LibraryPath != "" {
 				dirPath = storageData.LibraryPath
 				if _, err := os.Stat(dirPath); err != nil {
@@ -625,6 +652,19 @@ func main() {
 		historyIndex:        len(playHistory) - 1,
 		isNavigatingHistory: false,
 		corruptedFiles:      make(map[string]bool),
+	}
+
+	if GlobalConfig.App.RememberVolume && storageData.Volume != nil {
+		app.linearVolume = *storageData.Volume
+		if app.linearVolume == 0 {
+			app.volume = -10
+		} else {
+			app.volume = math.Log2(app.linearVolume)
+		}
+	}
+
+	if GlobalConfig.App.RememberPlaybackRate && storageData.PlaybackRate != nil {
+		app.playbackRate = *storageData.PlaybackRate
 	}
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH)
