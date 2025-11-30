@@ -517,6 +517,13 @@ func isInSearchMode(page Page) bool {
 }
 
 func main() {
+	if len(os.Args) == 2 {
+		arg := os.Args[1]
+		if arg == "help" || arg == "-help" || arg == "--help" {
+			displayHelp()
+			return
+		}
+	}
 	if err := LoadConfig(); err != nil {
 		log.Fatalf("Error loading configuration: %v\n\n错误: 加载配置失败: %v", err, err)
 	}
@@ -527,15 +534,20 @@ func main() {
 
 	var dirPath string
 
-	if len(os.Args) == 2 {
+	if len(os.Args) >= 2 {
+		// Handle help command
+		if os.Args[1] == "help" || os.Args[1] == "-help" || os.Args[1] == "--help" {
+			displayHelp()
+			return
+		}
+		
 		dirPath = os.Args[1]
-
 		info, err := os.Stat(dirPath)
 		if err != nil {
 			log.Fatalf("Unable to access path: %v\n\n无法访问路径: %v", err, err)
 		}
 		if !info.IsDir() {
-			log.Fatalf("Input path must be a directory, not a file\n\n输入路径必须是目录，不是文件")
+			log.Fatalf("Input path must be a directory, not a file.\n\n输入路径必须是目录，而不是文件。")
 		}
 
 		if GlobalConfig.App.RememberLibraryPath {
@@ -548,24 +560,24 @@ func main() {
 				}
 			}
 		}
-	} else if len(os.Args) == 1 {
+	} else {
+		// Handle no directory argument
 		if GlobalConfig.App.RememberLibraryPath {
 			storageData, err := loadStorageData()
 			if err != nil {
-				log.Printf("Warning: Unable to load storage data: %v\n\n警告: 无法加载存储数据: %v", err, err)
-			} else if storageData.LibraryPath != "" {
+				log.Fatalf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
+			}
+			if storageData.LibraryPath != "" {
 				dirPath = storageData.LibraryPath
-				if info, err := os.Stat(dirPath); err != nil || !info.IsDir() {
-					log.Fatalf("Saved music library path is invalid or does not exist: %s\n\n保存的音乐库路径无效或不存在: %s", dirPath, dirPath)
+				if _, err := os.Stat(dirPath); err != nil {
+					log.Fatalf("The saved music library path is invalid or no longer exists: %s\n\n保存的音乐库路径无效或不存在: %s", dirPath, dirPath)
 				}
 			} else {
-				log.Fatalf("Usage: %s <music_directory>\nOr enable remember_library_path and set a valid library_path\n\n用法: %s <music_directory>\n或者启用 remember_library_path 并设置有效的 library_path", os.Args[0], os.Args[0])
+				log.Fatalf("`remember_library_path` is enabled, but no path is saved yet.\nPlease run with a directory path once to save it for future use.\n\n`remember_library_path` 已启用，但尚未保存任何路径。\n请提供一次目录路径以便将来使用。 \n\nUsage: %s <music_directory>", os.Args[0])
 			}
 		} else {
-			log.Fatalf("Usage: %s <music_directory>\n\n用法: %s <music_directory>", os.Args[0], os.Args[0])
+			log.Fatalf("Please provide a music directory path.\nTo have the app remember the path for future sessions, set `remember_library_path = true` in the config file.\n\n请输入音乐目录路径。\n如果希望应用记住该路径，请在配置文件中设置 `remember_library_path = true`。\n\nUsage: %s <music_directory>", os.Args[0])
 		}
-	} else {
-		log.Fatalf("Usage: %s [music_directory]\n\n用法: %s [music_directory]", os.Args[0], os.Args[0])
 	}
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
@@ -634,4 +646,13 @@ func (a *App) MarkFileAsCorrupted(filePath string) {
 // IsFileCorrupted 检查一个文件是否被标记为已损坏。
 func (a *App) IsFileCorrupted(filePath string) bool {
 	return a.corruptedFiles[filePath]
+}
+
+func displayHelp() {
+	fmt.Println("BM Music Player")
+	fmt.Println("\nUsage:")
+	fmt.Printf("  bm [directory]\t\tPlay music from the specified directory.\n")
+	fmt.Printf("  bm [command]\n")
+	fmt.Println("\nCommands:")
+	fmt.Printf("  help, -help, --help\t\tShow this help message.\n")
 }
