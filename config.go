@@ -61,6 +61,9 @@ type AppConfig struct {
 	RememberVolume             bool   `toml:"remember_volume"`
 	RememberPlaybackRate       bool   `toml:"remember_playback_rate"`
 	ResamplingQuality          string `toml:"resampling_quality"`
+	DefaultColorR              int    `toml:"default_color_r"`
+	DefaultColorG              int    `toml:"default_color_g"`
+	DefaultColorB              int    `toml:"default_color_b"`
 	LibraryPath                string `toml:"library_path"`
 	TargetSampleRate           int    `toml:"target_sample_rate"`
 	Storage                    string `toml:"storage"`

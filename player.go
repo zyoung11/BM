@@ -1248,6 +1248,7 @@ func analyzeCoverColor(img image.Image) (r, g, b int) {
 			}
 		}
 	}
+
 	maxCount := 0
 	var dominantColor [3]int
 	for color, count := range colorCount {
@@ -1261,5 +1262,7 @@ func analyzeCoverColor(img image.Image) (r, g, b int) {
 		return dominantColor[0], dominantColor[1], dominantColor[2]
 	}
 
-	return 255, 255, 255
+	// Fallback to the configured default color when no suitable color is found
+	// 当没有找到合适的颜色时，回退到配置的默认颜色
+	return GlobalConfig.App.DefaultColorR, GlobalConfig.App.DefaultColorG, GlobalConfig.App.DefaultColorB
 }
