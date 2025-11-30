@@ -148,35 +148,35 @@ target_sample_rate = 44100
     # Seek forward by 5 seconds.
     #
     # 快进5秒。
-    SeekForward = ["e"]
+    SeekForward = ["e", "l"]
     # Seek backward by 5 seconds.
     #
     # 快退5秒。
-    SeekBackward = ["q"]
+    SeekBackward = ["q", "h"]
     # Increase volume.
     #
     # 音量增加。
-    VolumeUp = ["w"]
+    VolumeUp = ["w", "up"]
     # Decrease volume.
     #
     # 音量减少。
-    VolumeDown = ["s"]
+    VolumeDown = ["s", "down"]
     # Increase playback rate.
     #
     # 播放速度增加。
-    RateUp = ["x"]
+    RateUp = ["x", "k"]
     # Decrease playback rate.
     #
     # 播放速度减少。
-    RateDown = ["z"]
+    RateDown = ["z", "j"]
     # Play the next song.
     #
     # 下一首歌曲。
-    NextSong = ["d"]
+    NextSong = ["d", "right"]
     # Play the previous song.
     #
     # 上一首歌曲。
-    PrevSong = ["a"]
+    PrevSong = ["a", "left"]
     # Toggle play mode.
     #
     # 切换播放模式。
