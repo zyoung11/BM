@@ -1166,7 +1166,6 @@ func getCellSize() (width, height int, err error) {
 }
 
 func getSongMetadata(flacPath string) (title, artist, album string) {
-	// This function remains unchanged.
 	f, err := os.Open(flacPath)
 	if err != nil {
 		return "未知", "未知", "未知"
@@ -1190,8 +1189,9 @@ func getSongMetadata(flacPath string) (title, artist, album string) {
 }
 
 func analyzeCoverColor(img image.Image) (r, g, b int) {
-	// This function remains unchanged.
 	bounds := img.Bounds()
+	colorCount := make(map[[3]int]int)
+
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			pr, pg, pb, _ := img.At(x, y).RGBA()
@@ -1201,9 +1201,23 @@ func analyzeCoverColor(img image.Image) (r, g, b int) {
 			isNotGray := math.Abs(float64(r8)-float64(g8)) > 25 || math.Abs(float64(g8)-float64(b8)) > 25
 			isNotWhite := !(r8 > 220 && g8 > 220 && b8 > 220)
 			if isBright && isNotGray && isNotWhite {
-				return r8, g8, b8
+				color := [3]int{r8, g8, b8}
+				colorCount[color]++
 			}
 		}
 	}
+	maxCount := 0
+	var dominantColor [3]int
+	for color, count := range colorCount {
+		if count > maxCount {
+			maxCount = count
+			dominantColor = color
+		}
+	}
+
+	if maxCount > 0 {
+		return dominantColor[0], dominantColor[1], dominantColor[2]
+	}
+
 	return 255, 255, 255
 }
