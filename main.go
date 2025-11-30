@@ -173,7 +173,7 @@ func (a *App) PlaySong(songPath string) error {
 //
 // PlaySongWithSwitch 播放指定的歌曲文件，并可选择是否跳转到播放页面。
 func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
-	return a.PlaySongWithSwitchAndRender(songPath, switchToPlayer, false)
+	return a.PlaySongWithSwitchAndRender(songPath, switchToPlayer, true)
 }
 
 // PlaySongWithSwitchAndRender plays the specified song file, with options to switch to the player page and force a re-render.
@@ -220,6 +220,11 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	if format.SampleRate != a.sampleRate {
 		if playerPage != nil {
 			playerPage.resampleDisplayTimer = 10 // Show for 10 ticks (about 5s) / 显示10个tick周期（约5秒）
+			// Force immediate UI update to show resampling indicator only if we're on player page
+			// 只有在播放页面时才强制立即更新UI以显示重采样指示器
+			if a.currentPageIndex == 0 {
+				playerPage.updateStatus()
+			}
 		}
 		// The correct resampling ratio is original_samplerate / target_samplerate.
 		// 正确的重采样率应为 原始采样率 / 目标采样率。
