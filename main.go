@@ -256,9 +256,8 @@ func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 	// 更新PlayerPage
 	if playerPage, ok := a.pages[0].(*PlayerPage); ok {
 		playerPage.UpdateSong(songPath)
-		// 无论是否跳转页面，都重新渲染播放页面
-		if !switchToPlayer {
-			// 不跳转页面时，清理屏幕并重新渲染
+		// 只有在跳转页面时才清理屏幕并重新渲染
+		if switchToPlayer {
 			fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
 			playerPage.Init()
 			playerPage.View()
@@ -582,11 +581,11 @@ func main() {
 	}
 
 	app := &App{
-		player:              nil,                          // 延迟初始化
-		mprisServer:         nil,                          // 延迟初始化
-		currentPageIndex:    GlobalConfig.App.DefaultPage, // 使用配置的默认页面
-		Playlist:            playlist,                     // 从storage加载的播放列表
-		LibraryPath:         dirPath,                      // 保存音乐库根路径
+		player:              nil,                              // 延迟初始化
+		mprisServer:         nil,                              // 延迟初始化
+		currentPageIndex:    GlobalConfig.App.DefaultPage,     // 使用配置的默认页面
+		Playlist:            playlist,                         // 从storage加载的播放列表
+		LibraryPath:         dirPath,                          // 保存音乐库根路径
 		playMode:            GlobalConfig.App.DefaultPlayMode, // 使用配置的默认播放模式
 		volume:              0,                                // 默认音量0（100%）
 		linearVolume:        1.0,                              // 默认线性音量1.0（100%）
