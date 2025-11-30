@@ -25,6 +25,10 @@ remember_library_path = true
 # 注意: remember_library_path 也必须为 true 才能生效
 playlist_history = true
 
+# 是否持久化保存播放记录 - 如果为true，程序会保存播放历史记录并在下次启动时恢复
+# 注意: remember_library_path 也必须为 true 才能生效
+playback_history_persistence = true
+
 # 存储文件路径 - 用于保存用户输入的完整路径信息
 storage = "~/.config/BM/storage.json"
 # 目标音频采样率 (Hz) - 程序启动时音频输出设备的采样率

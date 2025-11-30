@@ -12,6 +12,7 @@ import (
 type StorageData struct {
 	LibraryPath string   `json:"library_path"` // 保存的完整音乐库路径
 	Playlist    []string `json:"playlist"`     // 保存的播放列表（相对路径）
+	PlayHistory []string `json:"play_history"` // 保存的播放历史记录（相对路径）
 }
 
 // getStoragePath returns the absolute path to the storage file.
@@ -156,4 +157,64 @@ func LoadPlaylist(libraryPath string) ([]string, error) {
 	}
 
 	return absolutePlaylist, nil
+}
+
+// SavePlayHistory saves the current play history to the storage.json file.
+// It converts absolute paths to paths relative to the library root.
+func SavePlayHistory(playHistory []string, libraryPath string) error {
+	if !GlobalConfig.App.PlaybackHistoryPersistence {
+		return nil
+	}
+
+	storageData, err := loadStorageData()
+	if err != nil {
+		return fmt.Errorf("could not load storage data for play history: %v", err)
+	}
+
+	relativePlayHistory := make([]string, len(playHistory))
+	for i, songPath := range playHistory {
+		relPath, err := filepath.Rel(libraryPath, songPath)
+		if err != nil {
+			// If we can't make it relative, store the absolute path as a fallback
+			relativePlayHistory[i] = songPath
+		} else {
+			relativePlayHistory[i] = relPath
+		}
+	}
+
+	storageData.PlayHistory = relativePlayHistory
+
+	if err := saveStorageData(storageData); err != nil {
+		return fmt.Errorf("could not save play history data: %v", err)
+	}
+	return nil
+}
+
+// LoadPlayHistory loads the play history from the storage.json file.
+// It converts relative paths back to absolute paths based on the library root.
+func LoadPlayHistory(libraryPath string) ([]string, error) {
+	if !GlobalConfig.App.PlaybackHistoryPersistence {
+		return []string{}, nil
+	}
+
+	storageData, err := loadStorageData()
+	if err != nil {
+		return nil, fmt.Errorf("could not load storage data for play history: %v", err)
+	}
+
+	if storageData.PlayHistory == nil {
+		return []string{}, nil
+	}
+
+	absolutePlayHistory := make([]string, len(storageData.PlayHistory))
+	for i, relPath := range storageData.PlayHistory {
+		// Check if the path is already absolute (fallback case)
+		if filepath.IsAbs(relPath) {
+			absolutePlayHistory[i] = relPath
+		} else {
+			absolutePlayHistory[i] = filepath.Join(libraryPath, relPath)
+		}
+	}
+
+	return absolutePlayHistory, nil
 }

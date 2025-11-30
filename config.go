@@ -42,15 +42,16 @@ type Config struct {
 
 // AppConfig holds application-level configuration settings.
 type AppConfig struct {
-	MaxHistorySize      int    `toml:"max_history_size"`      // 最大历史记录数量
-	SwitchDebounceMs    int    `toml:"switch_debounce_ms"`    // 切歌防抖时间（毫秒）
-	DefaultPage         int    `toml:"default_page"`          // 默认启动页面
-	DefaultPlayMode     int    `toml:"default_play_mode"`     // 默认播放模式
-	RememberLibraryPath bool   `toml:"remember_library_path"` // 是否记录音乐库路径
-	PlaylistHistory     bool   `toml:"playlist_history"`      // 是否记录播放列表
-	LibraryPath         string `toml:"library_path"`          // 保存的音乐库路径
-	TargetSampleRate    int    `toml:"target_sample_rate"`    // 目标音频采样率
-	Storage             string `toml:"storage"`               // 存储文件路径
+	MaxHistorySize             int    `toml:"max_history_size"`             // 最大历史记录数量
+	SwitchDebounceMs           int    `toml:"switch_debounce_ms"`           // 切歌防抖时间（毫秒）
+	DefaultPage                int    `toml:"default_page"`                 // 默认启动页面
+	DefaultPlayMode            int    `toml:"default_play_mode"`            // 默认播放模式
+	RememberLibraryPath        bool   `toml:"remember_library_path"`        // 是否记录音乐库路径
+	PlaylistHistory            bool   `toml:"playlist_history"`             // 是否记录播放列表
+	PlaybackHistoryPersistence bool   `toml:"playback_history_persistence"` // 是否持久化保存播放记录
+	LibraryPath                string `toml:"library_path"`                 // 保存的音乐库路径
+	TargetSampleRate           int    `toml:"target_sample_rate"`           // 目标音频采样率
+	Storage                    string `toml:"storage"`                      // 存储文件路径
 }
 
 // Keymap defines all the keybindings for the application, organized by page.

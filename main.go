@@ -305,6 +305,11 @@ func (a *App) addToPlayHistory(songPath string) {
 
 	// 添加新记录时，重置导航标志（表示用户开始新的播放路径）
 	a.isNavigatingHistory = false
+
+	// 保存播放历史记录到存储
+	if err := SavePlayHistory(a.playHistory, a.LibraryPath); err != nil {
+		log.Printf("Warning: failed to save play history: %v", err)
+	}
 }
 
 // NextSong 切换到下一首歌曲
@@ -589,6 +594,13 @@ func main() {
 		playlist = make([]string, 0) // Start with an empty playlist on error
 	}
 
+	// Load play history from storage
+	playHistory, err := LoadPlayHistory(dirPath)
+	if err != nil {
+		log.Printf("Warning: Could not load play history: %v", err)
+		playHistory = make([]string, 0) // Start with an empty play history on error
+	}
+
 	app := &App{
 		player:              nil,                              // 延迟初始化
 		mprisServer:         nil,                              // 延迟初始化
@@ -601,8 +613,8 @@ func main() {
 		playbackRate:        1.0,                              // 默认播放速度1.0
 		actionQueue:         make(chan func(), 10),            // Initialize the action queue
 		sampleRate:          sampleRate,                       // Store the global sample rate
-		playHistory:         make([]string, 0),                // 初始化播放历史记录
-		historyIndex:        -1,                               // 初始历史索引
+		playHistory:         playHistory,                      // 从storage加载的播放历史记录
+		historyIndex:        len(playHistory) - 1,             // 初始历史索引（指向最后一条记录）
 		isNavigatingHistory: false,                            // 初始不在历史记录导航中
 		corruptedFiles:      make(map[string]bool),            // 初始化损坏文件跟踪
 	}
