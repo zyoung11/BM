@@ -674,6 +674,16 @@ func main() {
 	libraryPage := NewLibraryWithPath(app, dirPath)
 	app.pages = []Page{playerPage, playListPage, libraryPage}
 
+	// Autostart last played song if enabled
+	if GlobalConfig.App.AutostartLastPlayed && len(app.playHistory) > 0 {
+		lastSong := app.playHistory[len(app.playHistory)-1]
+		switchToPlayer := app.currentPageIndex == 0
+		err := app.PlaySongWithSwitchAndRender(lastSong, switchToPlayer, false)
+		if err != nil {
+			log.Printf("Warning: Could not autostart last played song: %v", err)
+		}
+	}
+
 	if err := app.Run(); err != nil {
 		log.Fatalf("Application runtime error: %v\n\n应用运行时出现错误: %v", err, err)
 	}
