@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"syscall"
+	"time"
 
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
@@ -23,6 +24,9 @@ type PlayList struct {
 	searchQuery     string
 	viewPlaylist    []string // The filtered playlist to be displayed
 	originalIndices []int    // Map from viewPlaylist index to app.Playlist index
+
+	// 防抖机制：防止快速连续移除当前播放歌曲导致的卡顿
+	lastRemoveTime time.Time // 记录上次移除操作的时间
 }
 
 // NewPlayList creates a new instance of PlayList.
@@ -168,6 +172,22 @@ func (p *PlayList) removeCurrentSong() {
 	originalIndex := p.originalIndices[p.cursor]
 	songPath := p.app.Playlist[originalIndex]
 	wasPlayingSong := (p.app.currentSongPath == songPath)
+
+	// 防抖逻辑：如果正在移除当前播放的歌曲，检查时间间隔
+	if wasPlayingSong {
+		currentTime := time.Now()
+		// 使用配置的防抖时间，如果没有配置则使用默认值200ms
+		debounceMs := GlobalConfig.App.SwitchDebounceMs
+		if debounceMs == 0 {
+			debounceMs = 200 // 默认200ms防抖
+		}
+
+		// 如果距离上次移除操作时间太短，跳过本次移除
+		if currentTime.Sub(p.lastRemoveTime) < time.Duration(debounceMs)*time.Millisecond {
+			return
+		}
+		p.lastRemoveTime = currentTime
+	}
 
 	// Remove from app.Playlist
 	p.app.Playlist = append(p.app.Playlist[:originalIndex], p.app.Playlist[originalIndex+1:]...)
