@@ -59,7 +59,8 @@ type PlayerPage struct {
 	useCoverColor                         bool
 	volumeDisplayTimer                    int
 	rateDisplayTimer                      int
-	resampleDisplayTimer                  int // Timer for showing the resampling indicator. / 用于显示重采样提示的计时器。
+	resampleDisplayTimer                  int  // Timer for showing the resampling indicator. / 用于显示重采样提示的计时器。
+	textTooLongForWide                    bool // True if text is too long for wide terminal mode. / 如果文本太长不适合宽终端模式则为true。
 
 	// Debounce mechanism for song switching. / 切歌防抖机制。
 	lastSwitchTime time.Time
@@ -827,10 +828,11 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 					showTextOnly = h < 13 && !showNothing
 					showInfoOnly := (w < maxTextLength || h < 10) && !showNothing && !showTextOnly
 
+					p.textTooLongForWide = false
 					if isWideTerminal {
 						availableWidth := w - (startCol + imageWidthInChars)
 						if availableWidth < maxTextLength+10 {
-							isWideTerminal = false
+							p.textTooLongForWide = true
 						}
 					}
 
@@ -838,10 +840,15 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 						startCol, startRow, imageWidthInChars, imageHeightInChars = 0, 0, 0, 0
 					} else if showInfoOnly {
 						startCol, startRow = (w-imageWidthInChars)/2, (h-imageHeightInChars)/2
-					} else if isWideTerminal {
+					} else if isWideTerminal && !p.textTooLongForWide {
+						// Normal wide terminal mode - image on left, text on right
 						startCol, startRow = 1, (h-imageHeightInChars+1)/2
-					} else {
+					} else if isWideTerminal && p.textTooLongForWide {
+						// Text too long for wide mode - center the image
 						startCol, startRow = (w-imageWidthInChars)/2, (h-imageHeightInChars+1)/2
+					} else {
+						// Normal narrow terminal mode
+						startCol, startRow = (w-imageWidthInChars)/2, 2
 					}
 
 					if startCol < 1 {
@@ -928,11 +935,16 @@ func (p *PlayerPage) updateStatus() {
 		}
 	}
 
-	if isWideTerminal {
+	if isWideTerminal && !p.textTooLongForWide {
+		// Normal wide terminal mode - show image on left, text on right
 		if p.imageRightEdge > 0 && w-p.imageRightEdge >= 30 {
 			p.updateRightPanel(w)
 		}
+	} else if isWideTerminal && p.textTooLongForWide {
+		// Text too long for wide mode - don't show text, just show centered image
+		// No need to call updateRightPanel
 	} else {
+		// Narrow terminal mode
 		imageBottomRow := p.imageTop + p.imageHeight
 		if h-imageBottomRow >= 5 {
 			p.updateBottomStatus(imageBottomRow, w, h)
