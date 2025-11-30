@@ -18,15 +18,16 @@ import (
 )
 
 // fuzzyMatch performs a case-insensitive fuzzy search with Unicode support.
-// It returns a score indicating the quality of the match (higher is better).
-// Returns 0 if no match is found.
+// It returns a score indicating the quality of the match (higher is better), or 0 if no match is found.
+//
+// fuzzyMatch 函数执行一个不区分大小写的、支持Unicode的模糊搜索。
+// 它返回一个表示匹配质量的分数（越高越好），如果没有找到匹配项则返回0。
 func fuzzyMatch(query, text string) int {
-	// Convert both query and text to rune slices for proper Unicode handling
 	queryRunes := []rune(query)
 	textRunes := []rune(text)
 
 	if len(queryRunes) == 0 {
-		return 100 // Empty query matches everything with high score
+		return 100
 	}
 
 	queryIdx := 0
@@ -36,14 +37,12 @@ func fuzzyMatch(query, text string) int {
 	maxConsecutive := 0
 
 	for i, textRune := range textRunes {
-		// Use Unicode-aware case folding for case-insensitive comparison
 		if unicodeFold(textRune) == unicodeFold(queryRunes[queryIdx]) {
 			if firstMatchIndex == -1 {
 				firstMatchIndex = i
 			}
 			lastMatchIndex = i
 
-			// Track consecutive matches
 			consecutiveMatches++
 			if consecutiveMatches > maxConsecutive {
 				maxConsecutive = consecutiveMatches
@@ -58,38 +57,31 @@ func fuzzyMatch(query, text string) int {
 		}
 	}
 
-	// If we didn't match all query characters, return 0
 	if queryIdx < len(queryRunes) {
 		return 0
 	}
 
-	// Calculate score based on various factors
 	score := 100
 
-	// Penalty for match spread (closer matches are better)
 	matchSpread := lastMatchIndex - firstMatchIndex
 	if matchSpread > 0 {
 		spreadPenalty := (matchSpread * 10) / len(textRunes)
 		score -= spreadPenalty
 	}
 
-	// Bonus for consecutive matches
 	if maxConsecutive > 1 {
 		consecutiveBonus := maxConsecutive * 5
 		score += consecutiveBonus
 	}
 
-	// Bonus for exact prefix match
 	if firstMatchIndex == 0 {
 		score += 20
 	}
 
-	// Bonus for shorter text (more relevant)
 	if len(textRunes) < 50 {
 		score += (50 - len(textRunes)) / 5
 	}
 
-	// Ensure score is at least 1
 	if score < 1 {
 		score = 1
 	}
@@ -97,18 +89,19 @@ func fuzzyMatch(query, text string) int {
 	return score
 }
 
-// unicodeFold performs Unicode-aware case folding for case-insensitive comparison
+// unicodeFold performs Unicode-aware case folding for case-insensitive comparison.
+//
+// unicodeFold 函数执行支持Unicode的大小写折叠，用于不区分大小写的比较。
 func unicodeFold(r rune) rune {
-	// For basic ASCII characters, use simple case conversion
 	if r >= 'A' && r <= 'Z' {
 		return r + ('a' - 'A')
 	}
-	// For non-ASCII characters, use Unicode case folding
-	// This handles characters from various languages
 	return unicode.ToLower(r)
 }
 
-// Key constants for special keys
+// Key constants for special keys.
+//
+// 特殊按键的常量定义。
 const (
 	KeyArrowUp = 1000 + iota
 	KeyArrowDown
@@ -119,31 +112,35 @@ const (
 )
 
 // App represents the main TUI application and holds shared state.
+//
+// App 代表主TUI应用程序并持有共享状态。
 type App struct {
 	player           *audioPlayer
 	mprisServer      *MPRISServer
 	pages            []Page
 	currentPageIndex int
 	Playlist         []string
-	LibraryPath      string      // The root path of the music library
-	currentSongPath  string      // 当前播放的歌曲路径
-	playMode         int         // 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放
-	volume           float64     // 保存的音量设置
-	linearVolume     float64     // 0.0 to 1.0 linear volume for display
-	playbackRate     float64     // 保存的播放速度设置
-	actionQueue      chan func() // Action queue for thread-safe UI updates
+	LibraryPath      string      // Root path of the music library. / 音乐库的根路径。
+	currentSongPath  string      // Path of the currently playing song. / 当前播放歌曲的路径。
+	playMode         int         // Play mode: 0=repeat one, 1=repeat all, 2=random. / 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放。
+	volume           float64     // Saved volume setting. / 保存的音量设置。
+	linearVolume     float64     // 0.0 to 1.0 linear volume for display. / 用于显示的线性音量（0.0到1.0）。
+	playbackRate     float64     // Saved playback rate setting. / 保存的播放速度设置。
+	actionQueue      chan func() // Action queue for thread-safe UI updates. / 用于线程安全UI更新的操作队列。
 	sampleRate       beep.SampleRate
 
-	// 播放历史记录
-	playHistory         []string // 播放历史记录，最多100条
-	historyIndex        int      // 当前在历史记录中的位置
-	isNavigatingHistory bool     // 是否正在历史记录中导航
+	// Play history. / 播放历史记录。
+	playHistory         []string // Stores up to 100 played songs. / 存储最多100首播放过的歌曲。
+	historyIndex        int      // Current position in the play history. / 在播放历史中的当前位置。
+	isNavigatingHistory bool     // True if navigating through history. / 如果正在历史记录中导航，则为true。
 
-	// 损坏文件跟踪
-	corruptedFiles map[string]bool // 记录损坏的FLAC文件
+	// Corrupted file tracking. / 损坏文件跟踪。
+	corruptedFiles map[string]bool // Records corrupted FLAC files. / 记录损坏的FLAC文件。
 }
 
 // Page defines the interface for a TUI page.
+//
+// Page 定义了TUI页面的接口。
 type Page interface {
 	Init()
 	HandleKey(key rune) (Page, bool, error)
@@ -153,98 +150,98 @@ type Page interface {
 }
 
 // switchToPage switches the application to the page at the given index.
+//
+// switchToPage 将应用程序切换到给定索引的页面。
 func (a *App) switchToPage(index int) {
 	if index >= 0 && index < len(a.pages) && index != a.currentPageIndex {
 		a.currentPageIndex = index
 		newPage := a.pages[a.currentPageIndex]
-		// 清理屏幕并重新初始化
 		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen completely
 		newPage.Init()
 		newPage.View()
 	}
 }
 
-// PlaySong 播放指定的歌曲文件
+// PlaySong plays the specified song file.
+//
+// PlaySong 播放指定的歌曲文件。
 func (a *App) PlaySong(songPath string) error {
 	return a.PlaySongWithSwitch(songPath, true)
 }
 
-// PlaySongWithSwitch 播放指定的歌曲文件，可选择是否跳转到播放页面
+// PlaySongWithSwitch plays the specified song file, with an option to switch to the player page.
+//
+// PlaySongWithSwitch 播放指定的歌曲文件，并可选择是否跳转到播放页面。
 func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 	return a.PlaySongWithSwitchAndRender(songPath, switchToPlayer, false)
 }
 
-// PlaySongWithSwitchAndRender 播放指定的歌曲文件，可选择是否跳转到播放页面和是否重新渲染
+// PlaySongWithSwitchAndRender plays the specified song file, with options to switch to the player page and force a re-render.
+//
+// PlaySongWithSwitchAndRender 播放指定的歌曲文件，并可选择是否跳转到播放页面和是否强制重新渲染。
 func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, forceRender bool) error {
-	// 如果是同一首歌，不做任何操作
+	// Do nothing if it's the same song.
+	// 如果是同一首歌，则不执行任何操作。
 	if a.currentSongPath == songPath && a.player != nil {
 		if switchToPlayer {
-			// 切换到播放页面
 			a.switchToPage(0) // PlayerPage
 		}
 		return nil
 	}
 
-	// 停止当前播放
+	// Stop current playback.
+	// 停止当前播放。
 	speaker.Lock()
 	if a.player != nil {
 		a.player.ctrl.Paused = true
 	}
 	speaker.Unlock()
 
-	// 加载新文件
 	f, err := os.Open(songPath)
 	if err != nil {
-		return fmt.Errorf("打开文件失败: %v", err)
+		return fmt.Errorf("failed to open file: %v\n\n打开文件失败: %v", err, err)
 	}
 
 	streamer, format, err := flac.Decode(f)
 	if err != nil {
 		f.Close()
-		a.MarkFileAsCorrupted(songPath) // 标记文件为损坏
+		a.MarkFileAsCorrupted(songPath)
 		return fmt.Errorf("解码FLAC失败: %v", err)
 	}
 
-	// 获取PlayerPage用于显示重采样提示
 	var playerPage *PlayerPage
 	if page, ok := a.pages[0].(*PlayerPage); ok {
 		playerPage = page
 	}
 
-	// 如果需要，进行重采样，并使用buffer来创建一个可跳转的流 (StreamSeeker)
+	// Resample if necessary and use a buffer to create a seekable stream (StreamSeeker).
+	// 如果需要，进行重采样，并使用缓冲区创建一个可跳转的流 (StreamSeeker)。
 	var audioStream beep.StreamSeeker = streamer
 	if format.SampleRate != a.sampleRate {
-		// 立即显示重采样提示
 		if playerPage != nil {
-			playerPage.resampleDisplayTimer = 10 // 显示10个tick周期（约5秒）
-			// 强制更新界面以显示提示
+			playerPage.resampleDisplayTimer = 10 // Show for 10 ticks (about 5s) / 显示10个tick周期（约5秒）
 			playerPage.updateStatus()
 		}
-		// 使用 ResampleRatio 创建一个重采样器
-		// 正确的比率应该是 原始采样率 / 目标采样率
+		// The correct resampling ratio is original_samplerate / target_samplerate.
+		// 正确的重采样率应为 原始采样率 / 目标采样率。
 		ratio := float64(format.SampleRate) / float64(a.sampleRate)
 		resampler := beep.ResampleRatio(4, ratio, streamer)
 
-		// 创建一个新的格式，其采样率是我们的目标采样率
 		bufferFormat := format
 		bufferFormat.SampleRate = a.sampleRate
 
-		// 创建一个缓冲区并将重采样后的流加载进去
 		buffer := beep.NewBuffer(bufferFormat)
 		buffer.Append(resampler)
 
-		// 从缓冲区的开头获取一个可跳转的流
 		audioStream = buffer.Streamer(0, buffer.Len())
 	}
 
-	// 创建新的播放器
 	player, err := newAudioPlayer(audioStream, format, a.volume, a.playbackRate)
 	if err != nil {
 		f.Close()
 		return fmt.Errorf("创建播放器失败: %v", err)
 	}
 
-	// 更新MPRIS服务
 	if a.mprisServer != nil {
 		a.mprisServer.StopService()
 	}
@@ -257,41 +254,34 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 		}
 	}
 
-	// 更新应用状态
 	speaker.Lock()
 	a.player = player
 	a.mprisServer = mprisServer
 	a.currentSongPath = songPath
 	speaker.Unlock()
 
-	// 记录播放历史
 	a.addToPlayHistory(songPath)
 
-	// 开始播放
 	speaker.Play(a.player.volume)
 
-	// 歌曲成功播放后，立即清除重采样提示
 	if playerPage != nil {
 		playerPage.resampleDisplayTimer = 0
 	}
 
-	// 更新PlayerPage
 	if forceRender {
 		playerPage.UpdateSongWithRender(songPath)
 	} else {
 		playerPage.UpdateSong(songPath)
 	}
-	// 只有在跳转页面时才清理屏幕并重新渲染
 	if switchToPlayer {
-		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 		playerPage.Init()
 		playerPage.View()
 	}
 
-	// 根据参数决定是否切换到播放页面
 	if switchToPlayer {
-		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
-		a.currentPageIndex = 0            // 直接设置页面索引
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
+		a.currentPageIndex = 0 // Directly set the page index / 直接设置页面索引
 		playerPage := a.pages[0].(*PlayerPage)
 		playerPage.Init()
 		playerPage.View()
@@ -300,34 +290,31 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	return nil
 }
 
-// addToPlayHistory 添加歌曲到播放历史记录
+// addToPlayHistory adds a song to the play history.
+//
+// addToPlayHistory 添加歌曲到播放历史记录。
 func (a *App) addToPlayHistory(songPath string) {
-	// 如果当前在历史记录中间位置，删除当前位置之后的所有记录
 	if a.historyIndex < len(a.playHistory)-1 {
 		a.playHistory = a.playHistory[:a.historyIndex+1]
 	}
 
-	// 添加新记录
 	a.playHistory = append(a.playHistory, songPath)
 
-	// 限制历史记录数量（使用配置的最大历史记录数量）
 	if len(a.playHistory) > GlobalConfig.App.MaxHistorySize {
 		a.playHistory = a.playHistory[1:]
 	}
 
-	// 更新历史索引到最新位置
 	a.historyIndex = len(a.playHistory) - 1
-
-	// 添加新记录时，重置导航标志（表示用户开始新的播放路径）
 	a.isNavigatingHistory = false
 
-	// 保存播放历史记录到存储
 	if err := SavePlayHistory(a.playHistory, a.LibraryPath); err != nil {
-		log.Printf("Warning: failed to save play history: %v", err)
+		log.Printf("Warning: failed to save play history: %v\n\n警告: 保存播放历史失败: %v", err, err)
 	}
 }
 
-// NextSong 切换到下一首歌曲
+// NextSong switches to the next song.
+//
+// NextSong 切换到下一首歌曲。
 func (a *App) NextSong() {
 	a.actionQueue <- func() {
 		if playerPage, ok := a.pages[0].(*PlayerPage); ok {
@@ -336,7 +323,9 @@ func (a *App) NextSong() {
 	}
 }
 
-// PreviousSong 切换到上一首歌曲
+// PreviousSong switches to the previous song.
+//
+// PreviousSong 切换到上一首歌曲。
 func (a *App) PreviousSong() {
 	a.actionQueue <- func() {
 		if playerPage, ok := a.pages[0].(*PlayerPage); ok {
@@ -346,6 +335,8 @@ func (a *App) PreviousSong() {
 }
 
 // Run starts the application's main event loop.
+//
+// Run 启动应用程序的主事件循环。
 func (a *App) Run() error {
 	fmt.Print("\x1b[?1049h\x1b[?25l")
 	defer fmt.Print("\x1b[?1049l\x1b[?25h")
@@ -356,8 +347,11 @@ func (a *App) Run() error {
 
 	keyCh := make(chan rune)
 	go func() {
-		// This inner goroutine just reads runes and puts them on a channel.
-		// This decouples raw reading from the more complex logic of parsing escape sequences.
+		// This goroutine reads runes and sends them to a channel,
+		// decoupling raw input reading from the logic of parsing escape sequences.
+		//
+		// 这个goroutine读取rune并将其发送到一个通道，
+		// 将原始输入读取与解析转义序列的逻辑解耦。
 		keys := make(chan rune)
 		go func() {
 			reader := bufio.NewReader(os.Stdin)
@@ -372,13 +366,13 @@ func (a *App) Run() error {
 		}()
 
 		for {
-			// Wait for a rune to arrive
 			r, ok := <-keys
 			if !ok {
 				return
 			}
 
-			// If it's not an escape character, we process it directly.
+			// If it's not an escape character, process it directly.
+			// 如果不是转义字符，直接处理。
 			if r != '\x1b' {
 				switch r {
 				case '\r', '\n':
@@ -388,15 +382,16 @@ func (a *App) Run() error {
 				default:
 					keyCh <- r
 				}
-				continue // Go back to waiting for the next rune
+				continue
 			}
 
-			// It IS an escape character. Now we use a timeout to see if more characters follow.
+			// It's an escape character. Use a timeout to check for more characters.
+			// 是一个转义字符。使用超时来检查是否还有更多字符。
 			select {
 			case nextRune := <-keys:
-				// Another character arrived quickly. It's a sequence.
 				if nextRune == '[' {
-					// This is likely an arrow key sequence. We need one more character.
+					// This is likely an arrow key sequence.
+					// 这可能是一个方向键序列。
 					select {
 					case finalRune := <-keys:
 						switch finalRune {
@@ -409,21 +404,20 @@ func (a *App) Run() error {
 						case 'D':
 							keyCh <- KeyArrowLeft
 						default:
-							// Unknown CSI sequence. We can just send the original escape.
 							keyCh <- r
 						}
 					case <-time.After(25 * time.Millisecond):
-						// Incomplete sequence (e.g., just '\x1b['). Send original escape.
 						keyCh <- r
 					}
 				} else {
-					// It's some other sequence, like Alt+key, which often sends '\x1b' then the key.
-					// We'll treat it as two separate key presses.
-					keyCh <- r        // The ESC
-					keyCh <- nextRune // The key that followed
+					// It's another sequence, like Alt+key. Treat as two separate key presses.
+					// 这是其他序列，如Alt+键。视为两次单独的按键。
+					keyCh <- r
+					keyCh <- nextRune
 				}
 			case <-time.After(25 * time.Millisecond):
-				// Nothing followed the escape character. It was a standalone ESC press.
+				// Standalone ESC press.
+				// 单独的ESC键按下。
 				keyCh <- r
 			}
 		}
@@ -442,11 +436,8 @@ func (a *App) Run() error {
 			action()
 
 		case key := <-keyCh:
-			// Global keybindings
 			if IsKey(key, GlobalConfig.Keymap.Global.Quit) {
-				// Check if we're in search mode in any page
 				if isInSearchMode(currentPage) {
-					// In search mode, let the page handle ESC key
 					_, needsRedraw, err := currentPage.HandleKey(key)
 					if err != nil {
 						return nil
@@ -455,11 +446,11 @@ func (a *App) Run() error {
 						currentPage.View()
 					}
 				} else {
-					return nil // Exit the application
+					return nil // Exit application. / 退出应用。
 				}
 			} else if isActivelySearching(currentPage) {
-				// In search mode, pass ALL keys to the current page's handler first
-				// This ensures search input takes priority over global shortcuts
+				// In search mode, pass all keys to the page's handler first.
+				// 在搜索模式下，优先将所有按键传递给页面的处理器。
 				_, needsRedraw, err := currentPage.HandleKey(key)
 				if err != nil {
 					return nil
@@ -476,11 +467,9 @@ func (a *App) Run() error {
 			} else if IsKey(key, GlobalConfig.Keymap.Global.SwitchToLibrary) {
 				a.switchToPage(2) // LibraryPage
 			} else {
-				// Pass the key to the current page's handler
 				_, needsRedraw, err := currentPage.HandleKey(key)
 				if err != nil {
-					// Specific error checks can be done here if needed
-					return nil // Assume any error from HandleKey means quit
+					return nil // Assume any error from HandleKey means quit. / 假设任何来自HandleKey的错误都意味着退出。
 				}
 				if needsRedraw {
 					currentPage.View()
@@ -502,6 +491,8 @@ func (a *App) Run() error {
 }
 
 // isActivelySearching checks if the user is currently typing in a search prompt.
+//
+// isActivelySearching 检查用户当前是否正在输入搜索提示。
 func isActivelySearching(page Page) bool {
 	if lib, ok := page.(*Library); ok {
 		return lib.isSearching
@@ -512,13 +503,13 @@ func isActivelySearching(page Page) bool {
 	return false
 }
 
-// isInSearchMode checks if the current page is in search mode
+// isInSearchMode checks if the current page is in search mode.
+//
+// isInSearchMode 检查当前页面是否处于搜索模式。
 func isInSearchMode(page Page) bool {
-	// Check for Library page in search mode
 	if lib, ok := page.(*Library); ok {
 		return lib.isSearching || lib.searchQuery != ""
 	}
-	// Check for Playlist page in search mode
 	if pl, ok := page.(*PlayList); ok {
 		return pl.isSearching || pl.searchQuery != ""
 	}
@@ -526,130 +517,121 @@ func isInSearchMode(page Page) bool {
 }
 
 func main() {
-	// Load configuration first
 	if err := LoadConfig(); err != nil {
-		log.Fatalf("Error loading configuration: %v", err)
+		log.Fatalf("Error loading configuration: %v\n\n错误: 加载配置失败: %v", err, err)
 	}
 
-	// Validate configuration dependencies
 	if GlobalConfig.App.PlaylistHistory && !GlobalConfig.App.RememberLibraryPath {
-		log.Fatalf("Configuration error: 'playlist_history' cannot be true if 'remember_library_path' is false.")
+		log.Fatalf("Configuration error: 'playlist_history' cannot be true if 'remember_library_path' is false.\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false。")
 	}
 
 	var dirPath string
 
-	// 处理路径参数
 	if len(os.Args) == 2 {
-		// 用户提供了路径参数
 		dirPath = os.Args[1]
 
-		// 验证输入路径是目录
 		info, err := os.Stat(dirPath)
 		if err != nil {
-			log.Fatalf("无法访问路径: %v", err)
+			log.Fatalf("Unable to access path: %v\n\n无法访问路径: %v", err, err)
 		}
 		if !info.IsDir() {
-			log.Fatalf("输入路径必须是目录，不是文件")
+			log.Fatalf("Input path must be a directory, not a file\n\n输入路径必须是目录，不是文件")
 		}
 
-		// 如果启用了路径记录，保存完整路径到storage.json
 		if GlobalConfig.App.RememberLibraryPath {
-			// 获取绝对路径
 			absPath, err := filepath.Abs(dirPath)
 			if err != nil {
-				log.Printf("警告: 无法获取绝对路径: %v", err)
+				log.Printf("Warning: Unable to get absolute path: %v\n\n警告: 无法获取绝对路径: %v", err, err)
 			} else {
 				if err := SaveLibraryPath(absPath); err != nil {
-					log.Printf("警告: 无法保存音乐库路径: %v", err)
+					log.Printf("Warning: Unable to save music library path: %v\n\n警告: 无法保存音乐库路径: %v", err, err)
 				}
 			}
 		}
 	} else if len(os.Args) == 1 {
-		// 用户没有提供路径参数，尝试使用storage.json中保存的路径
 		if GlobalConfig.App.RememberLibraryPath {
 			storageData, err := loadStorageData()
 			if err != nil {
-				log.Printf("警告: 无法加载存储数据: %v", err)
+				log.Printf("Warning: Unable to load storage data: %v\n\n警告: 无法加载存储数据: %v", err, err)
 			} else if storageData.LibraryPath != "" {
 				dirPath = storageData.LibraryPath
-				// 验证保存的路径是否仍然有效
 				if info, err := os.Stat(dirPath); err != nil || !info.IsDir() {
-					log.Fatalf("保存的音乐库路径无效或不存在: %s", dirPath)
+					log.Fatalf("Saved music library path is invalid or does not exist: %s\n\n保存的音乐库路径无效或不存在: %s", dirPath, dirPath)
 				}
-				// log.Printf("使用保存的音乐库路径: %s", dirPath)
 			} else {
-				log.Fatalf("用法: %s <music_directory>\n或者启用 remember_library_path 并设置有效的 library_path", os.Args[0])
+				log.Fatalf("Usage: %s <music_directory>\nOr enable remember_library_path and set a valid library_path\n\n用法: %s <music_directory>\n或者启用 remember_library_path 并设置有效的 library_path", os.Args[0], os.Args[0])
 			}
 		} else {
-			log.Fatalf("用法: %s <music_directory>", os.Args[0])
+			log.Fatalf("Usage: %s <music_directory>\n\n用法: %s <music_directory>", os.Args[0], os.Args[0])
 		}
 	} else {
-		log.Fatalf("用法: %s [music_directory]", os.Args[0])
+		log.Fatalf("Usage: %s [music_directory]\n\n用法: %s [music_directory]", os.Args[0], os.Args[0])
 	}
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		log.Fatalf("设置原始模式失败: %v", err)
+		log.Fatalf("Failed to set raw mode: %v\n\n设置原始模式失败: %v", err, err)
 	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
 	cellW, cellH, err := getCellSize()
 	if err != nil {
-		log.Fatalf("无法获取终端单元格尺寸: %v", err)
+		log.Fatalf("Unable to get terminal cell size: %v\n\n无法获取终端单元格尺寸: %v", err, err)
 	}
 
-	// 初始化speaker，但不立即播放任何音频
 	sampleRate := beep.SampleRate(GlobalConfig.App.TargetSampleRate)
 	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
 
-	// Load playlist from storage
 	playlist, err := LoadPlaylist(dirPath)
 	if err != nil {
-		log.Printf("Warning: Could not load playlist: %v", err)
-		playlist = make([]string, 0) // Start with an empty playlist on error
+		log.Printf("Warning: Could not load playlist: %v\n\n警告: 无法加载播放列表: %v", err, err)
+		playlist = make([]string, 0)
 	}
 
-	// Load play history from storage
 	playHistory, err := LoadPlayHistory(dirPath)
 	if err != nil {
-		log.Printf("Warning: Could not load play history: %v", err)
-		playHistory = make([]string, 0) // Start with an empty play history on error
+		log.Printf("Warning: Could not load play history: %v\n\n警告: 无法加载播放历史: %v", err, err)
+		playHistory = make([]string, 0)
 	}
 
 	app := &App{
-		player:              nil,                              // 延迟初始化
-		mprisServer:         nil,                              // 延迟初始化
-		currentPageIndex:    GlobalConfig.App.DefaultPage,     // 使用配置的默认页面
-		Playlist:            playlist,                         // 从storage加载的播放列表
-		LibraryPath:         dirPath,                          // 保存音乐库根路径
-		playMode:            GlobalConfig.App.DefaultPlayMode, // 使用配置的默认播放模式
-		volume:              0,                                // 默认音量0（100%）
-		linearVolume:        1.0,                              // 默认线性音量1.0（100%）
-		playbackRate:        1.0,                              // 默认播放速度1.0
-		actionQueue:         make(chan func(), 10),            // Initialize the action queue
-		sampleRate:          sampleRate,                       // Store the global sample rate
-		playHistory:         playHistory,                      // 从storage加载的播放历史记录
-		historyIndex:        len(playHistory) - 1,             // 初始历史索引（指向最后一条记录）
-		isNavigatingHistory: false,                            // 初始不在历史记录导航中
-		corruptedFiles:      make(map[string]bool),            // 初始化损坏文件跟踪
+		player:              nil,
+		mprisServer:         nil,
+		currentPageIndex:    GlobalConfig.App.DefaultPage,
+		Playlist:            playlist,
+		LibraryPath:         dirPath,
+		playMode:            GlobalConfig.App.DefaultPlayMode,
+		volume:              0,
+		linearVolume:        1.0,
+		playbackRate:        1.0,
+		actionQueue:         make(chan func(), 10),
+		sampleRate:          sampleRate,
+		playHistory:         playHistory,
+		historyIndex:        len(playHistory) - 1,
+		isNavigatingHistory: false,
+		corruptedFiles:      make(map[string]bool),
 	}
 
-	playerPage := NewPlayerPage(app, "", cellW, cellH) // 空的初始路径
+	playerPage := NewPlayerPage(app, "", cellW, cellH)
 	playListPage := NewPlayList(app)
-	libraryPage := NewLibraryWithPath(app, dirPath) // 传递初始目录路径
+	libraryPage := NewLibraryWithPath(app, dirPath)
 	app.pages = []Page{playerPage, playListPage, libraryPage}
 
 	if err := app.Run(); err != nil {
-		log.Fatalf("应用运行时出现错误: %v", err)
+		log.Fatalf("Application runtime error: %v\n\n应用运行时出现错误: %v", err, err)
 	}
 }
 
-// MarkFileAsCorrupted 标记文件为损坏
+// MarkFileAsCorrupted marks a file as corrupted.
+//
+// MarkFileAsCorrupted 标记一个文件为已损坏。
 func (a *App) MarkFileAsCorrupted(filePath string) {
 	a.corruptedFiles[filePath] = true
 }
 
-// IsFileCorrupted 检查文件是否损坏
+// IsFileCorrupted checks if a file is marked as corrupted.
+//
+// IsFileCorrupted 检查一个文件是否被标记为已损坏。
 func (a *App) IsFileCorrupted(filePath string) bool {
 	return a.corruptedFiles[filePath]
 }
