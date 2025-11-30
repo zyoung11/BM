@@ -80,7 +80,8 @@ func (p *PlayerPage) UpdateSong(songPath string) {
 	p.imageTop = 0
 	p.imageHeight = 0
 	p.imageRightEdge = 0
-	// 不立即重新渲染，让Tick()方法在下一个周期自然更新
+	// 立即重新渲染整个界面，确保专辑封面和歌曲信息正确显示
+	p.View()
 }
 
 // HandleKey handles user key presses.
