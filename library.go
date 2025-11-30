@@ -29,9 +29,9 @@ type LibraryEntry struct {
 type Library struct {
 	app *App
 
-	entries           []LibraryEntry  // All entries in the current directory. / 当前目录中的所有条目。
+	entries           []LibraryEntry // All entries in the current directory. / 当前目录中的所有条目。
 	currentPath       string
-	initialPath       string          // The starting path provided to the application. / 提供给应用程序的起始路径。
+	initialPath       string // The starting path provided to the application. / 提供给应用程序的起始路径。
 	cursor            int
 	selected          map[string]bool // Use file path as key for persistent selection. / 使用文件路径作为持久选择的键。
 	offset            int             // For scrolling the view. / 用于滚动视图。
@@ -134,7 +134,6 @@ func (p *Library) scanDirectory(path string) {
 	})
 	p.offset = 0
 }
-
 
 // ensureGlobalCache builds a cache of all .flac files and directories if it doesn't exist.
 //
@@ -607,7 +606,7 @@ func (p *Library) toggleSelection(path string) {
 		if !found {
 			p.app.Playlist = append(p.app.Playlist, path)
 			if len(p.app.Playlist) == 1 {
-				p.app.PlaySongWithSwitch(path, false)
+				p.app.PlaySongWithSwitchAndRender(path, true, true)
 			}
 		}
 	}
