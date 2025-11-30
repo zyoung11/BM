@@ -227,18 +227,14 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 				playerPage.updateStatus()
 			}
 		}
-		// The correct resampling ratio is original_samplerate / target_samplerate.
-		// 正确的重采样率应为 原始采样率 / 目标采样率。
-		ratio := float64(format.SampleRate) / float64(a.sampleRate)
-		resampler := beep.ResampleRatio(4, ratio, streamer)
 
-		bufferFormat := format
-		bufferFormat.SampleRate = a.sampleRate
-
-		buffer := beep.NewBuffer(bufferFormat)
-		buffer.Append(resampler)
-
-		audioStream = buffer.Streamer(0, buffer.Len())
+		// Use high-quality resampling with go-audio-resampler (最高质量)
+		resampledStream, err := highQualityResample(streamer, format.SampleRate, a.sampleRate)
+		if err != nil {
+			f.Close()
+			return fmt.Errorf("高质量重采样失败: %v", err)
+		}
+		audioStream = resampledStream
 	}
 
 	player, err := newAudioPlayer(audioStream, format, a.volume, a.playbackRate)

@@ -640,16 +640,14 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		if p.app.currentPageIndex == 0 && p.flacPath != "" {
 			p.updateStatus()
 		}
-		ratio := float64(format.SampleRate) / float64(p.app.sampleRate)
-		resampler := beep.ResampleRatio(4, ratio, streamer)
 
-		bufferFormat := format
-		bufferFormat.SampleRate = p.app.sampleRate
-
-		buffer := beep.NewBuffer(bufferFormat)
-		buffer.Append(resampler)
-
-		audioStream = buffer.Streamer(0, buffer.Len())
+		// Use high-quality resampling with go-audio-resampler (最高质量)
+		resampledStream, err := highQualityResample(streamer, format.SampleRate, p.app.sampleRate)
+		if err != nil {
+			f.Close()
+			return fmt.Errorf("高质量重采样失败: %v", err)
+		}
+		audioStream = resampledStream
 	}
 
 	speaker.Init(p.app.sampleRate, p.app.sampleRate.N(time.Second/30))
