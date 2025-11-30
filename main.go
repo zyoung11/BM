@@ -274,20 +274,20 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	}
 
 	if switchToPlayer {
-		// Only update the player page UI when switching to the player page
-		// 只有在切换到播放器页面时才更新播放器页面UI
+		a.currentPageIndex = 0 // Directly set the page index
+		playerPage.UpdateSong(songPath)
+
 		if forceRender {
-			playerPage.UpdateSongWithRender(songPath)
-		} else {
-			playerPage.UpdateSong(songPath)
+			// This is for song changes during runtime.
+			// Clear the screen and redraw the page.
+			fmt.Print("\x1b[2J\x1b[3J\x1b[H")
+			playerPage.Init()
+			playerPage.View()
 		}
-		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
-		a.currentPageIndex = 0 // Directly set the page index / 直接设置页面索引
-		playerPage.Init()
-		playerPage.View()
+		// If forceRender is false (autostart), do nothing more.
+		// The initial render is handled by app.Run().
 	} else {
 		// When not switching to player page, just update the song path without rendering
-		// 当不切换到播放器页面时，只更新歌曲路径而不渲染
 		playerPage.UpdateSong(songPath)
 	}
 
@@ -370,8 +370,8 @@ func (a *App) SaveSettings() {
 //
 // Run 启动应用程序的主事件循环。
 func (a *App) Run() error {
-	fmt.Print("\x1b[?1049h\x1b[?25l")
-	defer fmt.Print("\x1b[?1049l\x1b[?25h")
+	// Screen is now cleared and cursor is handled in main
+	// 屏幕清理和光标处理现在在 main 函数中进行
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGWINCH, syscall.SIGINT)
@@ -458,6 +458,8 @@ func (a *App) Run() error {
 	ticker := time.NewTicker(time.Second / 2)
 	defer ticker.Stop()
 
+	// Initial view rendering
+	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen before first draw
 	a.pages[a.currentPageIndex].Init()
 	a.pages[a.currentPageIndex].View()
 
@@ -549,41 +551,58 @@ func isInSearchMode(page Page) bool {
 }
 
 func main() {
+	// --- Terminal Setup ---
+	fmt.Print("\x1b[?1049h\x1b[?25l")
+	defer fmt.Print("\x1b[2J\x1b[?1049l\x1b[?25h") // Clear screen and restore on exit
+
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+	if err != nil {
+		log.Fatalf("Failed to set raw mode: %v\n\n设置原始模式失败: %v", err, err)
+	}
+	defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+	// --- App Logic ---
+	if err := runApplication(); err != nil {
+		// The deferred statements above will handle cleanup
+		log.Fatalf("Application runtime error: %v\n\n应用运行时出现错误: %v", err, err)
+	}
+}
+
+func runApplication() error {
 	if len(os.Args) == 2 {
 		arg := os.Args[1]
 		if arg == "help" || arg == "-help" || arg == "--help" {
 			displayHelp()
-			return
+			return nil
 		}
 	}
 	if err := LoadConfig(); err != nil {
-		log.Fatalf("Error loading configuration: %v\n\n错误: 加载配置失败: %v", err, err)
+		return fmt.Errorf("Error loading configuration: %v\n\n错误: 加载配置失败: %v", err, err)
 	}
 
 	if GlobalConfig.App.PlaylistHistory && !GlobalConfig.App.RememberLibraryPath {
-		log.Fatalf("Configuration error: 'playlist_history' cannot be true if 'remember_library_path' is false.\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false。")
+		return fmt.Errorf("Configuration error: 'playlist_history' cannot be true if 'remember_library_path' is false.\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false。")
 	}
 
 	var dirPath string
 	storageData, err := loadStorageData()
 	if err != nil {
-		log.Fatalf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
+		return fmt.Errorf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
 	}
 
 	if len(os.Args) >= 2 {
-		// Handle help command
 		if os.Args[1] == "help" || os.Args[1] == "-help" || os.Args[1] == "--help" {
 			displayHelp()
-			return
+			return nil
 		}
 
 		dirPath = os.Args[1]
 		info, err := os.Stat(dirPath)
 		if err != nil {
-			log.Fatalf("Unable to access path: %v\n\n无法访问路径: %v", err, err)
+			return fmt.Errorf("Unable to access path: %v\n\n无法访问路径: %v", err, err)
 		}
 		if !info.IsDir() {
-			log.Fatalf("Input path must be a directory, not a file.\n\n输入路径必须是目录，而不是文件。")
+			return fmt.Errorf("Input path must be a directory, not a file.\n\n输入路径必须是目录，而不是文件。")
 		}
 
 		if GlobalConfig.App.RememberLibraryPath {
@@ -597,30 +616,23 @@ func main() {
 			}
 		}
 	} else {
-		// Handle no directory argument
 		if GlobalConfig.App.RememberLibraryPath {
 			if storageData.LibraryPath != "" {
 				dirPath = storageData.LibraryPath
 				if _, err := os.Stat(dirPath); err != nil {
-					log.Fatalf("The saved music library path is invalid or no longer exists: %s\n\n保存的音乐库路径无效或不存在: %s", dirPath, dirPath)
+					return fmt.Errorf("The saved music library path is invalid or no longer exists: %s\n\n保存的音乐库路径无效或不存在: %s", dirPath, dirPath)
 				}
 			} else {
-				log.Fatalf("`remember_library_path` is enabled, but no path is saved yet.\nPlease run with a directory path once to save it for future use.\n\n`remember_library_path` 已启用，但尚未保存任何路径。\n请提供一次目录路径以便将来使用。 \n\nUsage: %s <music_directory>", os.Args[0])
+				return fmt.Errorf("`remember_library_path` is enabled, but no path is saved yet.\nPlease run with a directory path once to save it for future use.\n\n`remember_library_path` 已启用，但尚未保存任何路径。\n请提供一次目录路径以便将来使用。 \n\nUsage: %s <music_directory>", os.Args[0])
 			}
 		} else {
-			log.Fatalf("Please provide a music directory path.\nTo have the app remember the path for future sessions, set `remember_library_path = true` in the config file.\n\n请输入音乐目录路径。\n如果希望应用记住该路径，请在配置文件中设置 `remember_library_path = true`。\n\nUsage: %s <music_directory>", os.Args[0])
+			return fmt.Errorf("Please provide a music directory path.\nTo have the app remember the path for future sessions, set `remember_library_path = true` in the config file.\n\n请输入音乐目录路径。\n如果希望应用记住该路径，请在配置文件中设置 `remember_library_path = true`。\n\nUsage: %s <music_directory>", os.Args[0])
 		}
 	}
 
-	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-	if err != nil {
-		log.Fatalf("Failed to set raw mode: %v\n\n设置原始模式失败: %v", err, err)
-	}
-	defer term.Restore(int(os.Stdin.Fd()), oldState)
-
 	cellW, cellH, err := getCellSize()
 	if err != nil {
-		log.Fatalf("Unable to get terminal cell size: %v\n\n无法获取终端单元格尺寸: %v", err, err)
+		return fmt.Errorf("Unable to get terminal cell size: %v\n\n无法获取终端单元格尺寸: %v", err, err)
 	}
 
 	sampleRate := beep.SampleRate(GlobalConfig.App.TargetSampleRate)
@@ -674,7 +686,6 @@ func main() {
 	libraryPage := NewLibraryWithPath(app, dirPath)
 	app.pages = []Page{playerPage, playListPage, libraryPage}
 
-	// Autostart last played song if enabled
 	if GlobalConfig.App.AutostartLastPlayed && len(app.playHistory) > 0 {
 		lastSong := app.playHistory[len(app.playHistory)-1]
 		switchToPlayer := app.currentPageIndex == 0
@@ -684,9 +695,7 @@ func main() {
 		}
 	}
 
-	if err := app.Run(); err != nil {
-		log.Fatalf("Application runtime error: %v\n\n应用运行时出现错误: %v", err, err)
-	}
+	return app.Run()
 }
 
 // MarkFileAsCorrupted marks a file as corrupted.
