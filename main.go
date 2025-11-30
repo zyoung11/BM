@@ -307,8 +307,12 @@ func (a *App) addToPlayHistory(songPath string) {
 	a.historyIndex = len(a.playHistory) - 1
 	a.isNavigatingHistory = false
 
+	// Save both play history and current song
 	if err := SavePlayHistory(a.playHistory, a.LibraryPath); err != nil {
 		log.Printf("Warning: failed to save play history: %v\n\n警告: 保存播放历史失败: %v", err, err)
+	}
+	if err := SaveCurrentSong(songPath, a.LibraryPath); err != nil {
+		log.Printf("Warning: failed to save current song: %v\n\n警告: 保存当前歌曲失败: %v", err, err)
 	}
 }
 
@@ -679,12 +683,32 @@ func runApplication() error {
 	libraryPage := NewLibraryWithPath(app, dirPath)
 	app.pages = []Page{playerPage, playListPage, libraryPage}
 
-	if GlobalConfig.App.AutostartLastPlayed && len(app.playHistory) > 0 {
-		lastSong := app.playHistory[len(app.playHistory)-1]
-		switchToPlayer := app.currentPageIndex == 0
-		err := app.PlaySongWithSwitchAndRender(lastSong, switchToPlayer, false)
+	if GlobalConfig.App.AutostartLastPlayed {
+		// First try to load the current song from storage
+		currentSong, err := LoadCurrentSong(dirPath)
 		if err != nil {
-			log.Printf("Warning: Could not autostart last played song: %v", err)
+			log.Printf("Warning: Could not load current song: %v", err)
+		}
+
+		var songToPlay string
+		if currentSong != "" {
+			// Use the current song from storage
+			songToPlay = currentSong
+			// If the current song is not the latest in play history, add it to history
+			if len(app.playHistory) == 0 || app.playHistory[len(app.playHistory)-1] != songToPlay {
+				app.addToPlayHistory(songToPlay)
+			}
+		} else if len(app.playHistory) > 0 {
+			// Fallback to the last song in play history
+			songToPlay = app.playHistory[len(app.playHistory)-1]
+		}
+
+		if songToPlay != "" {
+			switchToPlayer := app.currentPageIndex == 0
+			err := app.PlaySongWithSwitchAndRender(songToPlay, switchToPlayer, false)
+			if err != nil {
+				log.Printf("Warning: Could not autostart last played song: %v", err)
+			}
 		}
 	}
 

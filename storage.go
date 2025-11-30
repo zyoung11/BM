@@ -15,6 +15,7 @@ type StorageData struct {
 	LibraryPath  string   `json:"library_path"`
 	Playlist     []string `json:"playlist"`
 	PlayHistory  []string `json:"play_history"`
+	CurrentSong  *string  `json:"current_song,omitempty"`
 	Volume       *float64 `json:"volume,omitempty"`
 	PlaybackRate *float64 `json:"playback_rate,omitempty"`
 }
@@ -204,6 +205,67 @@ func SavePlayHistory(playHistory []string, libraryPath string) error {
 		return fmt.Errorf("could not save play history data: %v\n\n无法保存播放历史数据: %v", err, err)
 	}
 	return nil
+}
+
+// SaveCurrentSong saves the current playing song to the storage.json file.
+// It converts absolute paths to paths relative to the library root.
+//
+// SaveCurrentSong 将当前播放的歌曲保存到 storage.json 文件。
+// 它将绝对路径转换为相对于音乐库根目录的相对路径。
+func SaveCurrentSong(songPath string, libraryPath string) error {
+	if !GlobalConfig.App.PlaybackHistoryPersistence {
+		return nil
+	}
+
+	storageData, err := loadStorageData()
+	if err != nil {
+		return fmt.Errorf("could not load storage data for current song: %v\n\n无法加载当前歌曲的存储数据: %v", err, err)
+	}
+
+	var relativePath string
+	if songPath != "" {
+		relPath, err := filepath.Rel(libraryPath, songPath)
+		if err != nil {
+			relativePath = songPath
+		} else {
+			relativePath = relPath
+		}
+		storageData.CurrentSong = &relativePath
+	} else {
+		storageData.CurrentSong = nil
+	}
+
+	if err := saveStorageData(storageData); err != nil {
+		return fmt.Errorf("could not save current song data: %v\n\n无法保存当前歌曲数据: %v", err, err)
+	}
+	return nil
+}
+
+// LoadCurrentSong loads the current playing song from the storage.json file.
+// It converts relative paths back to absolute paths based on the library root.
+//
+// LoadCurrentSong 从 storage.json 文件加载当前播放的歌曲。
+// 它将相对路径转换回基于音乐库根目录的绝对路径。
+func LoadCurrentSong(libraryPath string) (string, error) {
+	if !GlobalConfig.App.PlaybackHistoryPersistence {
+		return "", nil
+	}
+
+	storageData, err := loadStorageData()
+	if err != nil {
+		return "", fmt.Errorf("could not load storage data for current song: %v\n\n无法加载当前歌曲的存储数据: %v", err, err)
+	}
+
+	if storageData.CurrentSong == nil {
+		return "", nil
+	}
+
+	relPath := *storageData.CurrentSong
+	if filepath.IsAbs(relPath) {
+		return relPath, nil
+	} else {
+		return filepath.Join(libraryPath, relPath), nil
+	}
 }
 
 // LoadPlayHistory loads the play history from the storage.json file.
