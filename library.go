@@ -15,32 +15,37 @@ import (
 )
 
 // LibraryEntry holds enriched information about a file or directory in the library.
+//
+// LibraryEntry 保存媒体库中文件或目录的丰富信息。
 type LibraryEntry struct {
 	entry os.DirEntry
 	info  os.FileInfo
-	isDir bool // True if it's a directory or a symlink to a directory.
+	isDir bool // True if it's a directory or a symlink to a directory. / 如果是目录或指向目录的符号链接，则为true。
 }
 
 // Library browses the music directory and adds songs to the playlist.
+//
+// Library 浏览音乐目录并将歌曲添加到播放列表。
 type Library struct {
 	app *App
 
-	entries     []LibraryEntry // All entries in the current directory
-	currentPath string
-	initialPath string // The starting path provided to the application
-	cursor      int
-	selected    map[string]bool // Use file path as key for persistent selection
-	offset      int             // For scrolling the view
-	pathHistory map[string]int  // Store cursor position for each path
-	lastEntered string          // Store the name of the last entered directory
-
+	entries           []LibraryEntry  // All entries in the current directory. / 当前目录中的所有条目。
+	currentPath       string
+	initialPath       string          // The starting path provided to the application. / 提供给应用程序的起始路径。
+	cursor            int
+	selected          map[string]bool // Use file path as key for persistent selection. / 使用文件路径作为持久选择的键。
+	offset            int             // For scrolling the view. / 用于滚动视图。
+	pathHistory       map[string]int  // Store cursor position for each path. / 存储每个路径的光标位置。
+	lastEntered       string          // Store the name of the last entered directory. / 存储最后进入的目录的名称。
 	isSearching       bool
 	searchQuery       string
-	globalFileCache   []string // Cache of all .flac file paths
-	filteredSongPaths []string // Results of the current search
+	globalFileCache   []string // Cache of all .flac file paths. / 所有 .flac 文件路径的缓存。
+	filteredSongPaths []string // Results of the current search. / 当前搜索的结果。
 }
 
 // NewLibrary creates a new instance of Library.
+//
+// NewLibrary 创建一个新的 Library 实例。
 func NewLibrary(app *App) *Library {
 	return &Library{
 		app:         app,
@@ -52,6 +57,8 @@ func NewLibrary(app *App) *Library {
 }
 
 // NewLibraryWithPath creates a new instance of Library with a specific starting path.
+//
+// NewLibraryWithPath 使用特定的起始路径创建一个新的 Library 实例。
 func NewLibraryWithPath(app *App, startPath string) *Library {
 	selectedSongs := make(map[string]bool)
 	for _, songPath := range app.Playlist {
@@ -67,9 +74,11 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 	}
 }
 
-// scanDirectory reads the contents of a directory and populates the entries list.
+// scanDirectory reads the contents of a directory, filters for FLAC files and directories,
+// sorts them, and populates the entries list. It also handles symlinks.
+//
+// scanDirectory 读取目录内容，筛选FLAC文件和目录，对它们进行排序，并填充到条目列表中。它还能处理符号链接。
 func (p *Library) scanDirectory(path string) {
-	// Save current cursor position for current path before changing
 	if p.currentPath != "" {
 		p.pathHistory[p.currentPath] = p.cursor
 	}
@@ -77,7 +86,6 @@ func (p *Library) scanDirectory(path string) {
 	p.entries = make([]LibraryEntry, 0)
 	p.currentPath = path
 
-	// Restore cursor position if available, otherwise set to 0
 	if savedCursor, exists := p.pathHistory[path]; exists {
 		p.cursor = savedCursor
 	} else {
@@ -92,25 +100,23 @@ func (p *Library) scanDirectory(path string) {
 	for _, file := range files {
 		info, err := file.Info()
 		if err != nil {
-			continue // Skip files we can't get info for
+			continue
 		}
 
 		isDir := info.IsDir()
 		isLink := info.Mode()&os.ModeSymlink != 0
 		isValidFlac := strings.HasSuffix(strings.ToLower(info.Name()), ".flac")
 
-		// If it's a symlink, we need to check what it points to
 		if isLink {
 			targetPath := filepath.Join(path, file.Name())
 			targetInfo, err := os.Stat(targetPath)
 			if err != nil {
-				continue // Ignore broken links
+				continue
 			}
-			isDir = targetInfo.IsDir() // Update isDir based on the link's target
+			isDir = targetInfo.IsDir()
 			isValidFlac = strings.HasSuffix(strings.ToLower(targetInfo.Name()), ".flac")
 		}
 
-		// Add to entries if it's a directory or a valid flac file
 		if isDir || isValidFlac {
 			p.entries = append(p.entries, LibraryEntry{
 				entry: file,
@@ -120,10 +126,9 @@ func (p *Library) scanDirectory(path string) {
 		}
 	}
 
-	// Sort so directories come first, then files alphabetically
 	sort.SliceStable(p.entries, func(i, j int) bool {
 		if p.entries[i].isDir != p.entries[j].isDir {
-			return p.entries[i].isDir // Directories first
+			return p.entries[i].isDir
 		}
 		return strings.ToLower(p.entries[i].entry.Name()) < strings.ToLower(p.entries[j].entry.Name())
 	})
@@ -132,6 +137,8 @@ func (p *Library) scanDirectory(path string) {
 
 
 // ensureGlobalCache builds a cache of all .flac files and directories if it doesn't exist.
+//
+// ensureGlobalCache 如果缓存不存在，则构建一个包含所有 .flac 文件和目录的缓存。
 func (p *Library) ensureGlobalCache() {
 	if p.globalFileCache != nil {
 		return
@@ -145,10 +152,10 @@ func (p *Library) ensureGlobalCache() {
 	walk = func(dirPath string) {
 		realPath, err := filepath.EvalSymlinks(dirPath)
 		if err != nil {
-			realPath = dirPath // Use path for broken links
+			realPath = dirPath
 		}
 		if visited[realPath] {
-			return // Avoid cycles
+			return
 		}
 		visited[realPath] = true
 
@@ -170,7 +177,7 @@ func (p *Library) ensureGlobalCache() {
 				if statErr == nil {
 					isDir = statInfo.IsDir()
 				} else {
-					continue // Broken link
+					continue
 				}
 			}
 
@@ -178,7 +185,6 @@ func (p *Library) ensureGlobalCache() {
 				walk(entryPath)
 			} else if strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
 				allFlacFiles[entryPath] = true
-				// Mark all parent directories as containing flac
 				tempPath := entryPath
 				for {
 					tempPath = filepath.Dir(tempPath)
@@ -198,7 +204,6 @@ func (p *Library) ensureGlobalCache() {
 
 	walk(p.initialPath)
 
-	// Combine into a single cache
 	cache := make([]string, 0, len(allFlacFiles)+len(dirWithFlac))
 	for path := range allFlacFiles {
 		cache = append(cache, path)
@@ -210,10 +215,12 @@ func (p *Library) ensureGlobalCache() {
 }
 
 // filterSongs updates filteredSongPaths based on the searchQuery.
+//
+// filterSongs 根据 searchQuery 更新 filteredSongPaths。
 func (p *Library) filterSongs() {
 	if p.searchQuery == "" {
 		p.filteredSongPaths = nil
-		p.scanDirectory(p.currentPath) // Refresh directory view when search is cleared
+		p.scanDirectory(p.currentPath)
 		return
 	}
 
@@ -222,15 +229,13 @@ func (p *Library) filterSongs() {
 		path     string
 		score    int
 		isDir    bool
-		itemName string // For sorting by name within same score
+		itemName string
 	}
 	var scoredItems []scoredItem
 
 	for _, path := range p.globalFileCache {
-		// We match against the full path to allow searching for artist/album folders
 		score := fuzzyMatch(p.searchQuery, path)
 		if score > 0 {
-			// Check if it's a directory
 			info, err := os.Stat(path)
 			isDir := err == nil && info.IsDir()
 
@@ -243,17 +248,13 @@ func (p *Library) filterSongs() {
 		}
 	}
 
-	// Sort: directories first, then by score (descending), then by name
 	sort.Slice(scoredItems, func(i, j int) bool {
-		// Directories come first
 		if scoredItems[i].isDir != scoredItems[j].isDir {
 			return scoredItems[i].isDir
 		}
-		// Then by score (higher scores first)
 		if scoredItems[i].score != scoredItems[j].score {
 			return scoredItems[i].score > scoredItems[j].score
 		}
-		// Finally by name (alphabetical)
 		return strings.ToLower(scoredItems[i].itemName) < strings.ToLower(scoredItems[j].itemName)
 	})
 
@@ -266,17 +267,21 @@ func (p *Library) filterSongs() {
 }
 
 // Init initializes the library by scanning the starting directory.
+//
+// Init 通过扫描起始目录来初始化媒体库。
 func (p *Library) Init() {
 	p.scanDirectory(p.currentPath)
 }
 
 // handleSearchInput handles keystrokes when in search input mode.
+//
+// handleSearchInput 处理搜索输入模式下的按键。
 func (p *Library) handleSearchInput(key rune) {
 	if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.ConfirmSearch) {
-		p.isSearching = false // Exit input mode, keeping the search results
+		p.isSearching = false
 	} else if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.EscapeSearch) {
-		p.isSearching = false // Exit input mode
-		p.searchQuery = ""    // Also clear the search query
+		p.isSearching = false
+		p.searchQuery = ""
 		p.filterSongs()
 	} else if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.SearchBackspace) {
 		if len(p.searchQuery) > 0 {
@@ -285,10 +290,9 @@ func (p *Library) handleSearchInput(key rune) {
 			p.filterSongs()
 		}
 	} else if key == KeyArrowUp || key == KeyArrowDown || key == KeyArrowLeft || key == KeyArrowRight {
-		// Arrow keys confirm search and exit input mode
 		p.isSearching = false
 	} else {
-		if key >= 32 { // Allow any printable character
+		if key >= 32 {
 			p.searchQuery += string(key)
 			p.filterSongs()
 		}
@@ -296,6 +300,8 @@ func (p *Library) handleSearchInput(key rune) {
 }
 
 // handleDirViewInput handles keystrokes for the directory browsing view.
+//
+// handleDirViewInput 处理目录浏览视图中的按键。
 func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 	if IsKey(key, GlobalConfig.Keymap.Library.Search) {
 		p.isSearching = true
@@ -337,18 +343,20 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 			}
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.ToggleSelectAll) {
-		p.toggleSelectAll(false) // Toggle all in current directory view
+		p.toggleSelectAll(false)
 	}
 	return nil, false, nil
 }
 
 // handleSearchViewInput handles keystrokes for the search results view.
+//
+// handleSearchViewInput 处理搜索结果视图中的按键。
 func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 	if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.EscapeSearch) {
-		p.searchQuery = "" // Clear search
+		p.searchQuery = ""
 		p.filterSongs()
 	} else if IsKey(key, GlobalConfig.Keymap.Library.Search) {
-		p.isSearching = true // Re-enter input mode
+		p.isSearching = true
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavUp) {
 		if len(p.filteredSongPaths) > 0 {
 			p.cursor = (p.cursor - 1 + len(p.filteredSongPaths)) % len(p.filteredSongPaths)
@@ -362,7 +370,6 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 			path := p.filteredSongPaths[p.cursor]
 			info, err := os.Stat(path)
 			if err == nil && info.IsDir() {
-				// Directory selection logic...
 				var songsInDir []string
 				var collectSongs func(string)
 				collectSongs = func(dirPath string) {
@@ -382,7 +389,7 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 							if statErr == nil {
 								isDir = statInfo.IsDir()
 							} else {
-								continue // Broken link
+								continue
 							}
 						}
 						if isDir {
@@ -423,12 +430,14 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 			}
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.ToggleSelectAll) {
-		p.toggleSelectAll(true) // Toggle all in search results
+		p.toggleSelectAll(true)
 	}
 	return nil, false, nil
 }
 
-// HandleKey routes user input based on the current mode.
+// HandleKey routes user input based on the current mode (directory view, search results, or search input).
+//
+// HandleKey 根据当前模式（目录视图、搜索结果或搜索输入）路由用户输入。
 func (p *Library) HandleKey(key rune) (Page, bool, error) {
 	var err error
 	var page Page
@@ -441,11 +450,13 @@ func (p *Library) HandleKey(key rune) (Page, bool, error) {
 		page, _, err = p.handleDirViewInput(key)
 	}
 
-	p.View() // Redraw on any key press
+	p.View()
 	return page, true, err
 }
 
-// toggleSelectionForEntry handles selection logic for a LibraryEntry (file or dir).
+// toggleSelectionForEntry handles selection logic for a LibraryEntry (which can be a file or directory).
+//
+// toggleSelectionForEntry 处理 LibraryEntry（可以是文件或目录）的选择逻辑。
 func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
 	fullPath := filepath.Join(p.currentPath, libEntry.entry.Name())
 	if !libEntry.isDir {
@@ -470,7 +481,7 @@ func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
 					if statErr == nil {
 						isDir = statInfo.IsDir()
 					} else {
-						continue // Broken link
+						continue
 					}
 				}
 				if isDir {
@@ -496,17 +507,19 @@ func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
 
 		for _, songPath := range songsInDir {
 			if allSelected {
-				p.toggleSelection(songPath) // Deselect
+				p.toggleSelection(songPath)
 			} else {
 				if !p.selected[songPath] {
-					p.toggleSelection(songPath) // Select
+					p.toggleSelection(songPath)
 				}
 			}
 		}
 	}
 }
 
-// toggleSelectAll toggles selection for all items in the current view (dir or search).
+// toggleSelectAll toggles the selection for all items in the current view (directory or search results).
+//
+// toggleSelectAll 切换当前视图（目录或搜索结果）中所有项目的选择状态。
 func (p *Library) toggleSelectAll(isSearchView bool) {
 	var allSongs []string
 	if isSearchView {
@@ -535,7 +548,7 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 							if statErr == nil {
 								isDir = statInfo.IsDir()
 							} else {
-								continue // Broken link
+								continue
 							}
 						}
 						if isDir {
@@ -566,23 +579,24 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 		if allCurrentlySelected {
 			if p.selected[songPath] {
 				p.toggleSelection(songPath)
-			} // Deselect
+			}
 		} else {
 			if !p.selected[songPath] {
 				p.toggleSelection(songPath)
-			} // Select
+			}
 		}
 	}
 }
 
 // toggleSelection adds or removes a file path from the selection and playlist.
+//
+// toggleSelection 从选择和播放列表中添加或删除文件路径。
 func (p *Library) toggleSelection(path string) {
 	if p.selected[path] {
 		delete(p.selected, path)
 		p.removeSongFromPlaylist(path)
 	} else {
 		p.selected[path] = true
-		// Add to playlist, avoiding duplicates
 		found := false
 		for _, s := range p.app.Playlist {
 			if s == path {
@@ -597,13 +611,14 @@ func (p *Library) toggleSelection(path string) {
 			}
 		}
 	}
-	// Save the updated playlist
 	if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
-		log.Printf("Warning: failed to save playlist: %v", err)
+		log.Printf("Warning: failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
 }
 
 // removeSongFromPlaylist removes a song path from the app's playlist.
+//
+// removeSongFromPlaylist 从应用的播放列表中删除一个歌曲路径。
 func (p *Library) removeSongFromPlaylist(songPath string) {
 	for i, s := range p.app.Playlist {
 		if s == songPath {
@@ -612,7 +627,6 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 				p.app.mprisServer.UpdateProperties()
 			}
 
-			// If the playlist is now empty, stop everything.
 			if len(p.app.Playlist) == 0 {
 				if p.app.player != nil {
 					speaker.Lock()
@@ -627,7 +641,6 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 					p.app.mprisServer.StopService()
 					p.app.mprisServer = nil
 				}
-				// Update player page to show empty state
 				if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
 					playerPage.UpdateSong("")
 				}
@@ -639,6 +652,8 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 }
 
 // HandleSignal handles window resize events.
+//
+// HandleSignal 处理窗口大小调整事件。
 func (p *Library) HandleSignal(sig os.Signal) error {
 	if sig == syscall.SIGWINCH {
 		p.View()
@@ -647,13 +662,15 @@ func (p *Library) HandleSignal(sig os.Signal) error {
 }
 
 // View renders the library page based on the current mode.
+//
+// View 根据当前模式渲染媒体库页面。
 func (p *Library) View() {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		w, h = 80, 24
 	}
 
-	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen
+	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 
 	title := "Library"
 	titleX := (w - len(title)) / 2
@@ -661,11 +678,10 @@ func (p *Library) View() {
 
 	listHeight := h - 4
 
-	var currentListLength int // For scrollbar and list rendering
-	var currentCursor int     // For scrollbar
-	var currentOffset int     // For scrollbar
+	var currentListLength int
+	var currentCursor int
+	var currentOffset int
 
-	// Determine list length, cursor, and offset based on current view mode
 	if p.searchQuery != "" {
 		currentListLength = len(p.filteredSongPaths)
 	} else {
@@ -674,7 +690,6 @@ func (p *Library) View() {
 	currentCursor = p.cursor
 	currentOffset = p.offset
 
-	// Adjust offset for scrolling
 	if currentCursor < currentOffset {
 		currentOffset = currentCursor
 	}
@@ -682,27 +697,25 @@ func (p *Library) View() {
 		currentOffset = currentCursor - listHeight + 1
 	}
 
-	// Render Footer (including search prompt and cursor if searching)
 	if p.isSearching || p.searchQuery != "" {
 		p.drawSearchFooter(w, h, fmt.Sprintf("Search: %s", p.searchQuery))
 	} else {
 		p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", p.currentPath))
 	}
 
-	// Render the list content
-	if p.searchQuery != "" { // Render filtered results
+	if p.searchQuery != "" {
 		p.renderFilteredListContent(w, h, listHeight, currentOffset)
-	} else { // Render directory content
+	} else {
 		p.renderDirectoryListContent(w, h, listHeight, currentOffset)
 	}
 
-	// Draw Scrollbar
 	p.drawScrollbar(h, listHeight, currentListLength, currentOffset)
 }
 
-// Helper for drawing search footer with cursor positioning
+// drawSearchFooter is a helper for drawing the search footer with cursor positioning.
+//
+// drawSearchFooter 是一个用于绘制带有光标定位的搜索页脚的辅助函数。
 func (p *Library) drawSearchFooter(w, h int, footerText string) {
-	// Truncate footer if it's too long
 	if len(footerText) > w {
 		footerText = "..." + footerText[len(footerText)-w+3:]
 	}
@@ -719,9 +732,10 @@ func (p *Library) drawSearchFooter(w, h int, footerText string) {
 	}
 }
 
-// Helper for drawing path footer
+// drawPathFooter is a helper for drawing the path footer.
+//
+// drawPathFooter 是一个用于绘制路径页脚的辅助函数。
 func (p *Library) drawPathFooter(w, h int, footerText string) {
-	// Truncate footer if it's too long
 	if len(footerText) > w {
 		footerText = "..." + footerText[len(footerText)-w+3:]
 	}
@@ -732,7 +746,9 @@ func (p *Library) drawPathFooter(w, h int, footerText string) {
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
 }
 
-// Helper for rendering filtered list content
+// renderFilteredListContent is a helper for rendering the filtered list content.
+//
+// renderFilteredListContent 是一个用于渲染筛选后列表内容的辅助函数。
 func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int) {
 	for i := 0; i < listHeight; i++ {
 		entryIndex := currentOffset + i
@@ -744,14 +760,11 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 		line := ""
 		style := "\x1b[0m"
 
-		// Check if it's a directory
 		info, err := os.Stat(path)
 		isDir := err == nil && info.IsDir()
 
-		// For directories, check if any songs inside are selected
 		isSelected := p.selected[path]
 		if isDir && !isSelected {
-			// Check if directory contains any selected songs
 			var checkSelected func(string) bool
 			checkSelected = func(dirPath string) bool {
 				files, err := os.ReadDir(dirPath)
@@ -771,7 +784,7 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 						if statErr == nil {
 							isDir = statInfo.IsDir()
 						} else {
-							continue // Broken link
+							continue
 						}
 					}
 
@@ -795,7 +808,6 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 			line = "  " + path
 		}
 
-		// Add directory indicator for directories
 		if isDir {
 			line += "/"
 		}
@@ -803,9 +815,7 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 		if entryIndex == p.cursor {
 			style += "\x1b[7m"
 		}
-		// Use runewidth for accurate string width calculation and truncation
 		if runewidth.StringWidth(line) > w-1 {
-			// Truncate the line to fit the terminal width
 			for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
 				line = line[:len(line)-1]
 			}
@@ -814,7 +824,9 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 	}
 }
 
-// Helper for rendering directory list content
+// renderDirectoryListContent is a helper for rendering the directory list content.
+//
+// renderDirectoryListContent 是一个用于渲染目录列表内容的辅助函数。
 func (p *Library) renderDirectoryListContent(w, h, listHeight, currentOffset int) {
 	for i := 0; i < listHeight; i++ {
 		entryIndex := currentOffset + i
@@ -825,9 +837,7 @@ func (p *Library) renderDirectoryListContent(w, h, listHeight, currentOffset int
 		libEntry := p.entries[entryIndex]
 		fullPath := filepath.Join(p.currentPath, libEntry.entry.Name())
 		line, style := p.getDirEntryLine(libEntry, fullPath, entryIndex == p.cursor)
-		// Use runewidth for accurate string width calculation and truncation
 		if runewidth.StringWidth(line) > w-1 {
-			// Truncate the line to fit the terminal width
 			for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
 				line = line[:len(line)-1]
 			}
@@ -837,9 +847,11 @@ func (p *Library) renderDirectoryListContent(w, h, listHeight, currentOffset int
 }
 
 // getDirEntryLine generates the display line and style for a directory entry.
+//
+// getDirEntryLine 为目录条目生成显示行和样式。
 func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCursor bool) (string, string) {
 	line := ""
-	style := "\x1b[0m" // Reset
+	style := "\x1b[0m"
 	isLink := libEntry.info.Mode()&os.ModeSymlink != 0
 	name := libEntry.entry.Name()
 
@@ -848,7 +860,6 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCurs
 	}
 
 	if libEntry.isDir {
-		// Directory-specific styling
 		isDirPartiallySelected := false
 		var checkSelected func(string) bool
 		checkSelected = func(dirPath string) bool {
@@ -869,7 +880,7 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCurs
 					if statErr == nil {
 						isDir = statInfo.IsDir()
 					} else {
-						continue // Broken link
+						continue
 					}
 				}
 
@@ -891,7 +902,6 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCurs
 			line = "▸ " + name + "/"
 		}
 	} else {
-		// File-specific styling
 		if p.selected[fullPath] {
 			line = "✓ " + name
 			style += "\x1b[32m"
@@ -906,6 +916,8 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCurs
 }
 
 // drawScrollbar draws a scrollbar on the right side of the screen.
+//
+// drawScrollbar 在屏幕右侧绘制一个滚动条。
 func (p *Library) drawScrollbar(h, listHeight, totalItems, currentOffset int) {
 	if totalItems <= listHeight {
 		return
@@ -934,5 +946,7 @@ func (p *Library) drawScrollbar(h, listHeight, totalItems, currentOffset int) {
 	}
 }
 
-// Tick for Library does nothing.
+// Tick for Library does nothing, as it's event-driven.
+//
+// Library的Tick方法不执行任何操作，因为它是事件驱动的。
 func (p *Library) Tick() {}

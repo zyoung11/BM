@@ -1,126 +1,241 @@
+# BM Music Player Configuration File
+# Configuration path: ~/.config/BM/config.toml
+# Restart the program for changes to take effect.
+#
 # BM 音乐播放器配置文件
 # 配置文件路径: ~/.config/BM/config.toml
 # 修改配置后重启程序生效
 
 [app]
+# Maximum number of history entries - limits the maximum number of playback history records.
+#
 # 最大历史记录数量 - 限制播放历史记录的最大条数
 max_history_size = 100
 
+# Song switching debounce time (milliseconds) - prevents rapid continuous song switching, avoiding misoperation.
+#
 # 切歌防抖时间（毫秒）- 防止快速连续切歌，避免误操作
 switch_debounce_ms = 1000
 
-# 默认启动页面 - 程序启动时显示的页面
-# 0 = Player页面, 1 = PlayList页面, 2 = Library页面
+# Default starting page - the page displayed when the program starts.
+# 0 = Player page, 1 = PlayList page, 2 = Library page.
+#
+# 默认启动页面 - 程序启动时显示的页面。
+# 0 = 播放器页面, 1 = 播放列表页面, 2 = 媒体库页面。
 default_page = 2
 
-# 默认播放模式 - 程序启动时的播放模式
-# 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放
+# Default play mode - the playback mode when the program starts.
+# 0 = repeat one, 1 = repeat all, 2 = random.
+#
+# 默认播放模式 - 程序启动时的播放模式。
+# 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放。
 default_play_mode = 0
 
-# 是否记录音乐库路径 - 如果为true，程序会记住上次使用的音乐库路径
-# 下次启动时如果不指定路径参数，会自动使用保存的路径
+# Whether to remember the music library path - if true, the program will remember the last used music library path.
+# If no path parameter is specified next time the program starts, the saved path will be used automatically.
+#
+# 是否记录音乐库路径 - 如果为true，程序会记住上次使用的音乐库路径。
+# 下次启动时如果不指定路径参数，会自动使用保存的路径。
 remember_library_path = true
 
-# 是否记录播放列表 - 如果为true，程序会记录播放列表并在下次启动时加载
-# 注意: remember_library_path 也必须为 true 才能生效
+# Whether to record the playlist - if true, the program will record the playlist and load it next time it starts.
+# Note: 'remember_library_path' must also be true for this to take effect.
+#
+# 是否记录播放列表 - 如果为true，程序会记录播放列表并在下次启动时加载。
+# 注意: 'remember_library_path' 也必须为 true 才能生效。
 playlist_history = true
 
-# 是否持久化保存播放记录 - 如果为true，程序会保存播放历史记录并在下次启动时恢复
-# 注意: remember_library_path 也必须为 true 才能生效
+# Whether to persistently save playback history - if true, the program will save playback history and restore it next time it starts.
+# Note: 'remember_library_path' must also be true for this to take effect.
+#
+# 是否持久化保存播放记录 - 如果为true，程序会保存播放历史记录并在下次启动时恢复。
+# 注意: 'remember_library_path' 也必须为 true 才能生效。
 playback_history_persistence = true
 
-# 存储文件路径 - 用于保存用户输入的完整路径信息
+# Storage file path - used to save full path information entered by the user.
+#
+# 存储文件路径 - 用于保存用户输入的完整路径信息。
 storage = "~/.config/BM/storage.json"
-# 目标音频采样率 (Hz) - 程序启动时音频输出设备的采样率
-# 常见值: 44100 (CD), 48000 (专业音频/视频)
+# Target audio sample rate (Hz) - the sample rate of the audio output device when the program starts.
+# Common values: 44100 (CD), 48000 (professional audio/video).
+# Changing this value can optimize playback performance for specific sample rates and reduce unnecessary resampling.
+#
+# 目标音频采样率 (Hz) - 程序启动时音频输出设备的采样率。
+# 常见值: 44100 (CD), 48000 (专业音频/视频)。
 # 更改此值可优化特定采样率音频的播放性能，减少不必要的重采样。
 target_sample_rate = 44100
 
 [keymap]
-  # 全局快捷键 - 在所有页面都有效
+  # Keymap settings - defines all keybindings for the application.
+  #
+  # 键位映射设置 - 定义应用程序的所有按键绑定。
+
+  # Global keybindings - effective across all pages.
+  #
+  # 全局快捷键 - 在所有页面都有效。
   [keymap.global]
-    # 退出程序
+    # Quit the program.
+    #
+    # 退出程序。
     Quit = ["esc"]
-    # 循环切换页面
+    # Cycle through pages.
+    #
+    # 循环切换页面。
     CyclePages = ["tab"]
-    # 切换到播放器页面
+    # Switch to the Player page.
+    #
+    # 切换到播放器页面。
     SwitchToPlayer = ["1"]
-    # 切换到播放列表页面
+    # Switch to the PlayList page.
+    #
+    # 切换到播放列表页面。
     SwitchToPlayList = ["2"]
-    # 切换到音乐库页面
+    # Switch to the Library page.
+    #
+    # 切换到音乐库页面。
     SwitchToLibrary = ["3"]
 
-  # 播放器页面快捷键
+  # Player page keybindings.
+  #
+  # 播放器页面快捷键。
   [keymap.player]
-    # 播放/暂停
+    # Toggle play/pause.
+    #
+    # 播放/暂停。
     TogglePause = ["space"]
-    # 快进5秒
+    # Seek forward by 5 seconds.
+    #
+    # 快进5秒。
     SeekForward = ["e"]
-    # 快退5秒
+    # Seek backward by 5 seconds.
+    #
+    # 快退5秒。
     SeekBackward = ["q"]
-    # 音量增加
+    # Increase volume.
+    #
+    # 音量增加。
     VolumeUp = ["w"]
-    # 音量减少
+    # Decrease volume.
+    #
+    # 音量减少。
     VolumeDown = ["s"]
-    # 播放速度增加
+    # Increase playback rate.
+    #
+    # 播放速度增加。
     RateUp = ["x"]
-    # 播放速度减少
+    # Decrease playback rate.
+    #
+    # 播放速度减少。
     RateDown = ["z"]
-    # 下一首歌曲
+    # Play the next song.
+    #
+    # 下一首歌曲。
     NextSong = ["d"]
-    # 上一首歌曲
+    # Play the previous song.
+    #
+    # 上一首歌曲。
     PrevSong = ["a"]
-    # 切换播放模式
+    # Toggle play mode.
+    #
+    # 切换播放模式。
     TogglePlayMode = ["r"]
-    # 切换文字颜色（专辑封面颜色/白色）
+    # Toggle text color (album cover color/white).
+    #
+    # 切换文字颜色（专辑封面颜色/白色）。
     ToggleTextColor = ["c"]
-    # 重置音量和播放速度
+    # Reset volume and playback rate.
+    #
+    # 重置音量和播放速度。
     Reset = ["backspace"]
 
-  # 音乐库页面快捷键
+  # Library page keybindings.
+  #
+  # 媒体库页面快捷键。
   [keymap.library]
-    # 向上导航
+    # Navigate up.
+    #
+    # 向上导航。
     NavUp = ["k", "w", "up"]
-    # 向下导航
+    # Navigate down.
+    #
+    # 向下导航。
     NavDown = ["j", "s", "down"]
-    # 进入目录
+    # Enter directory.
+    #
+    # 进入目录。
     NavEnterDir = ["l", "d", "right"]
-    # 退出目录
+    # Exit directory.
+    #
+    # 退出目录。
     NavExitDir = ["h", "a", "left"]
-    # 切换选择当前项目
+    # Toggle selection for the current item.
+    #
+    # 切换选择当前项目。
     ToggleSelect = ["space"]
-    # 切换选择所有项目
+    # Toggle selection for all items.
+    #
+    # 切换选择所有项目。
     ToggleSelectAll = ["e"]
-    # 进入搜索模式
+    # Enter search mode.
+    #
+    # 进入搜索模式。
     Search = ["f"]
     
-    # 搜索模式快捷键
+    # Search mode keybindings.
+    #
+    # 搜索模式快捷键。
     [keymap.library.SearchMode]
-      # 确认搜索
+      # Confirm search.
+      #
+      # 确认搜索。
       ConfirmSearch = ["enter"]
-      # 退出搜索
+      # Exit search.
+      #
+      # 退出搜索。
       EscapeSearch = ["esc"]
-      # 搜索框退格
+      # Backspace in search box.
+      #
+      # 搜索框退格。
       SearchBackspace = ["backspace"]
 
-  # 播放列表页面快捷键
+  # Playlist page keybindings.
+  #
+  # 播放列表页面快捷键。
   [keymap.playlist]
-    # 向上导航
+    # Navigate up.
+    #
+    # 向上导航。
     NavUp = ["k", "w", "up"]
-    # 向下导航
+    # Navigate down.
+    #
+    # 向下导航。
     NavDown = ["j", "s", "down"]
-    # 从播放列表移除歌曲
+    # Remove the selected song from the playlist.
+    #
+    # 从播放列表中移除歌曲。
     RemoveSong = ["space"]
-    # 播放选中的歌曲
+    # Play the selected song.
+    #
+    # 播放选中的歌曲。
     PlaySong = ["enter"]
-    # 进入搜索模式
+    # Enter search mode.
+    #
+    # 进入搜索模式。
     Search = ["f"]
     
-    # 搜索模式快捷键
+    # Search mode keybindings.
+    #
+    # 搜索模式快捷键。
     [keymap.playlist.SearchMode]
-      # 确认搜索
+      # Confirm search.
+      #
+      # 确认搜索。
       ConfirmSearch = ["enter"]
-      # 退出搜索
+      # Exit search.
+      #
+      # 退出搜索。
       EscapeSearch = ["esc"]
-      # 搜索框退格
+      # Backspace in search box.
+      #
+      # 搜索框退格。
       SearchBackspace = ["backspace"]

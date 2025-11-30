@@ -23,7 +23,9 @@ import (
 	"golang.org/x/term"
 )
 
-// Generic min function
+// min returns the smaller of two values.
+//
+// min 返回两个值中较小的一个。
 func min[T ~int | ~float64](a, b T) T {
 	if a < b {
 		return a
@@ -31,7 +33,9 @@ func min[T ~int | ~float64](a, b T) T {
 	return b
 }
 
-// Generic max function
+// max returns the larger of two values.
+//
+// max 返回两个值中较大的一个。
 func max[T ~int | ~float64](a, b T) T {
 	if a > b {
 		return a
@@ -42,71 +46,77 @@ func max[T ~int | ~float64](a, b T) T {
 // --- Page Implementation ---
 
 // PlayerPage holds the state for the music player view.
+//
+// PlayerPage 保存音乐播放器视图的状态。
 type PlayerPage struct {
 	app      *App
 	flacPath string
 
-	// UI state
+	// UI state / UI状态
 	cellW, cellH                          int
 	imageTop, imageHeight, imageRightEdge int
 	coverColorR, coverColorG, coverColorB int
 	useCoverColor                         bool
 	volumeDisplayTimer                    int
 	rateDisplayTimer                      int
-	resampleDisplayTimer                  int // 重采样提示显示计时器
+	resampleDisplayTimer                  int // Timer for showing the resampling indicator. / 用于显示重采样提示的计时器。
 
-	// 防抖机制：记录上次切歌时间
+	// Debounce mechanism for song switching. / 切歌防抖机制。
 	lastSwitchTime time.Time
 }
 
 // NewPlayerPage creates a new instance of the player page.
+//
+// NewPlayerPage 创建一个新的播放器页面实例。
 func NewPlayerPage(app *App, flacPath string, cellW, cellH int) *PlayerPage {
 	return &PlayerPage{
 		app:            app,
 		flacPath:       flacPath,
-		useCoverColor:  true, // Default to using cover color
+		useCoverColor:  true,
 		cellW:          cellW,
 		cellH:          cellH,
-		lastSwitchTime: time.Now().Add(-2 * time.Second), // 初始化为2秒前，确保第一次切歌可用
+		lastSwitchTime: time.Now().Add(-2 * time.Second),
 	}
 }
 
-// Init for PlayerPage is now empty, as setup is done in the constructor.
+// Init for PlayerPage is a placeholder, as setup is done in the constructor.
+//
+// PlayerPage的Init是一个占位符，因为设置在构造函数中完成。
 func (p *PlayerPage) Init() {}
 
-// UpdateSong 更新当前播放的歌曲路径
+// UpdateSong updates the path of the currently playing song.
+//
+// UpdateSong 更新当前播放歌曲的路径。
 func (p *PlayerPage) UpdateSong(songPath string) {
 	p.flacPath = songPath
-	// 重置图像相关状态，强制重新加载专辑封面
 	p.imageTop = 0
 	p.imageHeight = 0
 	p.imageRightEdge = 0
-	// 不立即重新渲染，让Tick()方法在下一个周期自然更新
 }
 
-// UpdateSongWithRender 更新当前播放的歌曲路径并强制重新渲染
+// UpdateSongWithRender updates the currently playing song path and forces a re-render.
+//
+// UpdateSongWithRender 更新当前播放的歌曲路径并强制重新渲染。
 func (p *PlayerPage) UpdateSongWithRender(songPath string) {
 	p.flacPath = songPath
-	// 重置图像相关状态，强制重新加载专辑封面
 	p.imageTop = 0
 	p.imageHeight = 0
 	p.imageRightEdge = 0
-	// 立即重新渲染整个界面，确保专辑封面和歌曲信息正确显示
 	p.View()
 }
 
-// HandleKey handles user key presses.
+// HandleKey handles user key presses for the player page.
+//
+// HandleKey 处理播放器页面的用户按键。
 func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 	player := p.app.player
 	mprisServer := p.app.mprisServer
-	needsRedraw := true // Most keys will need a status update
+	needsRedraw := true
 
 	if player == nil {
-		// If there is no player, don't handle any keys
 		return nil, false, nil
 	}
 
-	// Player-specific keybindings
 	if IsKey(key, GlobalConfig.Keymap.Player.TogglePause) {
 		speaker.Lock()
 		player.ctrl.Paused = !player.ctrl.Paused
@@ -141,7 +151,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 			mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.VolumeDown) {
-		p.volumeDisplayTimer = 10 // Show volume indicator
+		p.volumeDisplayTimer = 10
 		speaker.Lock()
 		p.app.linearVolume = max(p.app.linearVolume-0.05, 0.0)
 		p.app.volume = math.Log2(p.app.linearVolume)
@@ -155,7 +165,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Volume": volume.Value()})
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.VolumeUp) {
-		p.volumeDisplayTimer = 10 // Show volume indicator
+		p.volumeDisplayTimer = 10
 		speaker.Lock()
 		p.app.linearVolume = min(p.app.linearVolume+0.05, 1.0)
 		p.app.volume = math.Log2(p.app.linearVolume)
@@ -166,7 +176,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Volume": volume.Value()})
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.RateDown) {
-		p.rateDisplayTimer = 10 // Show rate indicator
+		p.rateDisplayTimer = 10
 		speaker.Lock()
 		ratio := player.resampler.Ratio() - 0.05
 		player.resampler.SetRatio(min(max(ratio, 0.1), 4.0))
@@ -177,7 +187,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 			mprisServer.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{"Rate": rate.Value()})
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.RateUp) {
-		p.rateDisplayTimer = 10 // Show rate indicator
+		p.rateDisplayTimer = 10
 		speaker.Lock()
 		ratio := player.resampler.Ratio() + 0.05
 		player.resampler.SetRatio(min(max(ratio, 0.1), 4.0))
@@ -214,55 +224,53 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 			})
 		}
 	} else {
-		needsRedraw = false // Unhandled keys don't need a redraw
+		needsRedraw = false
 	}
 
 	if needsRedraw {
-		// 只更新状态，不清屏重绘整个界面
 		p.updateStatus()
 	}
 
-	return nil, false, nil // Stay on this page, no full redraw needed
+	return nil, false, nil
 }
 
 // HandleSignal handles system signals, like window resizing.
+//
+// HandleSignal 处理系统信号，例如窗口大小调整。
 func (p *PlayerPage) HandleSignal(sig os.Signal) error {
 	if sig == syscall.SIGWINCH {
-		// Window size changed, we need to do a full redraw.
 		p.View()
 	}
 	return nil
 }
 
 // View renders the player UI to the screen.
+//
+// View 将播放器UI渲染到屏幕上。
 func (p *PlayerPage) View() {
-	// 如果没有歌曲路径，显示空状态
 	if p.flacPath == "" {
 		p.displayEmptyState()
 		return
 	}
-
-	// displayAlbumArt clears the screen and draws the art.
 	p.imageTop, p.imageHeight, p.imageRightEdge, p.coverColorR, p.coverColorG, p.coverColorB = p.displayAlbumArt()
-	// updateStatus draws the text and progress bar over it.
 	p.updateStatus()
 }
 
-// displayEmptyState 显示播放列表为空的状态
+// displayEmptyState displays the empty state when the playlist is empty.
+//
+// displayEmptyState 在播放列表为空时显示空状态。
 func (p *PlayerPage) displayEmptyState() {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		w, h = 80, 24
 	}
 
-	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen
+	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 
-	// 标题
 	title := "Player"
 	titleX := (w - len(title)) / 2
 	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
 
-	// 空状态消息
 	msg := "PlayList is empty"
 	msg2 := "Add songs from the Library tab"
 	msgX := (w - len(msg)) / 2
@@ -272,13 +280,14 @@ func (p *PlayerPage) displayEmptyState() {
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow-1, msgX, msg)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow+1, msg2X, msg2)
 
-	// 页面切换提示
 	footer := ""
 	footerX := (w - len(footer)) / 2
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
 }
 
-// Tick is called periodically by the main loop to update dynamic elements.
+// Tick is called periodically by the main loop to update dynamic elements like timers and progress bars.
+//
+// Tick 由主循环定期调用，以更新计时器和进度条等动态元素。
 func (p *PlayerPage) Tick() {
 	if p.volumeDisplayTimer > 0 {
 		p.volumeDisplayTimer--
@@ -290,24 +299,21 @@ func (p *PlayerPage) Tick() {
 		p.resampleDisplayTimer--
 	}
 
-	// 如果没有歌曲，不需要更新
 	if p.flacPath == "" {
 		return
 	}
 
-	// We only need to update the status (progress bar, etc.), not the whole album art.
 	p.updateStatus()
-
-	// 检查歌曲是否结束，并根据播放模式处理下一首
 	p.checkSongEndAndHandleNext()
 
-	// Also, notify the MPRIS server of the position change.
 	if p.app.mprisServer != nil {
 		p.app.mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
 	}
 }
 
 // currentPositionInMicroseconds is a helper to get the player position for MPRIS.
+//
+// currentPositionInMicroseconds 是一个辅助函数，用于为MPRIS获取播放器位置。
 func (p *PlayerPage) currentPositionInMicroseconds() int64 {
 	if p.app.player == nil {
 		return 0
@@ -316,42 +322,40 @@ func (p *PlayerPage) currentPositionInMicroseconds() int64 {
 	return int64(float64(pos) / float64(p.app.player.sampleRate) * 1e6)
 }
 
-// checkSongEndAndHandleNext 检查歌曲是否结束，并根据播放模式处理下一首
+// checkSongEndAndHandleNext checks if the song has ended and handles the next song according to the play mode.
+//
+// checkSongEndAndHandleNext 检查歌曲是否结束，并根据播放模式处理下一首。
 func (p *PlayerPage) checkSongEndAndHandleNext() {
 	if p.app.player == nil || len(p.app.Playlist) == 0 {
 		return
 	}
 
-	// 检查歌曲是否结束（位置接近末尾）
 	currentPos := p.app.player.streamer.Position()
 	totalLen := p.app.player.streamer.Len()
 
-	// 如果歌曲接近结束（最后1秒），根据播放模式处理
 	if totalLen > 0 && currentPos >= totalLen-p.app.player.sampleRate.N(time.Second) {
-		// 单曲循环模式：自动循环当前歌曲，不需要额外处理
 		if p.app.playMode == 0 {
 			return
 		}
 
-		// 列表循环或随机播放模式：播放下一首
 		if p.app.playMode == 1 || p.app.playMode == 2 {
 			p.playNextSong()
 		}
 	}
 }
 
-// playNextSong 根据播放模式播放下一首歌曲（带防抖）
+// playNextSong plays the next song based on the current play mode, with debouncing.
+//
+// playNextSong 根据当前播放模式播放下一首歌曲（带防抖）。
 func (p *PlayerPage) playNextSong() {
-	// 检查防抖期（使用配置的防抖时间）
 	if time.Since(p.lastSwitchTime) < time.Duration(GlobalConfig.App.SwitchDebounceMs)*time.Millisecond {
-		return // 在防抖期内，忽略切歌操作
+		return
 	}
 
 	if len(p.app.Playlist) == 0 {
 		return
 	}
 
-	// 找到当前歌曲在播放列表中的位置
 	currentIndex := -1
 	for i, song := range p.app.Playlist {
 		if song == p.flacPath {
@@ -366,45 +370,36 @@ func (p *PlayerPage) playNextSong() {
 
 	var nextIndex int
 
-	// 根据播放模式决定下一首
 	switch p.app.playMode {
-	case 1: // 列表循环
+	case 1: // List loop / 列表循环
 		nextIndex = (currentIndex + 1) % len(p.app.Playlist)
-	case 2: // 随机播放
-		// 检查是否正在历史记录中导航
+	case 2: // Random / 随机播放
 		if p.app.isNavigatingHistory && p.app.historyIndex < len(p.app.playHistory)-1 {
-			// 在历史记录中向前切歌
 			p.playNextInRandomMode()
 			return
 		} else {
-			// 不在历史记录中，随机播放
 			nextIndex = rand.Intn(len(p.app.Playlist))
-			// 避免随机到同一首歌
 			if nextIndex == currentIndex && len(p.app.Playlist) > 1 {
 				nextIndex = (nextIndex + 1) % len(p.app.Playlist)
 			}
 		}
-	default: // 单曲循环或手动切换
+	default: // Single repeat or manual switch / 单曲循环或手动切换
 		nextIndex = (currentIndex + 1) % len(p.app.Playlist)
 	}
 
-	// 尝试播放下一首歌曲，如果失败则继续尝试下一首
 	p.tryPlayNextSong(currentIndex, nextIndex)
 
-	// 更新切歌时间
 	p.lastSwitchTime = time.Now()
 }
 
-// tryPlayNextSong 尝试播放下一首歌曲，如果文件损坏则跳过
+// tryPlayNextSong attempts to play the next song, skipping it if the file is corrupted.
+//
+// tryPlayNextSong 尝试播放下一首歌曲，如果文件损坏则跳过。
 func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
-	// 记录已尝试的索引，避免无限循环
 	triedIndices := make(map[int]bool)
 
-	// 从nextIndex开始尝试播放
 	for {
-		// 如果已经尝试过这个索引，说明所有歌曲都损坏了
 		if triedIndices[nextIndex] {
-			// 所有歌曲都损坏，停止播放
 			if p.app.player != nil {
 				speaker.Lock()
 				p.app.player.ctrl.Paused = true
@@ -420,21 +415,15 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 		triedIndices[nextIndex] = true
 		nextSong := p.app.Playlist[nextIndex]
 
-		// 尝试播放歌曲
 		err := p.app.PlaySongWithSwitchAndRender(nextSong, false, true)
 		if err == nil {
-			// 播放成功
 			return
 		}
-		// 播放失败，标记文件为损坏
 		p.app.MarkFileAsCorrupted(nextSong)
 
-		// 播放失败，尝试下一首
 		nextIndex = (nextIndex + 1) % len(p.app.Playlist)
 
-		// 如果回到当前歌曲，说明已经尝试了所有歌曲
 		if nextIndex == currentIndex {
-			// 所有歌曲都损坏，停止播放
 			if p.app.player != nil {
 				speaker.Lock()
 				p.app.player.ctrl.Paused = true
@@ -449,24 +438,23 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 	}
 }
 
-// playPreviousSong 播放上一首歌曲（带防抖）
+// playPreviousSong plays the previous song, with debouncing.
+//
+// playPreviousSong 播放上一首歌曲（带防抖）。
 func (p *PlayerPage) playPreviousSong() {
-	// 检查防抖期（使用配置的防抖时间）
 	if time.Since(p.lastSwitchTime) < time.Duration(GlobalConfig.App.SwitchDebounceMs)*time.Millisecond {
-		return // 在防抖期内，忽略切歌操作
+		return
 	}
 
 	if len(p.app.Playlist) == 0 {
 		return
 	}
 
-	// 随机播放模式下使用历史记录
 	if p.app.playMode == 2 {
 		p.playPreviousInRandomMode()
 		return
 	}
 
-	// 找到当前歌曲在播放列表中的位置
 	currentIndex := -1
 	for i, song := range p.app.Playlist {
 		if song == p.flacPath {
@@ -481,31 +469,24 @@ func (p *PlayerPage) playPreviousSong() {
 
 	var prevIndex int
 
-	// 计算上一首索引
 	if currentIndex == 0 {
-		// 如果是第一首，循环到最后一首
 		prevIndex = len(p.app.Playlist) - 1
 	} else {
 		prevIndex = currentIndex - 1
 	}
 
-	// 尝试播放上一首歌曲，如果失败则继续尝试上一首
 	p.tryPlayPreviousSong(currentIndex, prevIndex)
-
-	// 更新切歌时间
 	p.lastSwitchTime = time.Now()
 }
 
-// tryPlayPreviousSong 尝试播放上一首歌曲，如果文件损坏则跳过
+// tryPlayPreviousSong attempts to play the previous song, skipping it if the file is corrupted.
+//
+// tryPlayPreviousSong 尝试播放上一首歌曲，如果文件损坏则跳过。
 func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
-	// 记录已尝试的索引，避免无限循环
 	triedIndices := make(map[int]bool)
 
-	// 从prevIndex开始尝试播放
 	for {
-		// 如果已经尝试过这个索引，说明所有歌曲都损坏了
 		if triedIndices[prevIndex] {
-			// 所有歌曲都损坏，停止播放
 			if p.app.player != nil {
 				speaker.Lock()
 				p.app.player.ctrl.Paused = true
@@ -521,25 +502,19 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 		triedIndices[prevIndex] = true
 		prevSong := p.app.Playlist[prevIndex]
 
-		// 尝试播放歌曲
 		err := p.app.PlaySongWithSwitchAndRender(prevSong, false, true)
 		if err == nil {
-			// 播放成功
 			return
 		}
-		// 播放失败，标记文件为损坏
 		p.app.MarkFileAsCorrupted(prevSong)
 
-		// 播放失败，尝试上一首
 		if prevIndex == 0 {
 			prevIndex = len(p.app.Playlist) - 1
 		} else {
 			prevIndex = prevIndex - 1
 		}
 
-		// 如果回到当前歌曲，说明已经尝试了所有歌曲
 		if prevIndex == currentIndex {
-			// 所有歌曲都损坏，停止播放
 			if p.app.player != nil {
 				speaker.Lock()
 				p.app.player.ctrl.Paused = true
@@ -554,44 +529,37 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 	}
 }
 
-// playPreviousInRandomMode 随机播放模式下的上一首逻辑
+// playPreviousInRandomMode handles the logic for "previous" in random mode by using play history.
+//
+// playPreviousInRandomMode 通过使用播放历史来处理随机模式下的“上一首”逻辑。
 func (p *PlayerPage) playPreviousInRandomMode() {
-	// 检查是否有历史记录
 	if p.app.historyIndex <= 0 {
-		// 没有历史记录，随机播放一首
 		p.playRandomSong()
 		return
 	}
 
-	// 设置导航标志
 	p.app.isNavigatingHistory = true
-
-	// 移动到历史记录中的上一首
 	p.app.historyIndex--
 	prevSong := p.app.playHistory[p.app.historyIndex]
 
-	// 检查歌曲是否还在播放列表中
 	if p.isSongInPlaylist(prevSong) {
-		// 播放历史记录中的歌曲（不调用 addToPlayHistory），强制重新渲染
 		p.playSongFromHistory(prevSong, false)
-		// 由于 playSongFromHistory 在 switchToPlayer=false 时不重新渲染，我们需要手动调用 View
 		p.View()
 	} else {
-		// 歌曲不在播放列表中，继续向前查找
 		p.playPreviousInRandomMode()
 	}
 
-	// 更新切歌时间
 	p.lastSwitchTime = time.Now()
 }
 
-// playRandomSong 随机播放一首歌曲
+// playRandomSong plays a random song from the playlist.
+//
+// playRandomSong 从播放列表中随机播放一首歌曲。
 func (p *PlayerPage) playRandomSong() {
 	if len(p.app.Playlist) == 0 {
 		return
 	}
 
-	// 找到当前歌曲在播放列表中的位置
 	currentIndex := -1
 	for i, song := range p.app.Playlist {
 		if song == p.flacPath {
@@ -602,7 +570,6 @@ func (p *PlayerPage) playRandomSong() {
 
 	var randomIndex int
 	if len(p.app.Playlist) > 1 {
-		// 随机选择一首不同的歌曲
 		for {
 			randomIndex = rand.Intn(len(p.app.Playlist))
 			if randomIndex != currentIndex {
@@ -613,14 +580,14 @@ func (p *PlayerPage) playRandomSong() {
 		randomIndex = 0
 	}
 
-	// 播放随机选择的歌曲
 	p.app.PlaySongWithSwitchAndRender(p.app.Playlist[randomIndex], false, true)
 
-	// 更新切歌时间
 	p.lastSwitchTime = time.Now()
 }
 
-// isSongInPlaylist 检查歌曲是否在播放列表中
+// isSongInPlaylist checks if a song is in the current playlist.
+//
+// isSongInPlaylist 检查歌曲是否在当前播放列表中。
 func (p *PlayerPage) isSongInPlaylist(songPath string) bool {
 	for _, song := range p.app.Playlist {
 		if song == songPath {
@@ -630,25 +597,23 @@ func (p *PlayerPage) isSongInPlaylist(songPath string) bool {
 	return false
 }
 
-// playSongFromHistory 从历史记录播放歌曲（不添加新的历史记录）
+// playSongFromHistory plays a song from history without adding a new history entry.
+//
+// playSongFromHistory 从历史记录中播放歌曲，而不添加新的历史记录条目。
 func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) error {
-	// 如果是同一首歌，不做任何操作
 	if p.app.currentSongPath == songPath && p.app.player != nil {
 		if switchToPlayer {
-			// 切换到播放页面
-			p.app.switchToPage(0) // PlayerPage
+			p.app.switchToPage(0)
 		}
 		return nil
 	}
 
-	// 停止当前播放
 	speaker.Lock()
 	if p.app.player != nil {
 		p.app.player.ctrl.Paused = true
 	}
 	speaker.Unlock()
 
-	// 加载新文件
 	f, err := os.Open(songPath)
 	if err != nil {
 		return fmt.Errorf("打开文件失败: %v", err)
@@ -657,45 +622,34 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	streamer, format, err := flac.Decode(f)
 	if err != nil {
 		f.Close()
-		p.app.MarkFileAsCorrupted(songPath) // 标记文件为损坏
+		p.app.MarkFileAsCorrupted(songPath)
 		return fmt.Errorf("解码FLAC失败: %v", err)
 	}
 
-	// 如果需要，进行重采样，并使用buffer来创建一个可跳转的流 (StreamSeeker)
 	var audioStream beep.StreamSeeker = streamer
 	if format.SampleRate != p.app.sampleRate {
-		// 立即显示重采样提示
-		p.resampleDisplayTimer = 10 // 显示10个tick周期（约5秒）
-		// 强制更新界面以显示提示
+		p.resampleDisplayTimer = 10
 		p.updateStatus()
-		// 使用 ResampleRatio 创建一个重采样器
-		// 正确的比率应该是 原始采样率 / 目标采样率
 		ratio := float64(format.SampleRate) / float64(p.app.sampleRate)
 		resampler := beep.ResampleRatio(4, ratio, streamer)
 
-		// 创建一个新的格式，其采样率是我们的目标采样率
 		bufferFormat := format
 		bufferFormat.SampleRate = p.app.sampleRate
 
-		// 创建一个缓冲区并将重采样后的流加载进去
 		buffer := beep.NewBuffer(bufferFormat)
 		buffer.Append(resampler)
 
-		// 从缓冲区的开头获取一个可跳转的流
 		audioStream = buffer.Streamer(0, buffer.Len())
 	}
 
-	// 重新初始化speaker（如果采样率不同）
 	speaker.Init(p.app.sampleRate, p.app.sampleRate.N(time.Second/30))
 
-	// 创建新的播放器
 	player, err := newAudioPlayer(audioStream, format, p.app.volume, p.app.playbackRate)
 	if err != nil {
 		f.Close()
 		return fmt.Errorf("创建播放器失败: %v", err)
 	}
 
-	// 更新MPRIS服务
 	if p.app.mprisServer != nil {
 		p.app.mprisServer.StopService()
 	}
@@ -708,39 +662,30 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		}
 	}
 
-	// 更新应用状态
 	speaker.Lock()
 	p.app.player = player
 	p.app.mprisServer = mprisServer
 	p.app.currentSongPath = songPath
 	speaker.Unlock()
 
-	// 注意：这里不调用 addToPlayHistory，因为我们是在历史记录中导航
-
-	// 开始播放
 	speaker.Play(p.app.player.volume)
 
-	// 歌曲成功播放后，立即清除重采样提示
 	p.resampleDisplayTimer = 0
 
-	// 更新PlayerPage
-	// 在播放页面切换歌曲时强制重新渲染
 	if switchToPlayer {
 		p.UpdateSongWithRender(songPath)
 	} else {
 		p.UpdateSong(songPath)
 	}
-	// 只有在跳转页面时才清理屏幕并重新渲染
 	if switchToPlayer {
-		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 		p.Init()
 		p.View()
 	}
 
-	// 根据参数决定是否切换到播放页面
 	if switchToPlayer {
-		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
-		p.app.currentPageIndex = 0        // 直接设置页面索引
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
+		p.app.currentPageIndex = 0
 		p.Init()
 		p.View()
 	}
@@ -748,36 +693,27 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	return nil
 }
 
-// playNextInRandomMode 随机播放模式下的下一首逻辑
+// playNextInRandomMode handles the logic for "next" in random mode by using play history.
+//
+// playNextInRandomMode 通过使用播放历史来处理随机模式下的“下一首”逻辑。
 func (p *PlayerPage) playNextInRandomMode() {
-	// 检查是否在历史记录末尾
 	if p.app.historyIndex >= len(p.app.playHistory)-1 {
-		// 在历史记录末尾，随机播放一首
 		p.playRandomSong()
-		// 到达历史记录末尾，重置导航标志
 		p.app.isNavigatingHistory = false
 		return
 	}
 
-	// 设置导航标志
 	p.app.isNavigatingHistory = true
-
-	// 移动到历史记录中的下一首
 	p.app.historyIndex++
 	nextSong := p.app.playHistory[p.app.historyIndex]
 
-	// 检查歌曲是否还在播放列表中
 	if p.isSongInPlaylist(nextSong) {
-		// 播放历史记录中的歌曲（不调用 addToPlayHistory），强制重新渲染
 		p.playSongFromHistory(nextSong, false)
-		// 由于 playSongFromHistory 在 switchToPlayer=false 时不重新渲染，我们需要手动调用 View
 		p.View()
 	} else {
-		// 歌曲不在播放列表中，继续向后查找
 		p.playNextInRandomMode()
 	}
 
-	// 更新切歌时间
 	p.lastSwitchTime = time.Now()
 }
 
