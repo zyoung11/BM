@@ -138,7 +138,7 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 	} else if IsKey(key, GlobalConfig.Keymap.Playlist.PlaySong) {
 		if len(p.viewPlaylist) > 0 && p.cursor >= 0 && p.cursor < len(p.viewPlaylist) {
 			songPath := p.viewPlaylist[p.cursor]
-			if err := p.app.PlaySong(songPath); err != nil {
+			if err := p.app.PlaySongWithSwitch(songPath, false); err != nil {
 				// Handle error
 			}
 		}
@@ -217,7 +217,7 @@ func (p *PlayList) removeCurrentSong() {
 		if nextIndex >= len(p.app.Playlist) {
 			nextIndex = len(p.app.Playlist) - 1
 		}
-		p.app.PlaySongWithSwitchAndRender(p.app.Playlist[nextIndex], true, true)
+		p.app.PlaySongWithSwitchAndRender(p.app.Playlist[nextIndex], false, false)
 	}
 }
 

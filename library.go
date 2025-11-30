@@ -606,7 +606,7 @@ func (p *Library) toggleSelection(path string) {
 		if !found {
 			p.app.Playlist = append(p.app.Playlist, path)
 			if len(p.app.Playlist) == 1 {
-				p.app.PlaySongWithSwitchAndRender(path, true, true)
+				p.app.PlaySongWithSwitchAndRender(path, false, false)
 			}
 		}
 	}
