@@ -415,7 +415,7 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 		triedIndices[nextIndex] = true
 		nextSong := p.app.Playlist[nextIndex]
 
-		err := p.app.PlaySongWithSwitchAndRender(nextSong, false, true)
+		err := p.app.PlaySongWithSwitchAndRender(nextSong, true, true)
 		if err == nil {
 			return
 		}
@@ -502,7 +502,7 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 		triedIndices[prevIndex] = true
 		prevSong := p.app.Playlist[prevIndex]
 
-		err := p.app.PlaySongWithSwitchAndRender(prevSong, false, true)
+		err := p.app.PlaySongWithSwitchAndRender(prevSong, true, true)
 		if err == nil {
 			return
 		}
@@ -543,8 +543,7 @@ func (p *PlayerPage) playPreviousInRandomMode() {
 	prevSong := p.app.playHistory[p.app.historyIndex]
 
 	if p.isSongInPlaylist(prevSong) {
-		p.playSongFromHistory(prevSong, false)
-		p.View()
+		p.playSongFromHistory(prevSong, true)
 	} else {
 		p.playPreviousInRandomMode()
 	}
@@ -580,7 +579,7 @@ func (p *PlayerPage) playRandomSong() {
 		randomIndex = 0
 	}
 
-	p.app.PlaySongWithSwitchAndRender(p.app.Playlist[randomIndex], false, true)
+	p.app.PlaySongWithSwitchAndRender(p.app.Playlist[randomIndex], true, true)
 
 	p.lastSwitchTime = time.Now()
 }
@@ -672,6 +671,12 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 
 	p.resampleDisplayTimer = 0
 
+	// Reset cover image position and dimensions
+	// 重置封面图片位置和尺寸
+	p.imageTop = 0
+	p.imageHeight = 0
+	p.imageRightEdge = 0
+
 	if switchToPlayer {
 		// Only update the player page UI when switching to the player page
 		// 只有在切换到播放器页面时才更新播放器页面UI
@@ -704,8 +709,7 @@ func (p *PlayerPage) playNextInRandomMode() {
 	nextSong := p.app.playHistory[p.app.historyIndex]
 
 	if p.isSongInPlaylist(nextSong) {
-		p.playSongFromHistory(nextSong, false)
-		p.View()
+		p.playSongFromHistory(nextSong, true)
 	} else {
 		p.playNextInRandomMode()
 	}
