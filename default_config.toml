@@ -52,6 +52,16 @@ playlist_history = true
 # 注意: 'remember_library_path' 也必须为 true 才能生效。
 playback_history_persistence = true
 
+# Whether to remember the volume - if true, the program will save the volume level and restore it on next startup.
+#
+# 是否记录音量 - 如果为true，程序会保存音量大小并在下次启动时恢复。
+remember_volume = true
+
+# Whether to remember the playback rate - if true, the program will save the playback rate and restore it on next startup.
+#
+# 是否记录播放速度 - 如果为true，程序会保存播放速度并在下次启动时恢复。
+remember_playback_rate = true
+
 # Storage file path - used to save full path information entered by the user.
 #
 # 存储文件路径 - 用于保存用户输入的完整路径信息。
