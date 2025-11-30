@@ -6,6 +6,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -675,6 +676,11 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	p.app.mprisServer = mprisServer
 	p.app.currentSongPath = songPath
 	speaker.Unlock()
+
+	// Save the current song when playing from history
+	if err := SaveCurrentSong(songPath, p.app.LibraryPath); err != nil {
+		log.Printf("Warning: failed to save current song from history: %v\n\n警告: 从历史记录保存当前歌曲失败: %v", err, err)
+	}
 
 	speaker.Play(p.app.player.volume)
 

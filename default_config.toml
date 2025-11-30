@@ -76,7 +76,7 @@ remember_playback_rate = true
 # - medium: 一般音乐播放 (~102 dB 衰减, 16位精度)
 # - high: 工作室制作 (~126 dB 衰减, 20位精度)
 # - very_high: 母带处理/存档 (~175 dB 衰减, 28位精度)
-resampling_quality = "very_high"
+resampling_quality = "quick"
 
 # Storage file path - used to save full path information entered by the user.
 #
