@@ -699,7 +699,7 @@ func (p *Library) View() {
 	if p.isSearching || p.searchQuery != "" {
 		p.drawSearchFooter(w, h, fmt.Sprintf("Search: %s", p.searchQuery))
 	} else {
-		p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", p.currentPath))
+		p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", filepath.Base(p.currentPath)))
 	}
 
 	if p.searchQuery != "" {
