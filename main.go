@@ -221,9 +221,9 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	if format.SampleRate != a.sampleRate {
 		if playerPage != nil {
 			playerPage.resampleDisplayTimer = 10 // Show for 10 ticks (about 5s) / 显示10个tick周期（约5秒）
-			// Force immediate UI update to show resampling indicator only if we're on player page
-			// 只有在播放页面时才强制立即更新UI以显示重采样指示器
-			if a.currentPageIndex == 0 {
+			// Force immediate UI update to show resampling indicator only if we're on player page and not during initial startup
+			// 只有在播放页面且不是初始启动时才强制立即更新UI以显示重采样指示器
+			if a.currentPageIndex == 0 && playerPage.flacPath != "" {
 				playerPage.updateStatus()
 			}
 		}
