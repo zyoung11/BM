@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
@@ -41,6 +42,7 @@ type Library struct {
 	searchQuery       string
 	globalFileCache   []string // Cache of all .flac file paths. / 所有 .flac 文件路径的缓存。
 	filteredSongPaths []string // Results of the current search. / 当前搜索的结果。
+	resamplingSong    string   // Path of the song currently being resampled. / 当前正在重采样的歌曲路径。
 }
 
 // NewLibrary creates a new instance of Library.
@@ -606,7 +608,14 @@ func (p *Library) toggleSelection(path string) {
 		if !found {
 			p.app.Playlist = append(p.app.Playlist, path)
 			if len(p.app.Playlist) == 1 {
+				// Check if resampling is needed before playing
+				needsResample, err := p.NeedsResampling(path)
+				if err == nil && needsResample {
+					p.resamplingSong = path
+					p.View() // Update UI to show resampling message
+				}
 				p.app.PlaySongWithSwitchAndRender(path, false, false)
+				p.resamplingSong = "" // Clear resampling flag
 			}
 		}
 	}
@@ -696,7 +705,9 @@ func (p *Library) View() {
 		currentOffset = currentCursor - listHeight + 1
 	}
 
-	if p.isSearching || p.searchQuery != "" {
+	if p.resamplingSong != "" {
+		p.drawPathFooter(w, h, "↻ Resampling...")
+	} else if p.isSearching || p.searchQuery != "" {
 		p.drawSearchFooter(w, h, fmt.Sprintf("Search: %s", p.searchQuery))
 	} else {
 		p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", filepath.Base(p.currentPath)))
@@ -943,6 +954,25 @@ func (p *Library) drawScrollbar(h, listHeight, totalItems, currentOffset int) {
 			fmt.Printf("\x1b[%d;%dH│", i+3, w)
 		}
 	}
+}
+
+// NeedsResampling checks if a song needs resampling.
+//
+// NeedsResampling 检查歌曲是否需要重采样。
+func (p *Library) NeedsResampling(songPath string) (bool, error) {
+	f, err := os.Open(songPath)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	streamer, format, err := flac.Decode(f)
+	if err != nil {
+		return false, err
+	}
+	streamer.Close()
+
+	return format.SampleRate != p.app.sampleRate, nil
 }
 
 // Tick for Library does nothing, as it's event-driven.
