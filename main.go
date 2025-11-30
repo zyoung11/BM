@@ -551,6 +551,15 @@ func isInSearchMode(page Page) bool {
 }
 
 func main() {
+	// Check for help command first, before any terminal setup
+	if len(os.Args) >= 2 {
+		arg := os.Args[1]
+		if arg == "help" || arg == "-help" || arg == "--help" {
+			displayHelp()
+			return
+		}
+	}
+
 	// --- Terminal Setup ---
 	fmt.Print("\x1b[?1049h\x1b[?25l")
 	defer fmt.Print("\x1b[2J\x1b[?1049l\x1b[?25h") // Clear screen and restore on exit
@@ -569,13 +578,6 @@ func main() {
 }
 
 func runApplication() error {
-	if len(os.Args) == 2 {
-		arg := os.Args[1]
-		if arg == "help" || arg == "-help" || arg == "--help" {
-			displayHelp()
-			return nil
-		}
-	}
 	if err := LoadConfig(); err != nil {
 		return fmt.Errorf("Error loading configuration: %v\n\n错误: 加载配置失败: %v", err, err)
 	}
@@ -591,11 +593,6 @@ func runApplication() error {
 	}
 
 	if len(os.Args) >= 2 {
-		if os.Args[1] == "help" || os.Args[1] == "-help" || os.Args[1] == "--help" {
-			displayHelp()
-			return nil
-		}
-
 		dirPath = os.Args[1]
 		info, err := os.Stat(dirPath)
 		if err != nil {
