@@ -18,6 +18,7 @@ type StorageData struct {
 	CurrentSong  *string  `json:"current_song,omitempty"`
 	Volume       *float64 `json:"volume,omitempty"`
 	PlaybackRate *float64 `json:"playback_rate,omitempty"`
+	PlayMode     *int     `json:"play_mode,omitempty"`
 }
 
 // getStoragePath returns the absolute path to the storage file.
@@ -297,4 +298,47 @@ func LoadPlayHistory(libraryPath string) ([]string, error) {
 	}
 
 	return absolutePlayHistory, nil
+}
+
+// SavePlayMode saves the current play mode to the storage.json file.
+//
+// SavePlayMode 将当前播放模式保存到 storage.json 文件。
+func SavePlayMode(playMode int) error {
+	if !GlobalConfig.App.RememberPlayMode {
+		return nil
+	}
+
+	storageData, err := loadStorageData()
+	if err != nil {
+		return fmt.Errorf("could not load storage data for play mode: %v\n\n无法加载播放模式的存储数据: %v", err, err)
+	}
+
+	storageData.PlayMode = &playMode
+
+	if err := saveStorageData(storageData); err != nil {
+		return fmt.Errorf("could not save play mode data: %v\n\n无法保存播放模式数据: %v", err, err)
+	}
+	return nil
+}
+
+// LoadPlayMode loads the play mode from the storage.json file.
+// If no play mode is saved, it returns the default play mode from config.
+//
+// LoadPlayMode 从 storage.json 文件加载播放模式。
+// 如果没有保存播放模式，则返回配置中的默认播放模式。
+func LoadPlayMode() (int, error) {
+	if !GlobalConfig.App.RememberPlayMode {
+		return GlobalConfig.App.DefaultPlayMode, nil
+	}
+
+	storageData, err := loadStorageData()
+	if err != nil {
+		return GlobalConfig.App.DefaultPlayMode, fmt.Errorf("could not load storage data for play mode: %v\n\n无法加载播放模式的存储数据: %v", err, err)
+	}
+
+	if storageData.PlayMode == nil {
+		return GlobalConfig.App.DefaultPlayMode, nil
+	}
+
+	return *storageData.PlayMode, nil
 }

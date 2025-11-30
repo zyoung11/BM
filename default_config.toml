@@ -61,6 +61,13 @@ remember_volume = true
 # 是否记录播放速度 - 如果为true，程序会保存播放速度并在下次启动时恢复。
 remember_playback_rate = true
 
+# Whether to remember the play mode - if true, the program will save the current play mode and restore it on next startup.
+# If this is the first time using the program and no play mode has been saved yet, it will default to repeat one (0).
+#
+# 是否记录播放模式 - 如果为true，程序会保存当前播放模式并在下次启动时恢复。
+# 如果是第一次使用程序且尚未保存播放模式，将默认为单曲循环 (0)。
+remember_play_mode = true
+
 # Audio resampling quality - determines the quality of audio resampling when sample rate conversion is needed.
 # Available options: "quick", "low", "medium", "high", "very_high"
 # - quick: Fastest, lowest quality (~54 dB attenuation, 8-bit precision)
