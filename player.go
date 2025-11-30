@@ -735,16 +735,14 @@ type audioPlayer struct {
 	resampler  *beep.Resampler
 	volume     *effects.Volume
 	position   int
-	initialVol float64 // 初始音量，用于重置
+	initialVol float64
 }
 
 func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format, volumeLevel float64, playbackRate float64) (*audioPlayer, error) {
-	// 默认使用无限循环（单曲循环模式）
 	loopStreamer := beep.Loop(-1, streamer)
 	ctrl := &beep.Ctrl{Streamer: loopStreamer}
 	resampler := beep.ResampleRatio(4, 1, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2}
-	// 使用传入的音量和播放速度设置
 	volume.Volume = volumeLevel
 	resampler.SetRatio(playbackRate)
 	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume, 0, 0}, nil
@@ -829,14 +827,21 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 					showTextOnly = h < 13 && !showNothing
 					showInfoOnly := (w < maxTextLength || h < 10) && !showNothing && !showTextOnly
 
+					if isWideTerminal {
+						availableWidth := w - (startCol + imageWidthInChars)
+						if availableWidth < maxTextLength+10 {
+							isWideTerminal = false
+						}
+					}
+
 					if showNothing || showTextOnly {
 						startCol, startRow, imageWidthInChars, imageHeightInChars = 0, 0, 0, 0
 					} else if showInfoOnly {
 						startCol, startRow = (w-imageWidthInChars)/2, (h-imageHeightInChars)/2
 					} else if isWideTerminal {
-						startCol, startRow = 1, (h-imageHeightInChars)/2
+						startCol, startRow = 1, (h-imageHeightInChars+1)/2
 					} else {
-						startCol, startRow = (w-imageWidthInChars)/2, 2
+						startCol, startRow = (w-imageWidthInChars)/2, (h-imageHeightInChars+1)/2
 					}
 
 					if startCol < 1 {
@@ -886,8 +891,6 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 }
 
 func (p *PlayerPage) updateStatus() {
-	// Only update status if we're on the player page and have a valid song path
-	// 只有在播放页面且有有效歌曲路径时才更新状态
 	if p.app.currentPageIndex != 0 || p.flacPath == "" {
 		return
 	}
@@ -917,6 +920,13 @@ func (p *PlayerPage) updateStatus() {
 	}
 
 	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
+
+	if isWideTerminal {
+		availableWidth := w - p.imageRightEdge
+		if availableWidth < maxTextLength+10 {
+			isWideTerminal = false
+		}
+	}
 
 	if isWideTerminal {
 		if p.imageRightEdge > 0 && w-p.imageRightEdge >= 30 {
