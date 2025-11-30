@@ -171,6 +171,11 @@ func (a *App) PlaySong(songPath string) error {
 
 // PlaySongWithSwitch 播放指定的歌曲文件，可选择是否跳转到播放页面
 func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
+	return a.PlaySongWithSwitchAndRender(songPath, switchToPlayer, false)
+}
+
+// PlaySongWithSwitchAndRender 播放指定的歌曲文件，可选择是否跳转到播放页面和是否重新渲染
+func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, forceRender bool) error {
 	// 如果是同一首歌，不做任何操作
 	if a.currentSongPath == songPath && a.player != nil {
 		if switchToPlayer {
@@ -255,7 +260,11 @@ func (a *App) PlaySongWithSwitch(songPath string, switchToPlayer bool) error {
 
 	// 更新PlayerPage
 	if playerPage, ok := a.pages[0].(*PlayerPage); ok {
-		playerPage.UpdateSong(songPath)
+		if forceRender {
+			playerPage.UpdateSongWithRender(songPath)
+		} else {
+			playerPage.UpdateSong(songPath)
+		}
 		// 只有在跳转页面时才清理屏幕并重新渲染
 		if switchToPlayer {
 			fmt.Print("\x1b[2J\x1b[3J\x1b[H") // 完全清理屏幕
