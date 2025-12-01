@@ -23,7 +23,6 @@ const (
 	ProtocolSixel
 	ProtocolKitty
 	ProtocolITerm2
-	ProtocolHalfblocks
 )
 
 // 全局Kitty图像ID计数器
@@ -42,8 +41,6 @@ func DetectTerminalProtocol() Protocol {
 			return ProtocolSixel
 		case "iterm2":
 			return ProtocolITerm2
-		case "halfblocks":
-			return ProtocolHalfblocks
 		}
 	}
 
@@ -90,8 +87,6 @@ func RenderImage(img image.Image, widthChars, heightChars int) error {
 		return renderITerm2Image(img, widthChars, heightChars)
 	case ProtocolSixel:
 		return renderSixelImage(img, widthChars, heightChars)
-	case ProtocolHalfblocks:
-		return renderHalfblocksImage(img, widthChars, heightChars)
 	default:
 		// 回退到Sixel
 		return renderSixelImage(img, widthChars, heightChars)
@@ -228,62 +223,6 @@ func renderITerm2Image(img image.Image, widthChars, heightChars int) error {
 func renderSixelImage(img image.Image, widthChars, heightChars int) error {
 	// 使用现有的sixel编码器
 	return NewEncoder(os.Stdout).Encode(img)
-}
-
-// Halfblocks协议渲染（Unicode半块字符）
-func renderHalfblocksImage(img image.Image, widthChars, heightChars int) error {
-	bounds := img.Bounds()
-	imgWidth := bounds.Dx()
-	imgHeight := bounds.Dy()
-
-	// 计算缩放比例
-	scaleX := float64(imgWidth) / float64(widthChars*2) // 每个字符2个像素宽
-	scaleY := float64(imgHeight) / float64(heightChars)
-
-	var output strings.Builder
-
-	for y := 0; y < heightChars; y++ {
-		for x := 0; x < widthChars; x++ {
-			// 获取上下两个像素
-			topY := int(float64(y) * scaleY)
-			bottomY := int(float64(y+1)*scaleY) - 1
-			if bottomY < topY {
-				bottomY = topY
-			}
-
-			leftX := int(float64(x*2) * scaleX)
-
-			// 获取像素颜色
-			topColor := img.At(leftX, topY)
-			bottomColor := img.At(leftX, bottomY)
-
-			// 转换为灰度
-			topR, topG, topB, _ := topColor.RGBA()
-			bottomR, bottomG, bottomB, _ := bottomColor.RGBA()
-
-			topGray := (topR*299 + topG*587 + topB*114) / 1000
-			bottomGray := (bottomR*299 + bottomG*587 + bottomB*114) / 1000
-
-			// 选择Unicode半块字符
-			var blockChar rune
-			if topGray > 0x7FFF && bottomGray > 0x7FFF {
-				blockChar = ' ' // 全白
-			} else if topGray > 0x7FFF && bottomGray <= 0x7FFF {
-				blockChar = '▀' // 上白下黑
-			} else if topGray <= 0x7FFF && bottomGray > 0x7FFF {
-				blockChar = '▄' // 上黑下白
-			} else {
-				blockChar = '█' // 全黑
-			}
-
-			output.WriteRune(blockChar)
-		}
-		output.WriteString("\n")
-	}
-
-	// 输出到终端
-	_, err := io.WriteString(os.Stdout, output.String())
-	return err
 }
 
 // 清除Kitty图像

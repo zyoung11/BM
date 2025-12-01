@@ -89,11 +89,11 @@ default_color_g = 149
 default_color_b = 237
 
 # Image rendering protocol - determines which terminal protocol to use for displaying album art.
-# Available options: "auto", "kitty", "sixel", "iterm2", "halfblocks"
+# Available options: "auto", "kitty", "sixel", "iterm2"
 # "auto" will automatically detect the best available protocol.
 #
 # 图像渲染协议 - 决定使用哪种终端协议来显示专辑封面。
-# 可用选项: "auto", "kitty", "sixel", "iterm2", "halfblocks"
+# 可用选项: "auto", "kitty", "sixel", "iterm2"
 # "auto" 会自动检测最佳可用协议。
 image_protocol = "auto"
 
