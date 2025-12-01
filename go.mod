@@ -21,9 +21,5 @@ require (
 	github.com/mewkiz/flac v1.0.12 // indirect
 	github.com/mewkiz/pkg v0.0.0-20230226050401-4010bf0fec14 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/tphakala/go-audio-resampler v1.1.0 // indirect
-	github.com/tphakala/go-audio-resampling v0.0.0-20251123212058-a9dde25e8eea // indirect
-	github.com/tphakala/simd v1.0.14 // indirect
 	golang.org/x/sys v0.38.0 // indirect
-	gonum.org/v1/gonum v0.16.0 // indirect
 )
