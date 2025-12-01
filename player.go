@@ -6,6 +6,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"image/png"
 	"log"
 	"math"
 	"math/rand"
@@ -428,6 +429,9 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 
 		err := p.app.PlaySongWithSwitchAndRender(nextSong, true, true)
 		if err == nil {
+			title, artist, _ := getSongMetadata(nextSong)
+			coverPath := saveCoverArt(nextSong)
+			sendNotification(artist, title, coverPath)
 			return
 		}
 		p.app.MarkFileAsCorrupted(nextSong)
@@ -515,6 +519,9 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 
 		err := p.app.PlaySongWithSwitchAndRender(prevSong, true, true)
 		if err == nil {
+			title, artist, _ := getSongMetadata(prevSong)
+			coverPath := saveCoverArt(prevSong)
+			sendNotification(artist, title, coverPath)
 			return
 		}
 		p.app.MarkFileAsCorrupted(prevSong)
@@ -709,6 +716,10 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		p.UpdateSong(songPath)
 	}
 
+	title, artist, _ := getSongMetadata(songPath)
+	coverPath := saveCoverArt(songPath)
+	sendNotification(artist, title, coverPath)
+
 	return nil
 }
 
@@ -755,6 +766,44 @@ func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format, volumeLevel 
 	volume.Volume = volumeLevel
 	resampler.SetRatio(playbackRate)
 	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume, 0, 0}, nil
+}
+
+// saveCoverArt extracts the cover art from a FLAC file and saves it to a temporary file.
+// It returns the path to the temporary file.
+func saveCoverArt(flacPath string) string {
+	f, err := os.Open(flacPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	m, err := tag.ReadFrom(f)
+	if err != nil {
+		return ""
+	}
+
+	pic := m.Picture()
+	if pic == nil {
+		return ""
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(pic.Data))
+	if err != nil {
+		return ""
+	}
+
+	tempFile, err := os.CreateTemp("", "kew-cover-*.png")
+	if err != nil {
+		return ""
+	}
+	defer tempFile.Close()
+
+	err = png.Encode(tempFile, img)
+	if err != nil {
+		return ""
+	}
+
+	return tempFile.Name()
 }
 
 // --- TUI / Drawing ---
