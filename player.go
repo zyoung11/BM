@@ -1269,3 +1269,50 @@ func analyzeCoverColor(img image.Image) (r, g, b int) {
 	// 当没有找到合适的颜色时，回退到配置的默认颜色
 	return GlobalConfig.App.DefaultColorR, GlobalConfig.App.DefaultColorG, GlobalConfig.App.DefaultColorB
 }
+
+// getResamplingQuality converts the quality string from config to the corresponding beep resampling quality.
+// beep.Resample quality values:
+// 1 = very high performance, on-the-fly resampling, low quality
+// 3-4 = good performance, on-the-fly resampling, good quality
+// 6 = higher CPU usage, usually not suitable for on-the-fly resampling, very good quality
+// >6 = even higher CPU usage, for offline resampling, very good quality
+func getResamplingQuality(quality string) int {
+	switch quality {
+	case "quick":
+		return 1
+	case "low":
+		return 3
+	case "medium":
+		return 4
+	case "high":
+		return 6
+	case "very_high":
+		return 8
+	default:
+		// Default to medium quality if invalid value
+		return 4
+	}
+}
+
+// highQualityResample performs audio resampling using beep's built-in resampler
+// with the quality preset specified in the configuration.
+func highQualityResample(streamer beep.Streamer, inputRate, outputRate beep.SampleRate) (beep.StreamSeeker, error) {
+	// Get the quality from configuration
+	quality := getResamplingQuality(GlobalConfig.App.ResamplingQuality)
+
+	// Use beep's built-in Resample function
+	resampled := beep.Resample(quality, inputRate, outputRate, streamer)
+
+	// Create a buffer with the resampled audio to make it seekable
+	bufferFormat := beep.Format{
+		SampleRate:  outputRate,
+		NumChannels: 2,
+		Precision:   3, // 24-bit audio
+	}
+
+	// Create buffer and append the resampled streamer
+	audioBuffer := beep.NewBuffer(bufferFormat)
+	audioBuffer.Append(resampled)
+
+	return audioBuffer.Streamer(0, audioBuffer.Len()), nil
+}
