@@ -88,6 +88,15 @@ default_color_r = 100
 default_color_g = 149
 default_color_b = 237
 
+# Image rendering protocol - determines which terminal protocol to use for displaying album art.
+# Available options: "auto", "kitty", "sixel", "iterm2", "halfblocks"
+# "auto" will automatically detect the best available protocol.
+#
+# 图像渲染协议 - 决定使用哪种终端协议来显示专辑封面。
+# 可用选项: "auto", "kitty", "sixel", "iterm2", "halfblocks"
+# "auto" 会自动检测最佳可用协议。
+image_protocol = "auto"
+
 # Storage file path - used to save full path information entered by the user.
 #
 # 存储文件路径 - 用于保存用户输入的完整路径信息。
