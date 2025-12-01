@@ -46,13 +46,17 @@ remember_library_path = true
 playlist_history = true
 
 # Whether to save playback history (last played song, progress, etc.)
+#
 # 是否保存播放历史（上次播放的歌曲、进度等）
 playback_history_persistence = true
+
 # Autostart last played song
+#
 # 自动播放上次播放的歌曲
 autostart_last_played = true
 
 # Whether to remember the volume of the last playback
+#
 # 是否记住上次播放的音量
 remember_volume = true
 
@@ -70,19 +74,9 @@ remember_play_mode = true
 
 # Audio resampling quality - determines the quality of audio resampling when sample rate conversion is needed.
 # Available options: "quick", "low", "medium", "high", "very_high"
-# - quick: Fastest, lowest quality (~54 dB attenuation, 8-bit precision)
-# - low: Good for speech (~102 dB attenuation, 16-bit precision)  
-# - medium: General music playback (~102 dB attenuation, 16-bit precision)
-# - high: Studio production (~126 dB attenuation, 20-bit precision)
-# - very_high: Mastering/archival (~175 dB attenuation, 28-bit precision)
 #
 # 音频重采样质量 - 当需要进行采样率转换时，决定音频重采样的质量。
 # 可用选项: "quick", "low", "medium", "high", "very_high"
-# - quick: 最快，质量最低 (~54 dB 衰减, 8位精度)
-# - low: 适合语音 (~102 dB 衰减, 16位精度)
-# - medium: 一般音乐播放 (~102 dB 衰减, 16位精度)
-# - high: 工作室制作 (~126 dB 衰减, 20位精度)
-# - very_high: 母带处理/存档 (~175 dB 衰减, 28位精度)
 resampling_quality = "quick"
 
 # Default text color - the color used for text display when no suitable color is found from album art.
@@ -98,6 +92,7 @@ default_color_b = 237
 #
 # 存储文件路径 - 用于保存用户输入的完整路径信息。
 storage = "~/.config/BM/storage.json"
+
 # Target audio sample rate (Hz) - the sample rate of the audio output device when the program starts.
 # Common values: 44100 (CD), 48000 (professional audio/video).
 # Changing this value can optimize playback performance for specific sample rates and reduce unnecessary resampling.
@@ -107,31 +102,36 @@ storage = "~/.config/BM/storage.json"
 # 更改此值可优化特定采样率音频的播放性能，减少不必要的重采样。
 target_sample_rate = 44100
 
+# Keymap settings - defines all keybindings for the application.
+#
+# 键位映射设置 - 定义应用程序的所有按键绑定。
 [keymap]
-  # Keymap settings - defines all keybindings for the application.
-  #
-  # 键位映射设置 - 定义应用程序的所有按键绑定。
 
   # Global keybindings - effective across all pages.
   #
   # 全局快捷键 - 在所有页面都有效。
   [keymap.global]
+
     # Quit the program.
     #
     # 退出程序。
     Quit = ["esc"]
+
     # Cycle through pages.
     #
     # 循环切换页面。
     CyclePages = ["tab"]
+
     # Switch to the Player page.
     #
     # 切换到播放器页面。
     SwitchToPlayer = ["1"]
+
     # Switch to the PlayList page.
     #
     # 切换到播放列表页面。
     SwitchToPlayList = ["2"]
+
     # Switch to the Library page.
     #
     # 切换到音乐库页面。
@@ -141,50 +141,62 @@ target_sample_rate = 44100
   #
   # 播放器页面快捷键。
   [keymap.player]
+
     # Toggle play/pause.
     #
     # 播放/暂停。
     TogglePause = ["space"]
+
     # Seek forward by 5 seconds.
     #
     # 快进5秒。
     SeekForward = ["e", "l"]
+
     # Seek backward by 5 seconds.
     #
     # 快退5秒。
     SeekBackward = ["q", "h"]
+
     # Increase volume.
     #
     # 音量增加。
     VolumeUp = ["w", "up"]
+
     # Decrease volume.
     #
     # 音量减少。
     VolumeDown = ["s", "down"]
+
     # Increase playback rate.
     #
     # 播放速度增加。
     RateUp = ["x", "k"]
+
     # Decrease playback rate.
     #
     # 播放速度减少。
     RateDown = ["z", "j"]
+
     # Play the next song.
     #
     # 下一首歌曲。
     NextSong = ["d", "right"]
+
     # Play the previous song.
     #
     # 上一首歌曲。
     PrevSong = ["a", "left"]
+
     # Toggle play mode.
     #
     # 切换播放模式。
     TogglePlayMode = ["r"]
+
     # Toggle text color (album cover color/white).
     #
     # 切换文字颜色（专辑封面颜色/白色）。
     ToggleTextColor = ["c"]
+
     # Reset volume and playback rate.
     #
     # 重置音量和播放速度。
@@ -194,30 +206,37 @@ target_sample_rate = 44100
   #
   # 媒体库页面快捷键。
   [keymap.library]
+
     # Navigate up.
     #
     # 向上导航。
     NavUp = ["k", "w", "up"]
+
     # Navigate down.
     #
     # 向下导航。
     NavDown = ["j", "s", "down"]
+
     # Enter directory.
     #
     # 进入目录。
     NavEnterDir = ["l", "d", "right"]
+
     # Exit directory.
     #
     # 退出目录。
     NavExitDir = ["h", "a", "left"]
+
     # Toggle selection for the current item.
     #
     # 切换选择当前项目。
     ToggleSelect = ["space"]
+
     # Toggle selection for all items.
     #
     # 切换选择所有项目。
     ToggleSelectAll = ["e"]
+
     # Enter search mode.
     #
     # 进入搜索模式。
@@ -227,14 +246,17 @@ target_sample_rate = 44100
     #
     # 搜索模式快捷键。
     [keymap.library.SearchMode]
+
       # Confirm search.
       #
       # 确认搜索。
       ConfirmSearch = ["enter"]
+
       # Exit search.
       #
       # 退出搜索。
       EscapeSearch = ["esc"]
+
       # Backspace in search box.
       #
       # 搜索框退格。
@@ -244,22 +266,27 @@ target_sample_rate = 44100
   #
   # 播放列表页面快捷键。
   [keymap.playlist]
+
     # Navigate up.
     #
     # 向上导航。
     NavUp = ["k", "w", "up"]
+
     # Navigate down.
     #
     # 向下导航。
     NavDown = ["j", "s", "down"]
+
     # Remove the selected song from the playlist.
     #
     # 从播放列表中移除歌曲。
     RemoveSong = ["space"]
+
     # Play the selected song.
     #
     # 播放选中的歌曲。
     PlaySong = ["enter"]
+
     # Enter search mode.
     #
     # 进入搜索模式。
@@ -269,14 +296,17 @@ target_sample_rate = 44100
     #
     # 搜索模式快捷键。
     [keymap.playlist.SearchMode]
+
       # Confirm search.
       #
       # 确认搜索。
       ConfirmSearch = ["enter"]
+
       # Exit search.
       #
       # 退出搜索。
       EscapeSearch = ["esc"]
+
       # Backspace in search box.
       #
       # 搜索框退格。
