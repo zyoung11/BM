@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -8,13 +7,12 @@ import (
 	"strings"
 )
 
-// sendNotification sends a desktop notification using the freedesktop.org notification standard.
-// It sends the notification asynchronously to avoid blocking the main thread.
 func sendNotification(artist, title, coverPath string) {
-	go func() {
-		// Use a debounce mechanism if needed, though this is already in a goroutine
-		// If you want to prevent spamming notifications, you might add a time check here.
+	if GlobalConfig != nil && !GlobalConfig.App.EnableNotifications {
+		return
+	}
 
+	go func() {
 		safeArtist := sanitizeString(artist)
 		safeTitle := sanitizeString(title)
 
@@ -31,28 +29,22 @@ func sendNotification(artist, title, coverPath string) {
 			icon = coverPath
 		}
 
-		// Construct the command for notify-send
 		cmd := exec.Command(
 			"notify-send",
 			"-a", appName,
 			"-i", icon,
-			safeArtist, // Summary
-			safeTitle,  // Body
+			safeArtist,
+			safeTitle,
 		)
 
-		// Run the command
 		err := cmd.Run()
 		if err != nil {
-			// Log the error, but don't crash the application
-			// You might want to use a more sophisticated logging mechanism
 			fmt.Fprintf(os.Stderr, "Error sending notification: %v\n", err)
 		}
 	}()
 }
 
-// sanitizeString removes special characters that might cause issues in shell commands or D-Bus.
 func sanitizeString(s string) string {
-	// Replacer for problematic characters
 	replacer := strings.NewReplacer(
 		"&", "",
 		";", "",
@@ -74,7 +66,6 @@ func sanitizeString(s string) string {
 	return replacer.Replace(s)
 }
 
-// isValidIconPath checks if the provided path is a valid and existing file.
 func isValidIconPath(path string) bool {
 	if path == "" {
 		return false

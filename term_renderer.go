@@ -15,7 +15,6 @@ import (
 	"time"
 )
 
-// 协议类型
 type Protocol int
 
 const (
@@ -25,16 +24,12 @@ const (
 	ProtocolITerm2
 )
 
-// 全局Kitty图像ID计数器
 var kittyImageID uint32 = uint32(os.Getpid()<<16) + uint32(time.Now().UnixMicro()&0xFFFF)
 
-// 检测终端支持的协议
 func DetectTerminalProtocol() Protocol {
-	// 首先检查配置中是否指定了协议
 	if GlobalConfig != nil && GlobalConfig.App.ImageProtocol != "" {
 		switch strings.ToLower(GlobalConfig.App.ImageProtocol) {
 		case "auto":
-			// 继续自动检测
 		case "kitty":
 			return ProtocolKitty
 		case "sixel":
@@ -44,11 +39,9 @@ func DetectTerminalProtocol() Protocol {
 		}
 	}
 
-	// 检查环境变量
 	termProgram := os.Getenv("TERM_PROGRAM")
 	termName := strings.ToLower(os.Getenv("TERM"))
 
-	// 1. 检查Kitty协议支持
 	if os.Getenv("KITTY_WINDOW_ID") != "" {
 		return ProtocolKitty
 	}
@@ -62,21 +55,17 @@ func DetectTerminalProtocol() Protocol {
 		return ProtocolKitty
 	}
 
-	// 2. 检查iTerm2协议支持
 	if termProgram == "iTerm.app" {
 		return ProtocolITerm2
 	}
 
-	// 3. 检查Sixel协议支持（通过环境变量）
 	if strings.Contains(termName, "sixel") || strings.Contains(termName, "mlterm") {
 		return ProtocolSixel
 	}
 
-	// 4. 默认使用Sixel（保持向后兼容）
 	return ProtocolSixel
 }
 
-// 渲染图像到终端
 func RenderImage(img image.Image, widthChars, heightChars int) error {
 	protocol := DetectTerminalProtocol()
 
@@ -86,33 +75,27 @@ func RenderImage(img image.Image, widthChars, heightChars int) error {
 	case ProtocolITerm2:
 		return renderITerm2Image(img, widthChars, heightChars)
 	case ProtocolSixel:
-		return renderSixelImage(img, widthChars, heightChars)
+		return renderSixelImage(img)
 	default:
-		// 回退到Sixel
-		return renderSixelImage(img, widthChars, heightChars)
+		return renderSixelImage(img)
 	}
 }
 
-// Kitty协议渲染
 func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 	bounds := img.Bounds()
 	pixelWidth := bounds.Dx()
 	pixelHeight := bounds.Dy()
 
-	// 生成唯一的图像ID
 	imageID := atomic.AddUint32(&kittyImageID, 1)
 
-	// 将图像转换为RGBA
 	rgbaImg := image.NewRGBA(bounds)
 	draw.Draw(rgbaImg, rgbaImg.Bounds(), img, bounds.Min, draw.Src)
 
-	// 获取原始RGBA数据
 	data := rgbaImg.Pix
 
-	// 使用zlib压缩（可选，但推荐）
 	var compressed bool
 	var compressedData []byte
-	if len(data) > 1024 { // 只对大图像压缩
+	if len(data) > 1024 {
 		var buf bytes.Buffer
 		w, err := zlib.NewWriterLevel(&buf, zlib.BestSpeed)
 		if err != nil {
@@ -130,10 +113,8 @@ func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 		compressedData = data
 	}
 
-	// Base64编码
 	encoded := base64.StdEncoding.EncodeToString(compressedData)
 
-	// 构建控制序列
 	var control string
 	if compressed {
 		control = fmt.Sprintf("a=T,f=32,i=%d,s=%d,v=%d,c=%d,r=%d,q=2,o=z",
@@ -143,11 +124,9 @@ func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 			imageID, pixelWidth, pixelHeight, widthChars, heightChars)
 	}
 
-	// 检查是否在tmux中
 	inTmux := os.Getenv("TMUX") != ""
 
-	// 发送图像数据（分块发送以避免缓冲区溢出）
-	chunkSize := 4096 // 4KB chunks
+	chunkSize := 4096
 	first := true
 
 	for i := 0; i < len(encoded); i += chunkSize {
@@ -162,23 +141,18 @@ func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 		if first {
 			first = false
 			if end < len(encoded) {
-				// 更多块要发送
 				chunkSequence = fmt.Sprintf("\x1b_G%s,m=1;%s\x1b\\", control, chunk)
 			} else {
-				// 单一块
 				chunkSequence = fmt.Sprintf("\x1b_G%s;%s\x1b\\", control, chunk)
 			}
 		} else {
 			if end < len(encoded) {
-				// 继续块
 				chunkSequence = fmt.Sprintf("\x1b_Gm=1,q=2;%s\x1b\\", chunk)
 			} else {
-				// 最后一块
 				chunkSequence = fmt.Sprintf("\x1b_Gm=0,q=2;%s\x1b\\", chunk)
 			}
 		}
 
-		// 包装tmux穿透
 		if inTmux {
 			chunkSequence = "\x1bPtmux;" + strings.ReplaceAll(chunkSequence, "\x1b", "\x1b\x1b") + "\x1b\\"
 		}
@@ -192,9 +166,7 @@ func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 	return nil
 }
 
-// iTerm2协议渲染
 func renderITerm2Image(img image.Image, widthChars, heightChars int) error {
-	// iTerm2使用Base64编码的PNG数据
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return fmt.Errorf("failed to encode PNG: %v", err)
@@ -202,16 +174,13 @@ func renderITerm2Image(img image.Image, widthChars, heightChars int) error {
 
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
-	// iTerm2图像序列
 	sequence := fmt.Sprintf("\x1b]1337;File=inline=1;width=%d;height=%d:%s\x07",
 		widthChars, heightChars, encoded)
 
-	// 检查是否在tmux中
 	if os.Getenv("TMUX") != "" {
 		sequence = "\x1bPtmux;" + strings.ReplaceAll(sequence, "\x1b", "\x1b\x1b") + "\x1b\\"
 	}
 
-	// 发送到终端
 	if _, err := io.WriteString(os.Stdout, sequence); err != nil {
 		return fmt.Errorf("failed to write iTerm2 image data: %v", err)
 	}
@@ -219,23 +188,17 @@ func renderITerm2Image(img image.Image, widthChars, heightChars int) error {
 	return nil
 }
 
-// Sixel协议渲染（使用现有的编码器）
-func renderSixelImage(img image.Image, widthChars, heightChars int) error {
-	// 使用现有的sixel编码器
+func renderSixelImage(img image.Image) error {
 	return NewEncoder(os.Stdout).Encode(img)
 }
 
-// 清除Kitty图像
 func ClearKittyImages() error {
-	// Kitty清除所有图像命令
 	sequence := "\x1b_Ga=d\x1b\\"
 
-	// 检查是否在tmux中
 	if os.Getenv("TMUX") != "" {
 		sequence = "\x1bPtmux;" + strings.ReplaceAll(sequence, "\x1b", "\x1b\x1b") + "\x1b\\"
 	}
 
-	// 发送到终端
 	if _, err := io.WriteString(os.Stdout, sequence); err != nil {
 		return fmt.Errorf("failed to clear kitty images: %v", err)
 	}
@@ -243,20 +206,16 @@ func ClearKittyImages() error {
 	return nil
 }
 
-// 获取终端字体大小（用于像素到字符的转换）
 func GetTerminalFontSize() (width, height int, err error) {
-	// 尝试CSI 16t查询字符单元格大小
 	fmt.Print("\x1b[16t")
 
 	var buf [32]byte
 	n, err := os.Stdin.Read(buf[:])
 	if err != nil {
-		// 回退到默认值
 		return 8, 16, nil
 	}
 
 	response := string(buf[:n])
-	// 解析响应格式: \x1b[8;高度;宽度t
 	if strings.HasPrefix(response, "\x1b[8;") && strings.HasSuffix(response, "t") {
 		parts := strings.Split(response[4:len(response)-1], ";")
 		if len(parts) >= 2 {
@@ -269,11 +228,9 @@ func GetTerminalFontSize() (width, height int, err error) {
 		}
 	}
 
-	// 回退到默认值
 	return 8, 16, nil
 }
 
-// 检查终端是否支持真彩色
 func SupportsTrueColor() bool {
 	colorterm := os.Getenv("COLORTERM")
 	if colorterm == "truecolor" || colorterm == "24bit" {

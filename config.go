@@ -66,6 +66,7 @@ type AppConfig struct {
 	DefaultColorG              int    `toml:"default_color_g"`
 	DefaultColorB              int    `toml:"default_color_b"`
 	ImageProtocol              string `toml:"image_protocol"`
+	EnableNotifications        bool   `toml:"enable_notifications"`
 	LibraryPath                string `toml:"library_path"`
 	TargetSampleRate           int    `toml:"target_sample_rate"`
 	Storage                    string `toml:"storage"`

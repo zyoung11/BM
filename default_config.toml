@@ -97,6 +97,13 @@ default_color_b = 237
 # "auto" 会自动检测最佳可用协议。
 image_protocol = "auto"
 
+# Enable desktop notifications - whether to show desktop notifications when songs change.
+# If true, the program will send desktop notifications using the freedesktop.org standard.
+#
+# 启用桌面通知 - 是否在歌曲切换时显示桌面通知。
+# 如果为true，程序将使用freedesktop.org标准发送桌面通知。
+enable_notifications = true
+
 # Storage file path - used to save full path information entered by the user.
 #
 # 存储文件路径 - 用于保存用户输入的完整路径信息。
