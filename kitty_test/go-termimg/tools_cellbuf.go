@@ -1,6 +1,0 @@
-//go:build tools
-// +build tools
-
-package termimg
-
-import _ "github.com/charmbracelet/x/cellbuf"
