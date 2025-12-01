@@ -5,7 +5,7 @@ go 1.25.4
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
-	github.com/godbus/dbus/v5 v5.1.0
+	github.com/godbus/dbus/v5 v5.2.0
 	github.com/gopxl/beep/v2 v2.1.1
 	github.com/mattn/go-runewidth v0.0.19
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
