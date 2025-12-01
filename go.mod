@@ -23,3 +23,5 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 )
+
+replace github.com/blacktop/go-termimg => ./kitty_test/go-termimg
