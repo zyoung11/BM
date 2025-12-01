@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"image"
 	_ "image/jpeg"
-	_ "image/png"
 	"image/png"
+	_ "image/png"
 	"log"
 	"math"
 	"math/rand"
@@ -932,7 +932,11 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 
 					if !showNothing && !showTextOnly {
 						fmt.Printf("\x1b[%d;%dH", startRow, startCol)
-						_ = NewEncoder(os.Stdout).Encode(scaledImg)
+						// 使用新的终端图像渲染器
+						if err := RenderImage(scaledImg, imageWidthInChars, imageHeightInChars); err != nil {
+							// 如果新渲染器失败，回退到原来的sixel渲染器
+							_ = NewEncoder(os.Stdout).Encode(scaledImg)
+						}
 						if imageWidthInChars > 0 && startCol+imageWidthInChars <= w {
 							fillStartCol := startCol + imageWidthInChars
 							for row := startRow; row < startRow+imageHeightInChars; row++ {
