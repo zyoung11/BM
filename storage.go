@@ -181,7 +181,7 @@ func LoadPlaylist(libraryPath string) ([]string, error) {
 // SavePlayHistory 将当前播放历史记录保存到 storage.json 文件。
 // 它将绝对路径转换为相对于音乐库根目录的相对路径。
 func SavePlayHistory(playHistory []string, libraryPath string) error {
-	if !GlobalConfig.App.PlaybackHistoryPersistence {
+	if !GlobalConfig.App.AutostartLastPlayed {
 		return nil
 	}
 
@@ -214,7 +214,7 @@ func SavePlayHistory(playHistory []string, libraryPath string) error {
 // SaveCurrentSong 将当前播放的歌曲保存到 storage.json 文件。
 // 它将绝对路径转换为相对于音乐库根目录的相对路径。
 func SaveCurrentSong(songPath string, libraryPath string) error {
-	if !GlobalConfig.App.PlaybackHistoryPersistence {
+	if !GlobalConfig.App.AutostartLastPlayed {
 		return nil
 	}
 
@@ -246,9 +246,9 @@ func SaveCurrentSong(songPath string, libraryPath string) error {
 // It converts relative paths back to absolute paths based on the library root.
 //
 // LoadCurrentSong 从 storage.json 文件加载当前播放的歌曲。
-// 它将相对路径转换回基于音乐库根目录的绝对路径。
+// 它将相对路径转换回绝对路径。
 func LoadCurrentSong(libraryPath string) (string, error) {
-	if !GlobalConfig.App.PlaybackHistoryPersistence {
+	if !GlobalConfig.App.AutostartLastPlayed {
 		return "", nil
 	}
 
@@ -275,7 +275,7 @@ func LoadCurrentSong(libraryPath string) (string, error) {
 // LoadPlayHistory 从 storage.json 文件加载播放历史记录。
 // 它将相对路径转换回基于音乐库根目录的绝对路径。
 func LoadPlayHistory(libraryPath string) ([]string, error) {
-	if !GlobalConfig.App.PlaybackHistoryPersistence {
+	if !GlobalConfig.App.AutostartLastPlayed {
 		return []string{}, nil
 	}
 

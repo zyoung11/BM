@@ -45,14 +45,13 @@ remember_library_path = true
 # 注意: 'remember_library_path' 也必须为 true 才能生效。
 playlist_history = true
 
-# Whether to save playback history (last played song, progress, etc.)
-#
-# 是否保存播放历史（上次播放的歌曲、进度等）
-playback_history_persistence = true
-
 # Autostart last played song
+# When enabled, the program will automatically play the last played song when starting.
+# Note: This requires both 'remember_library_path' and 'playlist_history' to be enabled.
 #
 # 自动播放上次播放的歌曲
+# 启用后，程序启动时会自动播放上次播放的歌曲。
+# 注意：这需要 'remember_library_path' 和 'playlist_history' 同时启用。
 autostart_last_played = true
 
 # Whether to remember the volume of the last playback
@@ -60,9 +59,9 @@ autostart_last_played = true
 # 是否记住上次播放的音量
 remember_volume = true
 
-# Whether to remember the playback rate - if true, the program will save the playback rate and restore it on next startup.
+# Whether to remember the playback rate
 #
-# 是否记录播放速度 - 如果为true，程序会保存播放速度并在下次启动时恢复。
+# 是否记录播放速度
 remember_playback_rate = true
 
 # Audio resampling quality - determines the quality of audio resampling when sample rate conversion is needed.
