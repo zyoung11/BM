@@ -50,25 +50,24 @@ type Config struct {
 //
 // AppConfig 保存应用程序级别的配置设置。
 type AppConfig struct {
-	MaxHistorySize             int    `toml:"max_history_size"`
-	SwitchDebounceMs           int    `toml:"switch_debounce_ms"`
-	DefaultPage                int    `toml:"default_page"`
-	DefaultPlayMode            int    `toml:"default_play_mode"`
-	RememberLibraryPath        bool   `toml:"remember_library_path"`
-	PlaylistHistory            bool   `toml:"playlist_history"`
-	PlaybackHistoryPersistence bool   `toml:"playback_history_persistence"`
-	AutostartLastPlayed        bool   `toml:"autostart_last_played"`
-	RememberVolume             bool   `toml:"remember_volume"`
-	RememberPlaybackRate       bool   `toml:"remember_playback_rate"`
-	ResamplingQuality          string `toml:"resampling_quality"`
-	DefaultColorR              int    `toml:"default_color_r"`
-	DefaultColorG              int    `toml:"default_color_g"`
-	DefaultColorB              int    `toml:"default_color_b"`
-	ImageProtocol              string `toml:"image_protocol"`
-	EnableNotifications        bool   `toml:"enable_notifications"`
-	LibraryPath                string `toml:"library_path"`
-	TargetSampleRate           int    `toml:"target_sample_rate"`
-	Storage                    string `toml:"storage"`
+	MaxHistorySize       int    `toml:"max_history_size"`
+	SwitchDebounceMs     int    `toml:"switch_debounce_ms"`
+	DefaultPage          int    `toml:"default_page"`
+	DefaultPlayMode      int    `toml:"default_play_mode"`
+	RememberLibraryPath  bool   `toml:"remember_library_path"`
+	PlaylistHistory      bool   `toml:"playlist_history"`
+	AutostartLastPlayed  bool   `toml:"autostart_last_played"`
+	RememberVolume       bool   `toml:"remember_volume"`
+	RememberPlaybackRate bool   `toml:"remember_playback_rate"`
+	ResamplingQuality    string `toml:"resampling_quality"`
+	DefaultColorR        int    `toml:"default_color_r"`
+	DefaultColorG        int    `toml:"default_color_g"`
+	DefaultColorB        int    `toml:"default_color_b"`
+	ImageProtocol        string `toml:"image_protocol"`
+	EnableNotifications  bool   `toml:"enable_notifications"`
+	LibraryPath          string `toml:"library_path"`
+	TargetSampleRate     int    `toml:"target_sample_rate"`
+	Storage              string `toml:"storage"`
 }
 
 // Keymap defines all the keybindings for the application, organized by page.
@@ -233,8 +232,8 @@ func LoadConfig() error {
 	if GlobalConfig.App.SwitchDebounceMs <= 0 {
 		GlobalConfig.App.SwitchDebounceMs = 200
 	}
-	if GlobalConfig.App.AutostartLastPlayed && (!GlobalConfig.App.RememberLibraryPath || !GlobalConfig.App.PlaybackHistoryPersistence) {
-		return fmt.Errorf("autostart_last_played can only be enabled when both remember_library_path and playback_history_persistence are also enabled\n\nautostart_last_played 只能在 remember_library_path 和 playback_history_persistence 同时开启时才能开启")
+	if GlobalConfig.App.AutostartLastPlayed && (!GlobalConfig.App.RememberLibraryPath || !GlobalConfig.App.PlaylistHistory) {
+		return fmt.Errorf("autostart_last_played can only be enabled when both remember_library_path and playlist_history are also enabled\n\nautostart_last_played 只能在 remember_library_path 和 playlist_history 同时开启时才能开启")
 	}
 
 	return validateKeymap(GlobalConfig.Keymap)
