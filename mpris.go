@@ -27,6 +27,9 @@ type MPRISServer struct {
 	originalFile *os.File  // Keep a reference to the original file for duration calculation. / 保留对原始文件的引用以计算时长。
 	lastUpdate   time.Time // Time of the last update. / 上次更新的时间。
 	startTime    time.Time // Time when playback started. / 播放开始的时间。
+
+	stopChan chan struct{} // Channel to signal goroutines to stop. / 用于通知 goroutine 停止的通道。
+	stopped  bool          // Whether the server has been stopped. / 服务器是否已停止。
 }
 
 // NewMPRISServer creates a new MPRIS server instance.
@@ -55,6 +58,8 @@ func NewMPRISServer(app *App, player *audioPlayer, flacPath string) (*MPRISServe
 		originalFile: f,
 		lastUpdate:   time.Now(),
 		startTime:    time.Time{},
+		stopChan:     make(chan struct{}),
+		stopped:      false,
 	}
 
 	server.updateMetadata()
@@ -100,6 +105,17 @@ func (m *MPRISServer) Start() error {
 //
 // StopService 停止 MPRIS 服务。
 func (m *MPRISServer) StopService() {
+	if m.stopped {
+		return
+	}
+	m.stopped = true
+
+	// Signal goroutines to stop
+	close(m.stopChan)
+
+	// Give goroutines a moment to exit
+	time.Sleep(50 * time.Millisecond)
+
 	if m.conn != nil {
 		m.conn.ReleaseName("org.mpris.MediaPlayer2.bm")
 		m.conn.Close()
@@ -191,7 +207,7 @@ func (m *MPRISServer) UpdateMetadata() {
 //
 // UpdateProperties 发送 CanGoNext 和 CanGoPrevious 的 PropertiesChanged 信号。
 func (m *MPRISServer) UpdateProperties() {
-	if m.conn == nil {
+	if m.conn == nil || m.stopped {
 		return
 	}
 	changedProperties := map[string]any{
@@ -338,7 +354,7 @@ func (m *MPRISServer) Play() *dbus.Error {
 // Seek seeks the track by the given offset in microseconds.
 //
 // Seek 按给定的偏移量（微秒）在曲目中跳转。
-func (m *MPRISServer) Seek(offset int64) *dbus.Error {
+func (m *MPRISServer) Seek(offset int64) (int64, *dbus.Error) {
 	currentPos := m.getCurrentPosition()
 	newPos := currentPos + offset
 	if newPos < 0 {
@@ -366,7 +382,7 @@ func (m *MPRISServer) Seek(offset int64) *dbus.Error {
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 		"Position": m.position,
 	})
-	return nil
+	return newPos, nil
 }
 
 // SetPosition sets the track's position in microseconds.
@@ -662,7 +678,7 @@ func (m *MPRISServer) encodePictureToBase64(pic *tag.Picture) string {
 //
 // sendPropertiesChanged 发送 PropertiesChanged 信号。
 func (m *MPRISServer) sendPropertiesChanged(interfaceName string, changedProperties map[string]any) {
-	if m.conn == nil {
+	if m.conn == nil || m.stopped {
 		return
 	}
 
@@ -706,19 +722,25 @@ func (m *MPRISServer) StartUpdateLoop() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			if m.isPlaying && !m.startTime.IsZero() {
-				m.updatePositionFromTime()
-			} else if m.player != nil && m.player.streamer != nil {
-				samplePos := m.player.streamer.Position()
-				m.position = int64(float64(samplePos) / float64(m.player.sampleRate) * 1e6)
-			}
+		for {
+			select {
+			case <-m.stopChan:
+				return
+			case <-ticker.C:
+				if m.stopped {
+					return
+				}
+				if m.isPlaying && !m.startTime.IsZero() {
+					m.updatePositionFromTime()
+				} else if m.player != nil && m.player.streamer != nil {
+					samplePos := m.player.streamer.Position()
+					m.position = int64(float64(samplePos) / float64(m.player.sampleRate) * 1e6)
+				}
 
-			m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-				"Position": m.position,
-			})
+				m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+					"Position": m.position,
+				})
+			}
 		}
 	}()
 }
-
-
