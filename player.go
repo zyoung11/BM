@@ -45,23 +45,6 @@ func max[T ~int | ~float64](a, b T) T {
 	return b
 }
 
-// getEffectivePlayMode returns the actual play mode to use.
-// If the current mode is 3 (memory), it loads the saved play mode.
-//
-// getEffectivePlayMode 返回实际使用的播放模式。
-// 如果当前模式是3（记忆模式），则加载保存的播放模式。
-func (p *PlayerPage) getEffectivePlayMode() int {
-	if p.app.playMode == 3 {
-		savedPlayMode, err := LoadPlayMode()
-		if err != nil {
-			log.Printf("Warning: Could not load saved play mode: %v", err)
-			return GlobalConfig.App.DefaultPlayMode
-		}
-		return savedPlayMode
-	}
-	return p.app.playMode
-}
-
 // --- Page Implementation ---
 
 // PlayerPage holds the state for the music player view.
@@ -227,7 +210,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 	} else if IsKey(key, GlobalConfig.Keymap.Player.NextSong) {
 		p.playNextSong()
 	} else if IsKey(key, GlobalConfig.Keymap.Player.TogglePlayMode) {
-		p.app.playMode = (p.app.playMode + 1) % 4
+		p.app.playMode = (p.app.playMode + 1) % 3
 		if err := SavePlayMode(p.app.playMode); err != nil {
 			log.Printf("Warning: failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
 		}
@@ -363,12 +346,11 @@ func (p *PlayerPage) checkSongEndAndHandleNext() {
 	totalLen := p.app.player.streamer.Len()
 
 	if totalLen > 0 && currentPos >= totalLen-p.app.player.sampleRate.N(time.Second) {
-		effectiveMode := p.getEffectivePlayMode()
-		if effectiveMode == 0 {
+		if p.app.playMode == 0 {
 			return
 		}
 
-		if effectiveMode == 1 || effectiveMode == 2 {
+		if p.app.playMode == 1 || p.app.playMode == 2 {
 			p.playNextSong()
 		}
 	}
@@ -400,8 +382,7 @@ func (p *PlayerPage) playNextSong() {
 
 	var nextIndex int
 
-	effectiveMode := p.getEffectivePlayMode()
-	switch effectiveMode {
+	switch p.app.playMode {
 	case 1: // List loop / 列表循环
 		nextIndex = (currentIndex + 1) % len(p.app.Playlist)
 	case 2: // Random / 随机播放
@@ -484,8 +465,7 @@ func (p *PlayerPage) playPreviousSong() {
 		return
 	}
 
-	effectiveMode := p.getEffectivePlayMode()
-	if effectiveMode == 2 {
+	if p.app.playMode == 2 {
 		p.playPreviousInRandomMode()
 		return
 	}
@@ -1213,8 +1193,6 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 		modeIcon = "⇆" // 列表循环
 	case 2:
 		modeIcon = "⤮" // 随机播放
-	case 3:
-		modeIcon = "💾" // 记忆模式
 	}
 
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s", row, startCol-2, colorCode, icon)
