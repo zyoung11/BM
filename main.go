@@ -100,6 +100,18 @@ func unicodeFold(r rune) rune {
 	return unicode.ToLower(r)
 }
 
+// songExistsInPlaylist checks if a song exists in the current playlist.
+//
+// songExistsInPlaylist 检查歌曲是否存在于当前播放列表中。
+func songExistsInPlaylist(songPath string, playlist []string) bool {
+	for _, path := range playlist {
+		if path == songPath {
+			return true
+		}
+	}
+	return false
+}
+
 // Key constants for special keys.
 //
 // 特殊按键的常量定义。
@@ -569,6 +581,11 @@ func main() {
 		log.Fatalf("Configuration error: 'playlist_history' cannot be true if 'remember_library_path' is false.\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false。")
 	}
 
+	// Check if autostart_last_played is enabled but playlist_history is disabled
+	if GlobalConfig.App.AutostartLastPlayed && !GlobalConfig.App.PlaylistHistory {
+		log.Fatalf("Configuration error: 'autostart_last_played' cannot be true if 'playlist_history' is false.\n\n配置错误: 'autostart_last_played' 为 true 时 'playlist_history' 不能为 false。")
+	}
+
 	// Check if remember_library_path is enabled but no path is saved
 	if GlobalConfig.App.RememberLibraryPath && len(os.Args) < 2 {
 		storageData, err := loadStorageData()
@@ -726,10 +743,19 @@ func runApplication() error {
 		}
 
 		if songToPlay != "" {
-			switchToPlayer := app.currentPageIndex == 0
-			err := app.PlaySongWithSwitchAndRender(songToPlay, switchToPlayer, false)
-			if err != nil {
-				log.Printf("Warning: Could not autostart last played song: %v", err)
+			// Check if the song still exists in the playlist
+			if !songExistsInPlaylist(songToPlay, app.Playlist) {
+				log.Printf("Warning: Last played song not found in playlist: %s", songToPlay)
+				// Clear the song path to show empty state
+				if playerPage, ok := app.pages[0].(*PlayerPage); ok {
+					playerPage.UpdateSong("")
+				}
+			} else {
+				switchToPlayer := app.currentPageIndex == 0
+				err := app.PlaySongWithSwitchAndRender(songToPlay, switchToPlayer, false)
+				if err != nil {
+					log.Printf("Warning: Could not autostart last played song: %v", err)
+				}
 			}
 		}
 	}
