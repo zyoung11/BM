@@ -123,7 +123,7 @@ type App struct {
 	Playlist         []string
 	LibraryPath      string      // Root path of the music library. / 音乐库的根路径。
 	currentSongPath  string      // Path of the currently playing song. / 当前播放歌曲的路径。
-	playMode         int         // Play mode: 0=repeat one, 1=repeat all, 2=random. / 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放。
+	playMode         int         // Play mode: 0=repeat one, 1=repeat all, 2=random, 3=memory. / 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放, 3=记忆模式。
 	volume           float64     // Saved volume setting. / 保存的音量设置。
 	linearVolume     float64     // 0.0 to 1.0 linear volume for display. / 用于显示的线性音量（0.0到1.0）。
 	playbackRate     float64     // Saved playback rate setting. / 保存的播放速度设置。
@@ -689,8 +689,9 @@ func runApplication() error {
 		app.playbackRate = *storageData.PlaybackRate
 	}
 
-	// Load saved play mode if enabled
-	if GlobalConfig.App.RememberPlayMode {
+	// Load saved play mode
+	// Only load saved play mode if default play mode is not 3 (memory mode)
+	if GlobalConfig.App.DefaultPlayMode != 3 {
 		savedPlayMode, err := LoadPlayMode()
 		if err != nil {
 			log.Printf("Warning: Could not load saved play mode: %v", err)
