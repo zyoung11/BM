@@ -304,7 +304,8 @@ func LoadPlayHistory(libraryPath string) ([]string, error) {
 //
 // SavePlayMode 将当前播放模式保存到 storage.json 文件。
 func SavePlayMode(playMode int) error {
-	if !GlobalConfig.App.RememberPlayMode {
+	// 如果是记忆模式，不保存（记忆模式本身就是使用保存的模式）
+	if playMode == 3 {
 		return nil
 	}
 
@@ -327,10 +328,6 @@ func SavePlayMode(playMode int) error {
 // LoadPlayMode 从 storage.json 文件加载播放模式。
 // 如果没有保存播放模式，则返回配置中的默认播放模式。
 func LoadPlayMode() (int, error) {
-	if !GlobalConfig.App.RememberPlayMode {
-		return GlobalConfig.App.DefaultPlayMode, nil
-	}
-
 	storageData, err := loadStorageData()
 	if err != nil {
 		return GlobalConfig.App.DefaultPlayMode, fmt.Errorf("could not load storage data for play mode: %v\n\n无法加载播放模式的存储数据: %v", err, err)
