@@ -689,18 +689,16 @@ func runApplication() error {
 		app.playbackRate = *storageData.PlaybackRate
 	}
 
-	// Load saved play mode if enabled
+	// Load saved play mode
 	// If default play mode is 3 (memory), use saved play mode
-	if GlobalConfig.App.RememberPlayMode {
-		savedPlayMode, err := LoadPlayMode()
-		if err != nil {
-			log.Printf("Warning: Could not load saved play mode: %v", err)
-		} else if GlobalConfig.App.DefaultPlayMode == 3 {
-			// Only use saved mode when default is 3 (memory)
-			app.playMode = savedPlayMode
-		}
-		// If default is 0/1/2, use the configured value (already set at line 667)
+	savedPlayMode, err := LoadPlayMode()
+	if err != nil {
+		log.Printf("Warning: Could not load saved play mode: %v", err)
+	} else if GlobalConfig.App.DefaultPlayMode == 3 {
+		// Only use saved mode when default is 3 (memory)
+		app.playMode = savedPlayMode
 	}
+	// If default is 0/1/2, use the configured value (already set at line 667)
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH)
 	playListPage := NewPlayList(app)
