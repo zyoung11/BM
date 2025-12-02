@@ -23,7 +23,7 @@ func sendNotification(artist, title, coverPath string) {
 			safeTitle = "Unknown Title"
 		}
 
-		appName := "kew"
+		appName := "BM"
 		icon := ""
 		if isValidIconPath(coverPath) {
 			icon = coverPath
