@@ -25,11 +25,16 @@ switch_debounce_ms = 1000
 default_page = 2
 
 # Default play mode - the playback mode when the program starts.
-# 0 = repeat one, 1 = repeat all, 2 = random, 3 = memory (use saved play mode).
+# 0 = repeat one, 1 = repeat all, 2 = random, 3 = memory (use saved play mode from last session).
 #
 # 默认播放模式 - 程序启动时的播放模式。
-# 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放, 3 = 记忆模式（使用保存的播放模式）。
+# 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放, 3 = 记忆（使用上次会话保存的播放模式）。
 default_play_mode = 3
+
+# Whether to remember the play mode - if true, the program will save the current play mode and restore it on next startup.
+#
+# 是否记录播放模式 - 如果为true，程序会保存当前播放模式并在下次启动时恢复。
+remember_play_mode = true
 
 # Whether to remember the music library path - if true, the program will remember the last used music library path.
 # If no path parameter is specified next time the program starts, the saved path will be used automatically.
