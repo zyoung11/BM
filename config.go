@@ -14,6 +14,9 @@ import (
 //go:embed default_config.toml
 var defaultConfigContent string
 
+//go:embed default.jpg
+var defaultCoverImage []byte
+
 // Key is a custom type to handle a single key or a list of keys in the TOML file.
 //
 // Key 是一个自定义类型，用于处理TOML文件中的单个或多个按键配置。
@@ -68,6 +71,7 @@ type AppConfig struct {
 	LibraryPath          string `toml:"library_path"`
 	TargetSampleRate     int    `toml:"target_sample_rate"`
 	Storage              string `toml:"storage"`
+	DefaultCoverPath     string `toml:"default_cover_path"`
 }
 
 // Keymap defines all the keybindings for the application, organized by page.
@@ -194,9 +198,11 @@ func stringToRune(s string) (rune, error) {
 
 // LoadConfig loads the configuration from ~/.config/BM/config.toml.
 // If the file doesn't exist, it creates it with default values.
+// Also ensures the default cover image is copied to the config directory.
 //
 // LoadConfig 从 ~/.config/BM/config.toml 加载配置。
 // 如果文件不存在，它会使用默认值创建它。
+// 同时确保默认封面图片被复制到配置目录。
 func LoadConfig() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -205,6 +211,14 @@ func LoadConfig() error {
 	configPath := filepath.Join(home, ".config", "BM")
 	if err := os.MkdirAll(configPath, 0755); err != nil {
 		return fmt.Errorf("could not create config directory: %v\n\n无法创建配置目录: %v", err, err)
+	}
+
+	// Copy default cover image if it doesn't exist
+	defaultCoverPath := filepath.Join(configPath, "default.jpg")
+	if _, err := os.Stat(defaultCoverPath); os.IsNotExist(err) {
+		if err := os.WriteFile(defaultCoverPath, defaultCoverImage, 0644); err != nil {
+			return fmt.Errorf("could not write default cover image: %v\n\n无法写入默认封面图片: %v", err, err)
+		}
 	}
 
 	configFile := filepath.Join(configPath, "config.toml")
