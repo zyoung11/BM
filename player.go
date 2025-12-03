@@ -765,37 +765,34 @@ func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format, volumeLevel 
 	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume, 0, 0}, nil
 }
 
-// saveCoverArt extracts the cover art from a FLAC file and saves it to a temporary file.
+// saveCoverArt extracts the cover art from an audio file and saves it to a temporary file.
+// If the audio file has no cover, it uses the default cover image.
 // It returns the path to the temporary file.
-func saveCoverArt(flacPath string) string {
-	f, err := os.Open(flacPath)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
+func saveCoverArt(audioPath string) string {
+	// Try to get cover from audio file
+	coverImg := getCoverFromAudioFile(audioPath)
 
-	m, err := tag.ReadFrom(f)
-	if err != nil {
-		return ""
-	}
-
-	pic := m.Picture()
-	if pic == nil {
-		return ""
+	// If no cover found, try default cover
+	if coverImg == nil {
+		defaultCoverPath := getDefaultCoverPath()
+		if defaultCoverPath != "" {
+			if img, err := loadImageFile(defaultCoverPath); err == nil {
+				coverImg = img
+			}
+		}
 	}
 
-	img, _, err := image.Decode(bytes.NewReader(pic.Data))
-	if err != nil {
+	if coverImg == nil {
 		return ""
 	}
 
-	tempFile, err := os.CreateTemp("", "kew-cover-*.png")
+	tempFile, err := os.CreateTemp("", "bm-cover-*.png")
 	if err != nil {
 		return ""
 	}
 	defer tempFile.Close()
 
-	err = png.Encode(tempFile, img)
+	err = png.Encode(tempFile, coverImg)
 	if err != nil {
 		return ""
 	}
@@ -828,119 +825,122 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 	showTextOnly := h < 13
 	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20) && !showNothing && !showTextOnly
 
-	f, err := os.Open(p.flacPath)
-	if err == nil {
-		defer f.Close()
-		m, err := tag.ReadFrom(f)
-		if err == nil {
-			if pic := m.Picture(); pic != nil {
-				if img, _, err := image.Decode(bytes.NewReader(pic.Data)); err == nil {
-					coverImg = img
-					var pixelW, pixelH int
-					if showNothing || showTextOnly {
-						pixelW, pixelH = 0, 0
-					} else if isWideTerminal {
-						pixelW = (w - 30) * p.cellW
-						pixelH = (h - 1) * p.cellH
-					} else {
-						pixelW = w * p.cellW
-						pixelH = (h - 2) * p.cellH
-					}
+	// Try to get cover from audio file
+	coverImg = getCoverFromAudioFile(p.flacPath)
 
-					if pixelW < 10 {
-						pixelW = 10
-					}
-					if pixelH < 10 {
-						pixelH = 10
-					}
+	// If no cover found in audio file, try default cover
+	if coverImg == nil {
+		defaultCoverPath := getDefaultCoverPath()
+		if defaultCoverPath != "" {
+			if img, err := loadImageFile(defaultCoverPath); err == nil {
+				coverImg = img
+			}
+		}
+	}
 
-					normalizedImg := resize.Resize(960, 960, img, resize.Lanczos3)
-					scaledImg := resize.Thumbnail(uint(pixelW), uint(pixelH), normalizedImg, resize.Lanczos3)
-					finalImgW, finalImgH := scaledImg.Bounds().Dx(), scaledImg.Bounds().Dy()
+	if coverImg != nil {
+		var pixelW, pixelH int
+		if showNothing || showTextOnly {
+			pixelW, pixelH = 0, 0
+		} else if isWideTerminal {
+			pixelW = (w - 30) * p.cellW
+			pixelH = (h - 1) * p.cellH
+		} else {
+			pixelW = w * p.cellW
+			pixelH = (h - 2) * p.cellH
+		}
 
-					if p.cellW == 0 {
-						p.cellW = 1
-					}
-					if p.cellH == 0 {
-						p.cellH = 1
-					}
+		if pixelW < 10 {
+			pixelW = 10
+		}
+		if pixelH < 10 {
+			pixelH = 10
+		}
 
-					imageWidthInChars = (finalImgW + p.cellW - 1) / p.cellW
-					imageHeightInChars = (finalImgH + p.cellH - 1) / p.cellH
+		normalizedImg := resize.Resize(960, 960, coverImg, resize.Lanczos3)
+		scaledImg := resize.Thumbnail(uint(pixelW), uint(pixelH), normalizedImg, resize.Lanczos3)
+		finalImgW, finalImgH := scaledImg.Bounds().Dx(), scaledImg.Bounds().Dy()
 
-					if imageWidthInChars > w {
-						imageWidthInChars = w
-					}
-					if imageHeightInChars > h {
-						imageHeightInChars = h
-					}
+		if p.cellW == 0 {
+			p.cellW = 1
+		}
+		if p.cellH == 0 {
+			p.cellH = 1
+		}
 
-					title, artist, album := getSongMetadata(p.flacPath)
-					maxTextLength := max(max(len(title), len(artist)), len(album))
+		imageWidthInChars = (finalImgW + p.cellW - 1) / p.cellW
+		imageHeightInChars = (finalImgH + p.cellH - 1) / p.cellH
 
-					showNothing = w < 23 || h < 5
-					showTextOnly = h < 13 && !showNothing
-					showInfoOnly := (w < maxTextLength || h < 10) && !showNothing && !showTextOnly
+		if imageWidthInChars > w {
+			imageWidthInChars = w
+		}
+		if imageHeightInChars > h {
+			imageHeightInChars = h
+		}
 
-					p.textTooLongForWide = false
-					p.showTextInWideMode = false
-					if isWideTerminal {
-						availableWidth := w - (startCol + imageWidthInChars)
-						if availableWidth < maxTextLength+10 {
-							p.textTooLongForWide = true
-							// Check if we can show text below image in wide mode
-							// 检查是否可以在宽终端模式下在图片下方显示文本
-							if h-imageHeightInChars >= 5 { // Need at least 5 rows for text / 至少需要5行来显示文本
-								p.showTextInWideMode = true
-							}
-						}
-					}
+		title, artist, album := getSongMetadata(p.flacPath)
+		maxTextLength := max(max(len(title), len(artist)), len(album))
 
-					if showNothing || showTextOnly {
-						startCol, startRow, imageWidthInChars, imageHeightInChars = 0, 0, 0, 0
-					} else if showInfoOnly {
-						startCol, startRow = (w-imageWidthInChars)/2, (h-imageHeightInChars)/2
-					} else if isWideTerminal && !p.textTooLongForWide {
-						// Normal wide terminal mode - image on left, text on right
-						startCol, startRow = 1, (h-imageHeightInChars+1)/2
-					} else if isWideTerminal && p.textTooLongForWide && p.showTextInWideMode {
-						// Text too long for right panel, but can show below image - use narrow terminal layout
-						startCol, startRow = (w-imageWidthInChars)/2, 2
-					} else if isWideTerminal && p.textTooLongForWide && !p.showTextInWideMode {
-						// Text too long and cannot show below image - center the image only
-						startCol, startRow = (w-imageWidthInChars)/2, (h-imageHeightInChars+1)/2
-					} else {
-						// Normal narrow terminal mode
-						startCol, startRow = (w-imageWidthInChars)/2, 2
-					}
+		showNothing = w < 23 || h < 5
+		showTextOnly = h < 13 && !showNothing
+		showInfoOnly := (w < maxTextLength || h < 10) && !showNothing && !showTextOnly
 
-					if startCol < 1 {
-						startCol = 1
-					}
-					if startRow < 1 {
-						startRow = 1
-					}
-					if startCol+imageWidthInChars > w {
-						imageWidthInChars = w - startCol
-					}
-					if startRow+imageHeightInChars > h {
-						imageHeightInChars = h - startRow
-					}
+		p.textTooLongForWide = false
+		p.showTextInWideMode = false
+		if isWideTerminal {
+			availableWidth := w - (startCol + imageWidthInChars)
+			if availableWidth < maxTextLength+10 {
+				p.textTooLongForWide = true
+				// Check if we can show text below image in wide mode
+				// 检查是否可以在宽终端模式下在图片下方显示文本
+				if h-imageHeightInChars >= 5 { // Need at least 5 rows for text / 至少需要5行来显示文本
+					p.showTextInWideMode = true
+				}
+			}
+		}
 
-					if !showNothing && !showTextOnly {
-						fmt.Printf("\x1b[%d;%dH", startRow, startCol)
-						// 使用新的终端图像渲染器
-						if err := RenderImage(scaledImg, imageWidthInChars, imageHeightInChars); err != nil {
-							// 如果新渲染器失败，回退到原来的sixel渲染器
-							_ = NewEncoder(os.Stdout).Encode(scaledImg)
-						}
-						if imageWidthInChars > 0 && startCol+imageWidthInChars <= w {
-							fillStartCol := startCol + imageWidthInChars
-							for row := startRow; row < startRow+imageHeightInChars; row++ {
-								fmt.Printf("\x1b[%d;%dH\x1b[K", row, fillStartCol)
-							}
-						}
-					}
+		if showNothing || showTextOnly {
+			startCol, startRow, imageWidthInChars, imageHeightInChars = 0, 0, 0, 0
+		} else if showInfoOnly {
+			startCol, startRow = (w-imageWidthInChars)/2, (h-imageHeightInChars)/2
+		} else if isWideTerminal && !p.textTooLongForWide {
+			// Normal wide terminal mode - image on left, text on right
+			startCol, startRow = 1, (h-imageHeightInChars+1)/2
+		} else if isWideTerminal && p.textTooLongForWide && p.showTextInWideMode {
+			// Text too long for right panel, but can show below image - use narrow terminal layout
+			startCol, startRow = (w-imageWidthInChars)/2, 2
+		} else if isWideTerminal && p.textTooLongForWide && !p.showTextInWideMode {
+			// Text too long and cannot show below image - center the image only
+			startCol, startRow = (w-imageWidthInChars)/2, (h-imageHeightInChars+1)/2
+		} else {
+			// Normal narrow terminal mode
+			startCol, startRow = (w-imageWidthInChars)/2, 2
+		}
+
+		if startCol < 1 {
+			startCol = 1
+		}
+		if startRow < 1 {
+			startRow = 1
+		}
+		if startCol+imageWidthInChars > w {
+			imageWidthInChars = w - startCol
+		}
+		if startRow+imageHeightInChars > h {
+			imageHeightInChars = h - startRow
+		}
+
+		if !showNothing && !showTextOnly {
+			fmt.Printf("\x1b[%d;%dH", startRow, startCol)
+			// 使用新的终端图像渲染器
+			if err := RenderImage(scaledImg, imageWidthInChars, imageHeightInChars); err != nil {
+				// 如果新渲染器失败，回退到原来的sixel渲染器
+				_ = NewEncoder(os.Stdout).Encode(scaledImg)
+			}
+			if imageWidthInChars > 0 && startCol+imageWidthInChars <= w {
+				fillStartCol := startCol + imageWidthInChars
+				for row := startRow; row < startRow+imageHeightInChars; row++ {
+					fmt.Printf("\x1b[%d;%dH\x1b[K", row, fillStartCol)
 				}
 			}
 		}
@@ -1339,6 +1339,85 @@ func decodeAudioFile(filePath string) (beep.StreamSeekCloser, beep.Format, error
 		f.Close()
 		return nil, beep.Format{}, fmt.Errorf("unsupported audio format: %s", ext)
 	}
+}
+
+// getCoverFromAudioFile extracts cover art from an audio file.
+//
+// getCoverFromAudioFile 从音频文件中提取封面图片。
+func getCoverFromAudioFile(filePath string) image.Image {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	m, err := tag.ReadFrom(f)
+	if err != nil {
+		return nil
+	}
+
+	pic := m.Picture()
+	if pic == nil {
+		return nil
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(pic.Data))
+	if err != nil {
+		return nil
+	}
+
+	return img
+}
+
+// loadImageFile loads an image from a file path.
+//
+// loadImageFile 从文件路径加载图片。
+func loadImageFile(filePath string) (image.Image, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	img, _, err := image.Decode(f)
+	if err != nil {
+		return nil, err
+	}
+
+	return img, nil
+}
+
+// getDefaultCoverPath returns the path to the default cover image.
+// It expands the ~ in the path and checks if the file exists.
+//
+// getDefaultCoverPath 返回默认封面图片的路径。
+// 它会展开路径中的 ~ 并检查文件是否存在。
+func getDefaultCoverPath() string {
+	if GlobalConfig == nil || GlobalConfig.App.DefaultCoverPath == "" {
+		return ""
+	}
+
+	// Expand ~ in the path
+	path := GlobalConfig.App.DefaultCoverPath
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		path = filepath.Join(home, path[2:])
+	}
+
+	// Check if file exists and is a supported image format
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".jpg" && ext != ".jpeg" && ext != ".png" {
+		return ""
+	}
+
+	return path
 }
 
 // getResamplingQuality converts the quality string from config to the corresponding beep resampling quality.
