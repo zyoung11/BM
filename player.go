@@ -1220,6 +1220,45 @@ func (p *PlayerPage) getColorCode() string {
 
 // --- Misc Helper Functions ---
 
+// parseMetadataFromFilename attempts to extract artist and title from filename.
+// Format: "Artist - Title.ext" or "Artist1,Artist2 - Title.ext"
+// Returns empty strings if parsing fails.
+//
+// parseMetadataFromFilename 尝试从文件名中提取艺术家和标题。
+// 格式: "艺术家 - 标题.扩展名" 或 "艺术家1,艺术家2 - 标题.扩展名"
+// 如果解析失败则返回空字符串。
+func parseMetadataFromFilename(filePath string) (title, artist, album string) {
+	filename := filepath.Base(filePath)
+	// Remove file extension
+	ext := filepath.Ext(filename)
+	nameWithoutExt := filename[:len(filename)-len(ext)]
+
+	// Try to split by " - " (with spaces)
+	parts := strings.SplitN(nameWithoutExt, " - ", 2)
+	if len(parts) == 2 {
+		artist = strings.TrimSpace(parts[0])
+		title = strings.TrimSpace(parts[1])
+
+		// Clean up common patterns
+		// Remove track numbers like "01. ", "02 - ", etc.
+		if len(title) > 3 && title[2] == '.' && title[3] == ' ' {
+			title = title[4:]
+		}
+		if len(title) > 3 && title[2] == ' ' && title[3] == '-' && title[4] == ' ' {
+			title = title[5:]
+		}
+
+		// Remove parentheses and brackets
+		title = strings.TrimSpace(title)
+		artist = strings.TrimSpace(artist)
+
+		// If artist contains commas, it's multiple artists
+		// We'll keep it as is for display
+	}
+
+	return title, artist, ""
+}
+
 func getCellSize() (width, height int, err error) {
 	// This function remains unchanged.
 	fmt.Print("\x1b[16t")
@@ -1263,22 +1302,40 @@ func getCellSize() (width, height int, err error) {
 func getSongMetadata(flacPath string) (title, artist, album string) {
 	f, err := os.Open(flacPath)
 	if err != nil {
-		return "...", "...", "..."
+		// Try to parse from filename as fallback
+		return parseMetadataFromFilename(flacPath)
 	}
 	defer f.Close()
 	m, err := tag.ReadFrom(f)
 	if err != nil {
-		return "...", "...", "..."
+		// Try to parse from filename as fallback
+		return parseMetadataFromFilename(flacPath)
 	}
 	title, artist, album = m.Title(), m.Artist(), m.Album()
+
+	// If metadata is empty, try to parse from filename
+	if title == "" || artist == "" {
+		filenameTitle, filenameArtist, filenameAlbum := parseMetadataFromFilename(flacPath)
+		if title == "" && filenameTitle != "" {
+			title = filenameTitle
+		}
+		if artist == "" && filenameArtist != "" {
+			artist = filenameArtist
+		}
+		if album == "" && filenameAlbum != "" {
+			album = filenameAlbum
+		}
+	}
+
+	// Final fallback to empty strings if still empty
 	if title == "" {
-		title = "..."
+		title = ""
 	}
 	if artist == "" {
-		artist = "..."
+		artist = ""
 	}
 	if album == "" {
-		album = "..."
+		album = ""
 	}
 	return title, artist, album
 }
