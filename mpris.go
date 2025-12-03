@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dhowden/tag"
@@ -619,25 +622,57 @@ func (m *MPRISServer) updateMetadata() {
 }
 
 // extractAlbumArt extracts the album art.
+// If the audio file has no cover, it uses the default cover image.
 //
 // extractAlbumArt 提取专辑封面。
+// 如果音频文件没有封面，则使用默认封面图片。
 func (m *MPRISServer) extractAlbumArt() string {
+	// Try to get cover from audio file
 	f, err := os.Open(m.flacPath)
 	if err != nil {
-		return ""
+		return m.getDefaultCoverArt()
 	}
 	defer f.Close()
 
 	metadata, err := tag.ReadFrom(f)
 	if err != nil {
-		return ""
+		return m.getDefaultCoverArt()
 	}
 
 	if pic := metadata.Picture(); pic != nil {
 		return m.encodePictureToBase64(pic)
 	}
 
-	return ""
+	return m.getDefaultCoverArt()
+}
+
+// getDefaultCoverArt returns the default cover art as a base64 encoded data URL.
+//
+// getDefaultCoverArt 返回默认封面图片的base64编码数据URL。
+func (m *MPRISServer) getDefaultCoverArt() string {
+	defaultCoverPath := getDefaultCoverPath()
+	if defaultCoverPath == "" {
+		return ""
+	}
+
+	data, err := os.ReadFile(defaultCoverPath)
+	if err != nil {
+		return ""
+	}
+
+	// Determine MIME type from file extension
+	ext := strings.ToLower(filepath.Ext(defaultCoverPath))
+	var mimeType string
+	switch ext {
+	case ".jpg", ".jpeg":
+		mimeType = "image/jpeg"
+	case ".png":
+		mimeType = "image/png"
+	default:
+		return ""
+	}
+
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(data))
 }
 
 // encodePictureToBase64 saves the picture data to a temporary file and returns its file URL.

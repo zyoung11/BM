@@ -110,6 +110,13 @@ storage = "~/.config/BM/storage.json"
 # 更改此值可优化特定采样率音频的播放性能，减少不必要的重采样。
 target_sample_rate = 44100
 
+# Default cover art path - the image file to use when a song has no embedded cover art.
+# Supports JPG and PNG formats. If empty or the file doesn't exist, no cover will be shown.
+#
+# 默认封面图片路径 - 当歌曲没有内嵌封面时使用的图片文件。
+# 支持 JPG 和 PNG 格式。如果为空或文件不存在，则不显示封面。
+default_cover_path = "~/.config/BM/default.jpg"
+
 # Keymap settings - defines all keybindings for the application.
 #
 # 键位映射设置 - 定义应用程序的所有按键绑定。
