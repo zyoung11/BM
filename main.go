@@ -13,7 +13,6 @@ import (
 	"unicode"
 
 	"github.com/gopxl/beep/v2"
-	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/speaker"
 	"golang.org/x/term"
 )
@@ -210,16 +209,10 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	}
 	speaker.Unlock()
 
-	f, err := os.Open(songPath)
+	streamer, format, err := decodeAudioFile(songPath)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %v\n\n打开文件失败: %v", err, err)
-	}
-
-	streamer, format, err := flac.Decode(f)
-	if err != nil {
-		f.Close()
 		a.MarkFileAsCorrupted(songPath)
-		return fmt.Errorf("解码FLAC失败: %v", err)
+		return fmt.Errorf("解码音频失败: %v", err)
 	}
 
 	var playerPage *PlayerPage
@@ -243,7 +236,7 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 		// Use high-quality resampling with go-audio-resampler (最高质量)
 		resampledStream, err := highQualityResample(streamer, format.SampleRate, a.sampleRate)
 		if err != nil {
-			f.Close()
+			streamer.Close()
 			return fmt.Errorf("高质量重采样失败: %v", err)
 		}
 		audioStream = resampledStream
@@ -251,7 +244,7 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 
 	player, err := newAudioPlayer(audioStream, format, a.volume, a.playbackRate)
 	if err != nil {
-		f.Close()
+		streamer.Close()
 		return fmt.Errorf("创建播放器失败: %v", err)
 	}
 
