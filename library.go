@@ -40,9 +40,10 @@ type Library struct {
 	lastEntered       string          // Store the name of the last entered directory. / 存储最后进入的目录的名称。
 	isSearching       bool
 	searchQuery       string
-	globalFileCache   []string // Cache of all .flac file paths. / 所有 .flac 文件路径的缓存。
-	filteredSongPaths []string // Results of the current search. / 当前搜索的结果。
-	resamplingSong    string   // Path of the song currently being resampled. / 当前正在重采样的歌曲路径。
+	globalFileCache   []string        // Cache of all .flac file paths. / 所有 .flac 文件路径的缓存。
+	filteredSongPaths []string        // Results of the current search. / 当前搜索的结果。
+	resamplingSong    string          // Path of the song currently being resampled. / 当前正在重采样的歌曲路径。
+	dirSelectionCache map[string]bool // Cache for directory partial selection state. / 目录部分选择状态的缓存。
 }
 
 // NewLibrary creates a new instance of Library.
@@ -50,11 +51,12 @@ type Library struct {
 // NewLibrary 创建一个新的 Library 实例。
 func NewLibrary(app *App) *Library {
 	return &Library{
-		app:         app,
-		currentPath: ".",
-		initialPath: ".",
-		selected:    make(map[string]bool),
-		pathHistory: make(map[string]int),
+		app:               app,
+		currentPath:       ".",
+		initialPath:       ".",
+		selected:          make(map[string]bool),
+		pathHistory:       make(map[string]int),
+		dirSelectionCache: make(map[string]bool),
 	}
 }
 
@@ -68,11 +70,12 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 	}
 
 	return &Library{
-		app:         app,
-		currentPath: startPath,
-		initialPath: startPath,
-		selected:    selectedSongs,
-		pathHistory: make(map[string]int),
+		app:               app,
+		currentPath:       startPath,
+		initialPath:       startPath,
+		selected:          selectedSongs,
+		pathHistory:       make(map[string]int),
+		dirSelectionCache: make(map[string]bool),
 	}
 }
 
@@ -516,6 +519,8 @@ func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
 			}
 		}
 	}
+	// Clear cache on selection change
+	p.dirSelectionCache = make(map[string]bool)
 }
 
 // toggleSelectAll toggles the selection for all items in the current view (directory or search results).
@@ -587,6 +592,8 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 			}
 		}
 	}
+	// Clear cache on selection change
+	p.dirSelectionCache = make(map[string]bool)
 }
 
 // toggleSelection adds or removes a file path from the selection and playlist.
@@ -612,13 +619,15 @@ func (p *Library) toggleSelection(path string) {
 				needsResample, err := p.NeedsResampling(path)
 				if err == nil && needsResample {
 					p.resamplingSong = path
-					p.View() // Update UI to show resampling message
+					// Removed p.View() call to prevent double rendering
 				}
 				p.app.PlaySongWithSwitchAndRender(path, false, false)
 				p.resamplingSong = "" // Clear resampling flag
 			}
 		}
 	}
+	// Clear cache on selection change
+	p.dirSelectionCache = make(map[string]bool)
 	if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
 		log.Printf("Warning: failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
@@ -775,40 +784,45 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 
 		isSelected := p.selected[path]
 		if isDir && !isSelected {
-			var checkSelected func(string) bool
-			checkSelected = func(dirPath string) bool {
-				files, err := os.ReadDir(dirPath)
-				if err != nil {
-					return false
-				}
-				for _, file := range files {
-					entryPath := filepath.Join(dirPath, file.Name())
-					info, err := file.Info()
+			if cached, ok := p.dirSelectionCache[path]; ok {
+				isSelected = cached
+			} else {
+				var checkSelected func(string) bool
+				checkSelected = func(dirPath string) bool {
+					files, err := os.ReadDir(dirPath)
 					if err != nil {
-						continue
+						return false
 					}
-
-					isDir := info.IsDir()
-					if info.Mode()&os.ModeSymlink != 0 {
-						statInfo, statErr := os.Stat(entryPath)
-						if statErr == nil {
-							isDir = statInfo.IsDir()
-						} else {
+					for _, file := range files {
+						entryPath := filepath.Join(dirPath, file.Name())
+						info, err := file.Info()
+						if err != nil {
 							continue
 						}
-					}
 
-					if isDir {
-						if checkSelected(entryPath) {
+						isDir := info.IsDir()
+						if info.Mode()&os.ModeSymlink != 0 {
+							statInfo, statErr := os.Stat(entryPath)
+							if statErr == nil {
+								isDir = statInfo.IsDir()
+							} else {
+								continue
+							}
+						}
+
+						if isDir {
+							if checkSelected(entryPath) {
+								return true
+							}
+						} else if p.selected[entryPath] {
 							return true
 						}
-					} else if p.selected[entryPath] {
-						return true
 					}
+					return false
 				}
-				return false
+				isSelected = checkSelected(path)
+				p.dirSelectionCache[path] = isSelected
 			}
-			isSelected = checkSelected(path)
 		}
 
 		if isSelected {
@@ -871,40 +885,45 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCurs
 
 	if libEntry.isDir {
 		isDirPartiallySelected := false
-		var checkSelected func(string) bool
-		checkSelected = func(dirPath string) bool {
-			files, err := os.ReadDir(dirPath)
-			if err != nil {
-				return false
-			}
-			for _, file := range files {
-				entryPath := filepath.Join(dirPath, file.Name())
-				info, err := file.Info()
+		if cached, ok := p.dirSelectionCache[fullPath]; ok {
+			isDirPartiallySelected = cached
+		} else {
+			var checkSelected func(string) bool
+			checkSelected = func(dirPath string) bool {
+				files, err := os.ReadDir(dirPath)
 				if err != nil {
-					continue
+					return false
 				}
-
-				isDir := info.IsDir()
-				if info.Mode()&os.ModeSymlink != 0 {
-					statInfo, statErr := os.Stat(entryPath)
-					if statErr == nil {
-						isDir = statInfo.IsDir()
-					} else {
+				for _, file := range files {
+					entryPath := filepath.Join(dirPath, file.Name())
+					info, err := file.Info()
+					if err != nil {
 						continue
 					}
-				}
 
-				if isDir {
-					if checkSelected(entryPath) {
+					isDir := info.IsDir()
+					if info.Mode()&os.ModeSymlink != 0 {
+						statInfo, statErr := os.Stat(entryPath)
+						if statErr == nil {
+							isDir = statInfo.IsDir()
+						} else {
+							continue
+						}
+					}
+
+					if isDir {
+						if checkSelected(entryPath) {
+							return true
+						}
+					} else if p.selected[entryPath] {
 						return true
 					}
-				} else if p.selected[entryPath] {
-					return true
 				}
+				return false
 			}
-			return false
+			isDirPartiallySelected = checkSelected(fullPath)
+			p.dirSelectionCache[fullPath] = isDirPartiallySelected
 		}
-		isDirPartiallySelected = checkSelected(fullPath)
 		if isDirPartiallySelected {
 			line = "✓ " + name + "/"
 			style += "\x1b[32m"
