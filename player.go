@@ -11,7 +11,9 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/effects"
 	"github.com/gopxl/beep/v2/flac"
+	"github.com/gopxl/beep/v2/mp3"
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
 	"github.com/nfnt/resize"
@@ -631,16 +634,10 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	}
 	speaker.Unlock()
 
-	f, err := os.Open(songPath)
+	streamer, format, err := decodeAudioFile(songPath)
 	if err != nil {
-		return fmt.Errorf("打开文件失败: %v", err)
-	}
-
-	streamer, format, err := flac.Decode(f)
-	if err != nil {
-		f.Close()
 		p.app.MarkFileAsCorrupted(songPath)
-		return fmt.Errorf("解码FLAC失败: %v", err)
+		return fmt.Errorf("解码音频失败: %v", err)
 	}
 
 	var audioStream beep.StreamSeeker = streamer
@@ -655,7 +652,7 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		// Use high-quality resampling with go-audio-resampler (最高质量)
 		resampledStream, err := highQualityResample(streamer, format.SampleRate, p.app.sampleRate)
 		if err != nil {
-			f.Close()
+			streamer.Close()
 			return fmt.Errorf("高质量重采样失败: %v", err)
 		}
 		audioStream = resampledStream
@@ -665,7 +662,7 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 
 	player, err := newAudioPlayer(audioStream, format, p.app.volume, p.app.playbackRate)
 	if err != nil {
-		f.Close()
+		streamer.Close()
 		return fmt.Errorf("创建播放器失败: %v", err)
 	}
 
@@ -1321,6 +1318,27 @@ func analyzeCoverColor(img image.Image) (r, g, b int) {
 	// Fallback to the configured default color when no suitable color is found
 	// 当没有找到合适的颜色时，回退到配置的默认颜色
 	return GlobalConfig.App.DefaultColorR, GlobalConfig.App.DefaultColorG, GlobalConfig.App.DefaultColorB
+}
+
+// decodeAudioFile decodes an audio file based on its extension.
+//
+// decodeAudioFile 根据文件扩展名解码音频文件。
+func decodeAudioFile(filePath string) (beep.StreamSeekCloser, beep.Format, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, beep.Format{}, err
+	}
+
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".flac":
+		return flac.Decode(f)
+	case ".mp3":
+		return mp3.Decode(f)
+	default:
+		f.Close()
+		return nil, beep.Format{}, fmt.Errorf("unsupported audio format: %s", ext)
+	}
 }
 
 // getResamplingQuality converts the quality string from config to the corresponding beep resampling quality.

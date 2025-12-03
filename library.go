@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
@@ -40,7 +39,7 @@ type Library struct {
 	lastEntered       string          // Store the name of the last entered directory. / 存储最后进入的目录的名称。
 	isSearching       bool
 	searchQuery       string
-	globalFileCache   []string        // Cache of all .flac file paths. / 所有 .flac 文件路径的缓存。
+	globalFileCache   []string        // Cache of all audio file paths. / 所有音频文件路径的缓存。
 	filteredSongPaths []string        // Results of the current search. / 当前搜索的结果。
 	resamplingSong    string          // Path of the song currently being resampled. / 当前正在重采样的歌曲路径。
 	dirSelectionCache map[string]bool // Cache for directory partial selection state. / 目录部分选择状态的缓存。
@@ -79,10 +78,10 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 	}
 }
 
-// scanDirectory reads the contents of a directory, filters for FLAC files and directories,
+// scanDirectory reads the contents of a directory, filters for audio files and directories,
 // sorts them, and populates the entries list. It also handles symlinks.
 //
-// scanDirectory 读取目录内容，筛选FLAC文件和目录，对它们进行排序，并填充到条目列表中。它还能处理符号链接。
+// scanDirectory 读取目录内容，筛选音频文件和目录，对它们进行排序，并填充到条目列表中。它还能处理符号链接。
 func (p *Library) scanDirectory(path string) {
 	if p.currentPath != "" {
 		p.pathHistory[p.currentPath] = p.cursor
@@ -110,7 +109,7 @@ func (p *Library) scanDirectory(path string) {
 
 		isDir := info.IsDir()
 		isLink := info.Mode()&os.ModeSymlink != 0
-		isValidFlac := strings.HasSuffix(strings.ToLower(info.Name()), ".flac")
+		isValidAudio := isAudioFile(info.Name())
 
 		if isLink {
 			targetPath := filepath.Join(path, file.Name())
@@ -119,10 +118,10 @@ func (p *Library) scanDirectory(path string) {
 				continue
 			}
 			isDir = targetInfo.IsDir()
-			isValidFlac = strings.HasSuffix(strings.ToLower(targetInfo.Name()), ".flac")
+			isValidAudio = isAudioFile(targetInfo.Name())
 		}
 
-		if isDir || isValidFlac {
+		if isDir || isValidAudio {
 			p.entries = append(p.entries, LibraryEntry{
 				entry: file,
 				info:  info,
@@ -140,16 +139,16 @@ func (p *Library) scanDirectory(path string) {
 	p.offset = 0
 }
 
-// ensureGlobalCache builds a cache of all .flac files and directories if it doesn't exist.
+// ensureGlobalCache builds a cache of all audio files and directories if it doesn't exist.
 //
-// ensureGlobalCache 如果缓存不存在，则构建一个包含所有 .flac 文件和目录的缓存。
+// ensureGlobalCache 如果缓存不存在，则构建一个包含所有音频文件和目录的缓存。
 func (p *Library) ensureGlobalCache() {
 	if p.globalFileCache != nil {
 		return
 	}
 
-	allFlacFiles := make(map[string]bool)
-	dirWithFlac := make(map[string]bool)
+	allAudioFiles := make(map[string]bool)
+	dirWithAudio := make(map[string]bool)
 	visited := make(map[string]bool)
 
 	var walk func(string)
@@ -187,8 +186,8 @@ func (p *Library) ensureGlobalCache() {
 
 			if isDir {
 				walk(entryPath)
-			} else if strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
-				allFlacFiles[entryPath] = true
+			} else if isAudioFile(file.Name()) {
+				allAudioFiles[entryPath] = true
 				tempPath := entryPath
 				for {
 					tempPath = filepath.Dir(tempPath)
@@ -197,7 +196,7 @@ func (p *Library) ensureGlobalCache() {
 					if errT != nil || errI != nil || absTemp < absInitial {
 						break
 					}
-					dirWithFlac[tempPath] = true
+					dirWithAudio[tempPath] = true
 					if absTemp == absInitial {
 						break
 					}
@@ -208,11 +207,11 @@ func (p *Library) ensureGlobalCache() {
 
 	walk(p.initialPath)
 
-	cache := make([]string, 0, len(allFlacFiles)+len(dirWithFlac))
-	for path := range allFlacFiles {
+	cache := make([]string, 0, len(allAudioFiles)+len(dirWithAudio))
+	for path := range allAudioFiles {
 		cache = append(cache, path)
 	}
-	for path := range dirWithFlac {
+	for path := range dirWithAudio {
 		cache = append(cache, path)
 	}
 	p.globalFileCache = cache
@@ -398,7 +397,7 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 						}
 						if isDir {
 							collectSongs(entryPath)
-						} else if strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
+						} else if isAudioFile(file.Name()) {
 							songsInDir = append(songsInDir, entryPath)
 						}
 					}
@@ -490,7 +489,7 @@ func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
 				}
 				if isDir {
 					collectSongs(entryPath)
-				} else if strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
+				} else if isAudioFile(file.Name()) {
 					songsInDir = append(songsInDir, entryPath)
 				}
 			}
@@ -559,7 +558,7 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 						}
 						if isDir {
 							collectSongs(entryPath)
-						} else if strings.HasSuffix(strings.ToLower(file.Name()), ".flac") {
+						} else if isAudioFile(file.Name()) {
 							allSongs = append(allSongs, entryPath)
 						}
 					}
@@ -979,13 +978,7 @@ func (p *Library) drawScrollbar(h, listHeight, totalItems, currentOffset int) {
 //
 // NeedsResampling 检查歌曲是否需要重采样。
 func (p *Library) NeedsResampling(songPath string) (bool, error) {
-	f, err := os.Open(songPath)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-
-	streamer, format, err := flac.Decode(f)
+	streamer, format, err := decodeAudioFile(songPath)
 	if err != nil {
 		return false, err
 	}
@@ -998,3 +991,11 @@ func (p *Library) NeedsResampling(songPath string) (bool, error) {
 //
 // Library的Tick方法不执行任何操作，因为它是事件驱动的。
 func (p *Library) Tick() {}
+
+// isAudioFile checks if a file has a supported audio extension.
+//
+// isAudioFile 检查文件是否具有支持的音频扩展名。
+func isAudioFile(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	return ext == ".flac" || ext == ".mp3"
+}

@@ -8,7 +8,6 @@ import (
 
 	"github.com/dhowden/tag"
 	"github.com/godbus/dbus/v5"
-	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/speaker"
 )
 
@@ -695,18 +694,11 @@ func (m *MPRISServer) sendPropertiesChanged(interfaceName string, changedPropert
 //
 // calculateDuration 计算音频时长（以微秒为单位）。
 func (m *MPRISServer) calculateDuration() error {
-	if m.originalFile == nil {
-		return fmt.Errorf("Original file not open\n\n原始文件未打开")
-	}
-
-	if _, err := m.originalFile.Seek(0, 0); err != nil {
-		return fmt.Errorf("Failed to reset file pointer: %v\n\n重置文件指针失败: %v", err, err)
-	}
-
-	streamer, format, err := flac.Decode(m.originalFile)
+	streamer, format, err := decodeAudioFile(m.flacPath)
 	if err != nil {
-		return fmt.Errorf("Failed to re-decode file: %v\n\n重新解码文件失败: %v", err, err)
+		return fmt.Errorf("Failed to decode file: %v\n\n解码文件失败: %v", err, err)
 	}
+	defer streamer.Close()
 
 	totalSamples := streamer.Len()
 	m.duration = int64(float64(totalSamples) / float64(format.SampleRate) * 1e6)
