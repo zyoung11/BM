@@ -766,15 +766,15 @@ func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format, volumeLevel 
 }
 
 // saveCoverArt extracts the cover art from an audio file and saves it to a temporary file.
-// If the audio file has no cover, it tries to find an image in the same folder.
+// If the audio file has no cover, it tries to find an image in the same folder (if enabled in config).
 // If no folder image is found, it uses the default cover image.
 // It returns the path to the temporary file.
 func saveCoverArt(audioPath string) string {
 	// Try to get cover from audio file
 	coverImg := getCoverFromAudioFile(audioPath)
 
-	// If no cover found in audio file, try folder images
-	if coverImg == nil {
+	// If no cover found in audio file and folder covers are enabled, try folder images
+	if coverImg == nil && GlobalConfig != nil && GlobalConfig.App.EnableFolderCovers {
 		coverImg = getFolderCoverImage(audioPath)
 	}
 
@@ -834,8 +834,8 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 	// Try to get cover from audio file
 	coverImg = getCoverFromAudioFile(p.flacPath)
 
-	// If no cover found in audio file, try folder images
-	if coverImg == nil {
+	// If no cover found in audio file and folder covers are enabled, try folder images
+	if coverImg == nil && GlobalConfig != nil && GlobalConfig.App.EnableFolderCovers {
 		coverImg = getFolderCoverImage(p.flacPath)
 	}
 
