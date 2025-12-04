@@ -23,6 +23,8 @@ import (
 	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/mp3"
 	"github.com/gopxl/beep/v2/speaker"
+	"github.com/gopxl/beep/v2/vorbis"
+	"github.com/gopxl/beep/v2/wav"
 	"github.com/mattn/go-runewidth"
 	"github.com/nfnt/resize"
 	"golang.org/x/term"
@@ -1403,6 +1405,10 @@ func decodeAudioFile(filePath string) (beep.StreamSeekCloser, beep.Format, error
 		return flac.Decode(f)
 	case ".mp3":
 		return mp3.Decode(f)
+	case ".wav":
+		return wav.Decode(f)
+	case ".ogg":
+		return vorbis.Decode(f)
 	default:
 		f.Close()
 		return nil, beep.Format{}, fmt.Errorf("unsupported audio format: %s", ext)
