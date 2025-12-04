@@ -713,6 +713,9 @@ func (p *Library) View() {
 		currentOffset = currentCursor - listHeight + 1
 	}
 
+	// 更新offset字段，确保滚动位置被保存
+	p.offset = currentOffset
+
 	if p.resamplingSong != "" {
 		p.drawPathFooter(w, h, "↻ Resampling...")
 	} else if p.isSearching || p.searchQuery != "" {
