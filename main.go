@@ -563,7 +563,7 @@ func main() {
 	// Check for help command first, before any terminal setup
 	if len(os.Args) >= 2 {
 		arg := os.Args[1]
-		if arg == "help" || arg == "-help" || arg == "--help" {
+		if arg == "help" || arg == "-h" || arg == "-help" || arg == "--help" {
 			displayHelp()
 			return
 		}
@@ -948,59 +948,31 @@ func (a *App) IsFileCorrupted(filePath string) bool {
 }
 
 func displayHelp() {
-	fmt.Println("┌─────────────────────────────────────────────────────┐")
-	fmt.Println("│                   BM Music Player                   │")
-	fmt.Println("└─────────────────────────────────────────────────────┘")
+	const (
+		reset   = "\033[0m"
+		bold    = "\033[1m"
+		cyan    = "\033[36m"
+		green   = "\033[32m"
+		yellow  = "\033[33m"
+		magenta = "\033[35m"
+	)
+
 	fmt.Println()
-	fmt.Println("📁 USAGE")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println(bold + "BM - Terminal Music Player" + reset)
 	fmt.Println()
-	fmt.Println("🎵 Start with saved music library:")
-	fmt.Println("   bm")
-	fmt.Println("   • Requires remember_library_path = true in config")
-	fmt.Println("   • Must have saved a library path before")
+	fmt.Println(bold + "USAGE:" + reset)
+	fmt.Println("  " + cyan + "bm" + reset + " [COMMANDS]")
 	fmt.Println()
-	fmt.Println("🎶 Play music from a directory:")
-	fmt.Println("   bm \"<directory_path>\"")
-	fmt.Println("   Example: bm \"/home/user/Music\"")
-	fmt.Println("   Example: bm \"./My Music\"")
+	fmt.Println(bold + "COMMANDS:" + reset)
+	fmt.Println("  " + green + "bm" + reset + "                         Start player with interactive library selection")
+	fmt.Println("  " + green + "bm <directory>" + reset + "             Start player with specified music library")
+	fmt.Println("  " + green + "bm <audio-file>" + reset + "            Play single audio file")
+	fmt.Println("  " + green + "bm help, -help, --help" + reset + "     Show this help message")
 	fmt.Println()
-	fmt.Println("🎵 Play a single audio file:")
-	fmt.Println("   bm \"<audio_file_path>\"")
-	fmt.Println("   Supported formats: .flac .mp3 .wav .ogg")
-	fmt.Println("   Example: bm \"/home/user/Music/song.flac\"")
-	fmt.Println("   Example: bm \"song with spaces.mp3\"")
+	fmt.Println(bold + "SUPPORTED FORMATS:" + reset)
+	fmt.Println("  " + yellow + "FLAC, MP3, WAV, OGG" + reset)
 	fmt.Println()
-	fmt.Println("🛠️  Commands:")
-	fmt.Println("   bm help          Show this help message")
-	fmt.Println("   bm -help         Same as above")
-	fmt.Println("   bm --help        Same as above")
+	fmt.Println(bold + "CONFIGURATION:" + reset)
+	fmt.Println("  Configuration file: " + cyan + "~/.config/BM/config.toml" + reset)
 	fmt.Println()
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println()
-	fmt.Println("📁 使用方法")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println()
-	fmt.Println("🎵 使用已保存的音乐库启动:")
-	fmt.Println("   bm")
-	fmt.Println("   • 需要在配置中设置 remember_library_path = true")
-	fmt.Println("   • 必须之前保存过音乐库路径")
-	fmt.Println()
-	fmt.Println("🎶 播放目录中的音乐:")
-	fmt.Println("   bm \"<目录路径>\"")
-	fmt.Println("   示例: bm \"/home/user/音乐\"")
-	fmt.Println("   示例: bm \"./我的音乐\"")
-	fmt.Println()
-	fmt.Println("🎵 播放单个音频文件:")
-	fmt.Println("   bm \"<音频文件路径>\"")
-	fmt.Println("   支持格式: .flac .mp3 .wav .ogg")
-	fmt.Println("   示例: bm \"/home/user/音乐/歌曲.flac\"")
-	fmt.Println("   示例: bm \"带空格的歌曲.mp3\"")
-	fmt.Println()
-	fmt.Println("🛠️  命令:")
-	fmt.Println("   bm help          显示此帮助信息")
-	fmt.Println("   bm -help         同上")
-	fmt.Println("   bm --help        同上")
-	fmt.Println()
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 }
