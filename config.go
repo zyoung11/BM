@@ -72,6 +72,7 @@ type AppConfig struct {
 	TargetSampleRate     int    `toml:"target_sample_rate"`
 	Storage              string `toml:"storage"`
 	DefaultCoverPath     string `toml:"default_cover_path"`
+	EnableFolderCovers   bool   `toml:"enable_folder_covers"`
 }
 
 // Keymap defines all the keybindings for the application, organized by page.
