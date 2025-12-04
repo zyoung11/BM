@@ -584,12 +584,57 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 		}
 	}
 
-	for _, songPath := range allSongs {
-		if allCurrentlySelected {
-			if p.selected[songPath] {
-				p.toggleSelection(songPath)
+	if allCurrentlySelected {
+		// 取消选择所有歌曲：直接清空播放列表，而不是逐个移除
+		// 这样可以避免在移除过程中触发自动播放下一首
+
+		// 先停止当前播放
+		if p.app.player != nil {
+			speaker.Lock()
+			if p.app.player.ctrl != nil {
+				p.app.player.ctrl.Paused = true
 			}
-		} else {
+			speaker.Unlock()
+		}
+
+		// 清空播放列表
+		oldPlaylist := p.app.Playlist
+		p.app.Playlist = []string{}
+
+		// 清空选择状态
+		for _, songPath := range allSongs {
+			delete(p.selected, songPath)
+		}
+
+		// 更新MPRIS
+		if p.app.mprisServer != nil {
+			p.app.mprisServer.UpdateProperties()
+		}
+
+		// 清空当前播放状态
+		p.app.currentSongPath = ""
+		if p.app.mprisServer != nil {
+			p.app.mprisServer.StopService()
+			p.app.mprisServer = nil
+		}
+
+		// 更新播放器页面
+		if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
+			playerPage.UpdateSong("")
+		}
+
+		// 保存空播放列表
+		if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
+			log.Printf("Warning: failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
+		}
+
+		// 记录移除历史（用于防抖）
+		if len(oldPlaylist) > 0 {
+			p.lastRemoveTime = time.Now()
+		}
+	} else {
+		// 选择所有歌曲：逐个添加
+		for _, songPath := range allSongs {
 			if !p.selected[songPath] {
 				p.toggleSelection(songPath)
 			}
