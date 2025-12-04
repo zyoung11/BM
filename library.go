@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
@@ -43,6 +44,7 @@ type Library struct {
 	filteredSongPaths []string        // Results of the current search. / 当前搜索的结果。
 	resamplingSong    string          // Path of the song currently being resampled. / 当前正在重采样的歌曲路径。
 	dirSelectionCache map[string]bool // Cache for directory partial selection state. / 目录部分选择状态的缓存。
+	lastRemoveTime    time.Time       // Debounce mechanism for removing currently playing song. / 移除当前播放歌曲的防抖机制。
 }
 
 // NewLibrary creates a new instance of Library.
@@ -56,6 +58,7 @@ func NewLibrary(app *App) *Library {
 		selected:          make(map[string]bool),
 		pathHistory:       make(map[string]int),
 		dirSelectionCache: make(map[string]bool),
+		lastRemoveTime:    time.Time{},
 	}
 }
 
@@ -75,6 +78,7 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 		selected:          selectedSongs,
 		pathHistory:       make(map[string]int),
 		dirSelectionCache: make(map[string]bool),
+		lastRemoveTime:    time.Time{},
 	}
 }
 
@@ -638,6 +642,21 @@ func (p *Library) toggleSelection(path string) {
 func (p *Library) removeSongFromPlaylist(songPath string) {
 	for i, s := range p.app.Playlist {
 		if s == songPath {
+			wasPlayingSong := (p.app.currentSongPath == songPath)
+
+			// 防抖机制：防止快速连续移除当前播放的歌曲
+			if wasPlayingSong {
+				currentTime := time.Now()
+				debounceMs := GlobalConfig.App.SwitchDebounceMs
+				if debounceMs == 0 {
+					debounceMs = 200
+				}
+				if currentTime.Sub(p.lastRemoveTime) < time.Duration(debounceMs)*time.Millisecond {
+					return
+				}
+				p.lastRemoveTime = currentTime
+			}
+
 			p.app.Playlist = append(p.app.Playlist[:i], p.app.Playlist[i+1:]...)
 			if p.app.mprisServer != nil {
 				p.app.mprisServer.UpdateProperties()
@@ -660,6 +679,13 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 				if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
 					playerPage.UpdateSong("")
 				}
+			} else if wasPlayingSong {
+				// 如果移除的是正在播放的歌曲，播放下一首
+				nextIndex := i
+				if nextIndex >= len(p.app.Playlist) {
+					nextIndex = len(p.app.Playlist) - 1
+				}
+				p.app.PlaySongWithSwitchAndRender(p.app.Playlist[nextIndex], false, false)
 			}
 
 			return
