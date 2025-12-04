@@ -216,7 +216,7 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	streamer, format, err := decodeAudioFile(songPath)
 	if err != nil {
 		a.MarkFileAsCorrupted(songPath)
-		return fmt.Errorf("解码音频失败: %v", err)
+		return fmt.Errorf("Failed to decode audio: %v\n\n解码音频失败: %v", err, err)
 	}
 
 	var playerPage *PlayerPage
@@ -241,7 +241,7 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 		resampledStream, err := highQualityResample(streamer, format.SampleRate, a.sampleRate)
 		if err != nil {
 			streamer.Close()
-			return fmt.Errorf("高质量重采样失败: %v", err)
+			return fmt.Errorf("High-quality resampling failed: %v\n\n高质量重采样失败: %v", err, err)
 		}
 		audioStream = resampledStream
 	}
@@ -249,7 +249,7 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	player, err := newAudioPlayer(audioStream, format, a.volume, a.playbackRate)
 	if err != nil {
 		streamer.Close()
-		return fmt.Errorf("创建播放器失败: %v", err)
+		return fmt.Errorf("Failed to create player: %v\n\n创建播放器失败: %v", err, err)
 	}
 
 	if a.mprisServer != nil {
@@ -594,34 +594,9 @@ func main() {
 		}
 	}
 
-	// Check configuration and path requirements BEFORE terminal setup
-	if err := LoadConfig(); err != nil {
-		log.Fatalf("Error loading configuration: %v\n\n错误: 加载配置失败: %v", err, err)
-	}
-
-	if GlobalConfig.App.PlaylistHistory && !GlobalConfig.App.RememberLibraryPath {
-		log.Fatalf("Configuration error: 'playlist_history' cannot be true if 'remember_library_path' is false.\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false。")
-	}
-
-	// Check if autostart_last_played is enabled but playlist_history is disabled
-	if GlobalConfig.App.AutostartLastPlayed && !GlobalConfig.App.PlaylistHistory {
-		log.Fatalf("Configuration error: 'autostart_last_played' cannot be true if 'playlist_history' is false.\n\n配置错误: 'autostart_last_played' 为 true 时 'playlist_history' 不能为 false。")
-	}
-
-	// Check if remember_library_path is enabled but no path is saved
-	if GlobalConfig.App.RememberLibraryPath && len(os.Args) < 2 {
-		storageData, err := loadStorageData()
-		if err != nil {
-			log.Fatalf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
-		}
-		if storageData.LibraryPath == "" {
-			log.Fatalf("`remember_library_path` is enabled, but no path is saved yet.\nPlease run with a directory path once to save it for future use.\n\n`remember_library_path` 已启用，但尚未保存任何路径。\n请提供一次目录路径以便将来使用。 \n\nUsage: %s <music_directory>", os.Args[0])
-		}
-	}
-
-	// Check if no path is provided and remember_library_path is disabled
-	if !GlobalConfig.App.RememberLibraryPath && len(os.Args) < 2 {
-		log.Fatalf("Please provide a music directory path.\nTo have the app remember the path for future sessions, set `remember_library_path = true` in the config file.\n\n请输入音乐目录路径。\n如果希望应用记住该路径，请在配置文件中设置 `remember_library_path = true`。\n\nUsage: %s <music_directory>", os.Args[0])
+	dirPath, err := validateInputsAndConfig()
+	if err != nil {
+		log.Fatalf("%v", err)
 	}
 
 	// --- Terminal Setup ---
@@ -635,46 +610,75 @@ func main() {
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
 	// --- App Logic ---
-	if err := runApplication(); err != nil {
+	if err := runApplication(dirPath); err != nil {
 		// The deferred statements above will handle cleanup
-		log.Fatalf("Application runtime error: %v\n\n应用运行时出现错误: %v", err, err)
+		log.Fatalf("%v", err)
 	}
 }
 
-func runApplication() error {
+func validateInputsAndConfig() (string, error) {
+	// Check configuration and path requirements BEFORE terminal setup
+	if err := LoadConfig(); err != nil {
+		return "", fmt.Errorf("Failed to load config: %v\n\n加载配置失败: %v", err, err)
+	}
+
+	if GlobalConfig.App.PlaylistHistory && !GlobalConfig.App.RememberLibraryPath {
+		return "", fmt.Errorf("Configuration error: 'playlist_history' cannot be true when 'remember_library_path' is false\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false")
+	}
+
+	// Check if autostart_last_played is enabled but playlist_history is disabled
+	if GlobalConfig.App.AutostartLastPlayed && !GlobalConfig.App.PlaylistHistory {
+		return "", fmt.Errorf("Configuration error: 'autostart_last_played' cannot be true when 'playlist_history' is false\n\n配置错误: 'autostart_last_played' 为 true 时 'playlist_history' 不能为 false")
+	}
+
 	var dirPath string
+	if len(os.Args) >= 2 {
+		dirPath = os.Args[1]
+	}
+
+	// Check if remember_library_path is enabled but no path is saved
+	if GlobalConfig.App.RememberLibraryPath && dirPath == "" {
+		storageData, err := loadStorageData()
+		if err != nil {
+			return "", fmt.Errorf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
+		}
+		if storageData.LibraryPath == "" {
+			return "", fmt.Errorf("`remember_library_path` is enabled but no path has been saved yet.\nPlease provide a directory path once for future use.\n\nUsage: %s <music_directory>\n\n`remember_library_path` 已启用，但尚未保存任何路径。\n请提供一次目录路径以便将来使用。 \n\n用法: %s <music_directory>", os.Args[0], os.Args[0])
+		}
+		dirPath = storageData.LibraryPath
+	}
+
+	// Check if no path is provided and remember_library_path is disabled
+	if !GlobalConfig.App.RememberLibraryPath && dirPath == "" {
+		return "", fmt.Errorf("Please enter a music directory path.\nIf you want the application to remember the path, set `remember_library_path = true` in the config file.\n\nUsage: %s <music_directory>\n\n请输入音乐目录路径。\n如果希望应用记住该路径，请在配置文件中设置 `remember_library_path = true`。\n\n用法: %s <music_directory>", os.Args[0], os.Args[0])
+	}
+
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		return "", fmt.Errorf("Unable to access path: %v\n\n无法访问路径: %v", err, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("Input path must be a directory, not a file\n\n输入路径必须是目录，而不是文件")
+	}
+
+	if GlobalConfig.App.RememberLibraryPath {
+		absPath, err := filepath.Abs(dirPath)
+		if err != nil {
+			log.Printf("Warning: Unable to get absolute path: %v\n\n警告: 无法获取绝对路径: %v", err, err)
+		} else {
+			if err := SaveLibraryPath(absPath); err != nil {
+				log.Printf("Warning: Unable to save music library path: %v\n\n警告: 无法保存音乐库路径: %v", err, err)
+			}
+		}
+	}
+
+	return dirPath, nil
+}
+
+func runApplication(dirPath string) error {
 	storageData, err := loadStorageData()
 	if err != nil {
 		return fmt.Errorf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
-	}
-
-	if len(os.Args) >= 2 {
-		dirPath = os.Args[1]
-		info, err := os.Stat(dirPath)
-		if err != nil {
-			return fmt.Errorf("Unable to access path: %v\n\n无法访问路径: %v", err, err)
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("Input path must be a directory, not a file.\n\n输入路径必须是目录，而不是文件。")
-		}
-
-		if GlobalConfig.App.RememberLibraryPath {
-			absPath, err := filepath.Abs(dirPath)
-			if err != nil {
-				log.Printf("Warning: Unable to get absolute path: %v\n\n警告: 无法获取绝对路径: %v", err, err)
-			} else {
-				if err := SaveLibraryPath(absPath); err != nil {
-					log.Printf("Warning: Unable to save music library path: %v\n\n警告: 无法保存音乐库路径: %v", err, err)
-				}
-			}
-		}
-	} else {
-		// This branch should only be reached if remember_library_path is true and path exists
-		// 这个分支应该只在 remember_library_path 为 true 且路径存在时到达
-		dirPath = storageData.LibraryPath
-		if _, err := os.Stat(dirPath); err != nil {
-			return fmt.Errorf("The saved music library path is invalid or no longer exists: %s\n\n保存的音乐库路径无效或不存在: %s", dirPath, dirPath)
-		}
 	}
 
 	cellW, cellH, err := getCellSize()
@@ -964,10 +968,10 @@ func displayHelp() {
 	fmt.Println("  " + cyan + "bm" + reset + " [COMMANDS]")
 	fmt.Println()
 	fmt.Println(bold + "COMMANDS:" + reset)
-	fmt.Println("  " + green + "bm" + reset + "                         Start player with interactive library selection")
-	fmt.Println("  " + green + "bm <directory>" + reset + "             Start player with specified music library")
-	fmt.Println("  " + green + "bm <audio-file>" + reset + "            Play single audio file")
-	fmt.Println("  " + green + "bm help, -help, --help" + reset + "     Show this help message")
+	fmt.Println("  " + green + "bm" + reset + "                          Start player with interactive library selection")
+	fmt.Println("  " + green + "bm <directory>" + reset + "              Start player with specified music library")
+	fmt.Println("  " + green + "bm <audio-file>" + reset + "             Play single audio file")
+	fmt.Println("  " + green + "bm help, -h, -help, --help" + reset + "  Show this help message")
 	fmt.Println()
 	fmt.Println(bold + "SUPPORTED FORMATS:" + reset)
 	fmt.Println("  " + yellow + "FLAC, MP3, WAV, OGG" + reset)

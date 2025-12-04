@@ -643,7 +643,7 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	streamer, format, err := decodeAudioFile(songPath)
 	if err != nil {
 		p.app.MarkFileAsCorrupted(songPath)
-		return fmt.Errorf("解码音频失败: %v", err)
+		return fmt.Errorf("Failed to decode audio: %v\n\n解码音频失败: %v", err, err)
 	}
 
 	var audioStream beep.StreamSeeker = streamer
@@ -659,7 +659,7 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		resampledStream, err := highQualityResample(streamer, format.SampleRate, p.app.sampleRate)
 		if err != nil {
 			streamer.Close()
-			return fmt.Errorf("高质量重采样失败: %v", err)
+			return fmt.Errorf("High-quality resampling failed: %v\n\n高质量重采样失败: %v", err, err)
 		}
 		audioStream = resampledStream
 	}
@@ -669,7 +669,7 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	player, err := newAudioPlayer(audioStream, format, p.app.volume, p.app.playbackRate)
 	if err != nil {
 		streamer.Close()
-		return fmt.Errorf("创建播放器失败: %v", err)
+		return fmt.Errorf("Failed to create player: %v\n\n创建播放器失败: %v", err, err)
 	}
 
 	if p.app.mprisServer != nil {
