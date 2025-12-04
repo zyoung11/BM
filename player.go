@@ -215,9 +215,13 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 	} else if IsKey(key, GlobalConfig.Keymap.Player.NextSong) {
 		p.playNextSong()
 	} else if IsKey(key, GlobalConfig.Keymap.Player.TogglePlayMode) {
-		p.app.playMode = (p.app.playMode + 1) % 3
-		if err := SavePlayMode(p.app.playMode); err != nil {
-			log.Printf("Warning: failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
+		// Disable play mode toggle in single song mode
+		// 在单曲播放模式下禁用播放模式切换
+		if !p.app.isSingleSongMode {
+			p.app.playMode = (p.app.playMode + 1) % 3
+			if err := SavePlayMode(p.app.playMode); err != nil {
+				log.Printf("Warning: failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
+			}
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleTextColor) {
 		p.useCoverColor = !p.useCoverColor

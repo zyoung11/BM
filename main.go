@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 	"unicode"
@@ -148,6 +149,9 @@ type App struct {
 
 	// Corrupted file tracking. / 损坏文件跟踪。
 	corruptedFiles map[string]bool // Records corrupted FLAC files. / 记录损坏的FLAC文件。
+
+	// Single song mode flag. / 单曲播放模式标志。
+	isSingleSongMode bool // True if in single song playback mode. / 如果处于单曲播放模式，则为true。
 }
 
 // Page defines the interface for a TUI page.
@@ -563,6 +567,31 @@ func main() {
 			displayHelp()
 			return
 		}
+
+		// Check if the argument is an audio file
+		// We need to check this before loading config to avoid config validation errors
+		info, err := os.Stat(arg)
+		if err == nil && !info.IsDir() {
+			ext := filepath.Ext(arg)
+			ext = strings.ToLower(ext)
+			if ext == ".flac" || ext == ".mp3" || ext == ".wav" || ext == ".ogg" {
+				// Single song playback mode
+				// --- Terminal Setup ---
+				fmt.Print("\x1b[?1049h\x1b[?25l")
+				defer fmt.Print("\x1b[2J\x1b[?1049l\x1b[?25h") // Clear screen and restore on exit
+
+				oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+				if err != nil {
+					log.Fatalf("Failed to set raw mode: %v\n\n设置原始模式失败: %v", err, err)
+				}
+				defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+				if err := runSingleSong(arg); err != nil {
+					log.Fatalf("Failed to play single song: %v\n\n播放单曲失败: %v", err, err)
+				}
+				return
+			}
+		}
 	}
 
 	// Check configuration and path requirements BEFORE terminal setup
@@ -684,6 +713,7 @@ func runApplication() error {
 		historyIndex:        len(playHistory) - 1,
 		isNavigatingHistory: false,
 		corruptedFiles:      make(map[string]bool),
+		isSingleSongMode:    false, // Normal mode / 正常模式
 	}
 
 	if GlobalConfig.App.RememberVolume && storageData.Volume != nil {
@@ -756,6 +786,153 @@ func runApplication() error {
 	return app.Run()
 }
 
+// runSingleSong runs the application in single song playback mode.
+//
+// runSingleSong 以单曲播放模式运行应用程序。
+func runSingleSong(songPath string) error {
+	// Check if the file exists and is accessible
+	info, err := os.Stat(songPath)
+	if err != nil {
+		return fmt.Errorf("Unable to access file: %v\n\n无法访问文件: %v", err, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("Input must be an audio file, not a directory.\n\n输入必须是音频文件，而不是目录。")
+	}
+
+	// Get absolute path
+	absPath, err := filepath.Abs(songPath)
+	if err != nil {
+		return fmt.Errorf("Unable to get absolute path: %v\n\n无法获取绝对路径: %v", err, err)
+	}
+
+	// Load minimal config for single song mode
+	if err := loadMinimalConfig(); err != nil {
+		return fmt.Errorf("Failed to load minimal config: %v\n\n加载最小配置失败: %v", err, err)
+	}
+
+	cellW, cellH, err := getCellSize()
+	if err != nil {
+		return fmt.Errorf("Unable to get terminal cell size: %v\n\n无法获取终端单元格尺寸: %v", err, err)
+	}
+
+	sampleRate := beep.SampleRate(GlobalConfig.App.TargetSampleRate)
+	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
+
+	// Create app with single song
+	app := &App{
+		player:              nil,
+		mprisServer:         nil,
+		currentPageIndex:    0,                 // Player page only
+		Playlist:            []string{absPath}, // Single song playlist
+		LibraryPath:         filepath.Dir(absPath),
+		playMode:            0, // Repeat one
+		volume:              0,
+		linearVolume:        1.0,
+		playbackRate:        1.0,
+		actionQueue:         make(chan func(), 10),
+		sampleRate:          sampleRate,
+		playHistory:         make([]string, 0),
+		historyIndex:        -1,
+		isNavigatingHistory: false,
+		corruptedFiles:      make(map[string]bool),
+		isSingleSongMode:    true, // Mark as single song mode / 标记为单曲播放模式
+	}
+
+	// Create only the player page
+	playerPage := NewPlayerPage(app, "", cellW, cellH)
+	app.pages = []Page{playerPage} // Only player page
+
+	// Play the song
+	if err := app.PlaySongWithSwitchAndRender(absPath, true, false); err != nil {
+		return fmt.Errorf("Failed to play song: %v\n\n播放歌曲失败: %v", err, err)
+	}
+
+	// Run the application (only player page)
+	return app.Run()
+}
+
+// loadMinimalConfig loads minimal configuration for single song mode.
+//
+// loadMinimalConfig 为单曲播放模式加载最小配置。
+func loadMinimalConfig() error {
+	// Create a minimal config with defaults
+	GlobalConfig = &Config{
+		Keymap: Keymap{
+			Global: GlobalKeymap{
+				Quit:             Key{"esc"},
+				CyclePages:       Key{"tab"},
+				SwitchToPlayer:   Key{"1"},
+				SwitchToPlayList: Key{"2"},
+				SwitchToLibrary:  Key{"3"},
+			},
+			Player: PlayerKeymap{
+				TogglePause:     Key{"space"},
+				SeekForward:     Key{"e", "l"},
+				SeekBackward:    Key{"q", "h"},
+				VolumeUp:        Key{"w", "up"},
+				VolumeDown:      Key{"s", "down"},
+				RateUp:          Key{"x", "k"},
+				RateDown:        Key{"z", "j"},
+				NextSong:        Key{"d", "right"},
+				PrevSong:        Key{"a", "left"},
+				TogglePlayMode:  Key{"r"},
+				ToggleTextColor: Key{"c"},
+				Reset:           Key{"backspace"},
+			},
+			Library: LibraryKeymap{
+				NavUp:           Key{"k", "w", "up"},
+				NavDown:         Key{"j", "s", "down"},
+				NavEnterDir:     Key{"l", "d", "right"},
+				NavExitDir:      Key{"h", "a", "left"},
+				ToggleSelect:    Key{"space"},
+				ToggleSelectAll: Key{"e"},
+				Search:          Key{"f"},
+				SearchMode: SearchModeKeymap{
+					ConfirmSearch:   Key{"enter"},
+					EscapeSearch:    Key{"esc"},
+					SearchBackspace: Key{"backspace"},
+				},
+			},
+			Playlist: PlaylistKeymap{
+				NavUp:      Key{"k", "w", "up"},
+				NavDown:    Key{"j", "s", "down"},
+				RemoveSong: Key{"space"},
+				PlaySong:   Key{"enter"},
+				Search:     Key{"f"},
+				SearchMode: SearchModeKeymap{
+					ConfirmSearch:   Key{"enter"},
+					EscapeSearch:    Key{"esc"},
+					SearchBackspace: Key{"backspace"},
+				},
+			},
+		},
+		App: AppConfig{
+			MaxHistorySize:       100,
+			SwitchDebounceMs:     1000,
+			DefaultPage:          0,
+			DefaultPlayMode:      0,
+			RememberLibraryPath:  false,
+			PlaylistHistory:      false,
+			AutostartLastPlayed:  false,
+			RememberVolume:       false,
+			RememberPlaybackRate: false,
+			ResamplingQuality:    "quick",
+			DefaultColorR:        100,
+			DefaultColorG:        149,
+			DefaultColorB:        237,
+			ImageProtocol:        "auto",
+			EnableNotifications:  false,
+			LibraryPath:          "",
+			TargetSampleRate:     44100,
+			Storage:              "",
+			DefaultCoverPath:     "",
+			EnableFolderCovers:   true,
+		},
+	}
+
+	return nil
+}
+
 // MarkFileAsCorrupted marks a file as corrupted.
 //
 // MarkFileAsCorrupted 标记一个文件为已损坏。
@@ -771,10 +948,59 @@ func (a *App) IsFileCorrupted(filePath string) bool {
 }
 
 func displayHelp() {
-	fmt.Println("BM Music Player")
-	fmt.Println("\nUsage:")
-	fmt.Printf("  bm [directory]\t\tPlay music from the specified directory.\n")
-	fmt.Printf("  bm [command]\n")
-	fmt.Println("\nCommands:")
-	fmt.Printf("  help, -help, --help\t\tShow this help message.\n")
+	fmt.Println("┌─────────────────────────────────────────────────────┐")
+	fmt.Println("│                   BM Music Player                   │")
+	fmt.Println("└─────────────────────────────────────────────────────┘")
+	fmt.Println()
+	fmt.Println("📁 USAGE")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+	fmt.Println("🎵 Start with saved music library:")
+	fmt.Println("   bm")
+	fmt.Println("   • Requires remember_library_path = true in config")
+	fmt.Println("   • Must have saved a library path before")
+	fmt.Println()
+	fmt.Println("🎶 Play music from a directory:")
+	fmt.Println("   bm \"<directory_path>\"")
+	fmt.Println("   Example: bm \"/home/user/Music\"")
+	fmt.Println("   Example: bm \"./My Music\"")
+	fmt.Println()
+	fmt.Println("🎵 Play a single audio file:")
+	fmt.Println("   bm \"<audio_file_path>\"")
+	fmt.Println("   Supported formats: .flac .mp3 .wav .ogg")
+	fmt.Println("   Example: bm \"/home/user/Music/song.flac\"")
+	fmt.Println("   Example: bm \"song with spaces.mp3\"")
+	fmt.Println()
+	fmt.Println("🛠️  Commands:")
+	fmt.Println("   bm help          Show this help message")
+	fmt.Println("   bm -help         Same as above")
+	fmt.Println("   bm --help        Same as above")
+	fmt.Println()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+	fmt.Println("📁 使用方法")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+	fmt.Println("🎵 使用已保存的音乐库启动:")
+	fmt.Println("   bm")
+	fmt.Println("   • 需要在配置中设置 remember_library_path = true")
+	fmt.Println("   • 必须之前保存过音乐库路径")
+	fmt.Println()
+	fmt.Println("🎶 播放目录中的音乐:")
+	fmt.Println("   bm \"<目录路径>\"")
+	fmt.Println("   示例: bm \"/home/user/音乐\"")
+	fmt.Println("   示例: bm \"./我的音乐\"")
+	fmt.Println()
+	fmt.Println("🎵 播放单个音频文件:")
+	fmt.Println("   bm \"<音频文件路径>\"")
+	fmt.Println("   支持格式: .flac .mp3 .wav .ogg")
+	fmt.Println("   示例: bm \"/home/user/音乐/歌曲.flac\"")
+	fmt.Println("   示例: bm \"带空格的歌曲.mp3\"")
+	fmt.Println()
+	fmt.Println("🛠️  命令:")
+	fmt.Println("   bm help          显示此帮助信息")
+	fmt.Println("   bm -help         同上")
+	fmt.Println("   bm --help        同上")
+	fmt.Println()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 }
