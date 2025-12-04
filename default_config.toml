@@ -117,6 +117,17 @@ target_sample_rate = 44100
 # 支持 JPG 和 PNG 格式。如果为空或文件不存在，则不显示封面。
 default_cover_path = "~/.config/BM/default.jpg"
 
+# Enable folder cover art - when a song has no embedded cover art, search for image files
+# (jpg, jpeg, png) in the same folder and use one as the cover.
+# If multiple images are found, one is randomly selected.
+# Priority is given to files with names containing cover-related keywords (cover, folder, album, etc.)
+#
+# 启用文件夹封面功能 - 当歌曲没有内嵌封面时，在相同文件夹中搜索图片文件
+# (jpg, jpeg, png) 并使用其中一张作为封面。
+# 如果找到多个图片，随机选择一张。
+# 优先选择文件名包含封面相关关键词的图片（cover、folder、album等）
+enable_folder_covers = true
+
 # Keymap settings - defines all keybindings for the application.
 #
 # 键位映射设置 - 定义应用程序的所有按键绑定。
