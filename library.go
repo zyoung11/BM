@@ -1070,5 +1070,5 @@ func (p *Library) Tick() {}
 // isAudioFile 检查文件是否具有支持的音频扩展名。
 func isAudioFile(filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
-	return ext == ".flac" || ext == ".mp3"
+	return ext == ".flac" || ext == ".mp3" || ext == ".wav" || ext == ".ogg"
 }
