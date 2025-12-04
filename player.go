@@ -766,13 +766,19 @@ func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format, volumeLevel 
 }
 
 // saveCoverArt extracts the cover art from an audio file and saves it to a temporary file.
-// If the audio file has no cover, it uses the default cover image.
+// If the audio file has no cover, it tries to find an image in the same folder.
+// If no folder image is found, it uses the default cover image.
 // It returns the path to the temporary file.
 func saveCoverArt(audioPath string) string {
 	// Try to get cover from audio file
 	coverImg := getCoverFromAudioFile(audioPath)
 
-	// If no cover found, try default cover
+	// If no cover found in audio file, try folder images
+	if coverImg == nil {
+		coverImg = getFolderCoverImage(audioPath)
+	}
+
+	// If no folder image found, try default cover
 	if coverImg == nil {
 		defaultCoverPath := getDefaultCoverPath()
 		if defaultCoverPath != "" {
@@ -828,7 +834,12 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 	// Try to get cover from audio file
 	coverImg = getCoverFromAudioFile(p.flacPath)
 
-	// If no cover found in audio file, try default cover
+	// If no cover found in audio file, try folder images
+	if coverImg == nil {
+		coverImg = getFolderCoverImage(p.flacPath)
+	}
+
+	// If no folder image found, try default cover
 	if coverImg == nil {
 		defaultCoverPath := getDefaultCoverPath()
 		if defaultCoverPath != "" {
@@ -1442,6 +1453,72 @@ func loadImageFile(filePath string) (image.Image, error) {
 	}
 
 	return img, nil
+}
+
+// getFolderCoverImage searches for image files (jpg, jpeg, png) in the same directory as the audio file.
+// If multiple images are found, it randomly selects one.
+// It prioritizes files with names that suggest they are cover images (cover, folder, album, etc.)
+//
+// getFolderCoverImage 在音频文件所在目录中搜索图片文件（jpg, jpeg, png）。
+// 如果找到多个图片，则随机选择一个。
+// 优先选择文件名暗示为封面的图片（cover、folder、album等）。
+func getFolderCoverImage(audioPath string) image.Image {
+	dir := filepath.Dir(audioPath)
+
+	// 读取目录内容
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	var imageFiles []string
+	var priorityImageFiles []string // 优先选择的图片（文件名包含封面相关关键词）
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		name := file.Name()
+		baseName := strings.ToLower(filepath.Base(name))
+		ext := strings.ToLower(filepath.Ext(name))
+
+		// 检查是否是支持的图片格式
+		if ext == ".jpg" || ext == ".jpeg" || ext == ".png" {
+			fullPath := filepath.Join(dir, name)
+
+			// 检查文件名是否包含封面相关关键词
+			if strings.Contains(baseName, "cover") ||
+				strings.Contains(baseName, "folder") ||
+				strings.Contains(baseName, "album") ||
+				strings.Contains(baseName, "art") ||
+				strings.Contains(baseName, "front") {
+				priorityImageFiles = append(priorityImageFiles, fullPath)
+			} else {
+				imageFiles = append(imageFiles, fullPath)
+			}
+		}
+	}
+
+	// 优先使用包含封面关键词的图片
+	var selectedImage string
+	if len(priorityImageFiles) > 0 {
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		selectedImage = priorityImageFiles[rng.Intn(len(priorityImageFiles))]
+	} else if len(imageFiles) > 0 {
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		selectedImage = imageFiles[rng.Intn(len(imageFiles))]
+	} else {
+		return nil
+	}
+
+	// 加载图片
+	img, err := loadImageFile(selectedImage)
+	if err != nil {
+		return nil
+	}
+
+	return img
 }
 
 // getDefaultCoverPath returns the path to the default cover image.
