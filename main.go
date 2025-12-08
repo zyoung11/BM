@@ -962,7 +962,7 @@ func displayHelp() {
 	)
 
 	fmt.Println()
-	fmt.Println(bold + "BM Music Player" + reset)
+	fmt.Println(bold + "BM Terminal Music Player" + reset)
 	fmt.Println()
 	fmt.Println(bold + "USAGE:" + reset)
 	fmt.Println("  " + cyan + "bm" + reset + " [COMMANDS]")
