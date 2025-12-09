@@ -61,7 +61,7 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
    ```bash
    git clone https://github.com/zyoung11/BM.git
    cd BM
-   go build .
+   go build -ldflags="-s -w" .'
    ```
 
 3. **Install to system path (optional)**
