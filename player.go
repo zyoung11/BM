@@ -1359,247 +1359,39 @@ func getSongMetadata(flacPath string) (title, artist, album string) {
 
 func analyzeCoverColor(img image.Image) (r, g, b int) {
 	bounds := img.Bounds()
+	colorCount := make(map[[3]int]int)
 
-	// 使用颜色桶进行粗略统计，避免过于精确的匹配
-	colorBuckets := make(map[[3]int]int)
-
-	// 采样步长，提高性能
-	step := 4
-	if bounds.Dx() < 100 || bounds.Dy() < 100 {
-		step = 2
-	}
-
-	// 优先考虑图片中心区域（假设封面主体在中心）
-	centerX := bounds.Min.X + bounds.Dx()/2
-	centerY := bounds.Min.Y + bounds.Dy()/2
-	centerRadius := min(bounds.Dx(), bounds.Dy()) / 4
-
-	for y := bounds.Min.Y; y < bounds.Max.Y; y += step {
-		for x := bounds.Min.X; x < bounds.Max.X; x += step {
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			pr, pg, pb, _ := img.At(x, y).RGBA()
 			r8, g8, b8 := int(pr>>8), int(pg>>8), int(pb>>8)
-
-			// 转换为HSL以更好地判断颜色质量
-			h, s, l := rgbToHSL(r8, g8, b8)
-
-			// 改进的筛选条件：
-			// 1. 亮度适中（不要太亮也不要太暗）
-			// 2. 饱和度适中（不要太鲜艳也不要太灰）
-			// 3. 排除接近白色的颜色
-			// 4. 排除接近黑色的颜色
-			isGoodBrightness := l >= 30 && l <= 80 // 30-80% 亮度范围
-			isGoodSaturation := s >= 20 && s <= 80 // 20-80% 饱和度范围
-			isNotWhite := !(r8 > 240 && g8 > 240 && b8 > 240)
-			isNotBlack := !(r8 < 20 && g8 < 20 && b8 < 20)
-
-			// 排除某些过于鲜艳的颜色（如亮黄、亮绿等）
-			isNotTooVivid := !(s > 70 && l > 70) // 高饱和度+高亮度 = 过于鲜艳
-
-			// 排除某些不协调的颜色（如纯红、纯绿、纯蓝）
-			isNotPrimaryColor := !(s > 60 && (h < 30 || (h > 150 && h < 210) || h > 330))
-
-			if isGoodBrightness && isGoodSaturation && isNotWhite && isNotBlack && isNotTooVivid && isNotPrimaryColor {
-				// 使用颜色桶（将颜色量化到16级）
-				bucketR := (r8 / 16) * 16
-				bucketG := (g8 / 16) * 16
-				bucketB := (b8 / 16) * 16
-				bucket := [3]int{bucketR, bucketG, bucketB}
-
-				// 给中心区域的颜色更高的权重
-				weight := 1
-				dx := x - centerX
-				dy := y - centerY
-				distance := dx*dx + dy*dy
-				if distance < centerRadius*centerRadius {
-					weight = 3 // 中心区域权重更高
-				}
-
-				colorBuckets[bucket] += weight
+			brightness := 0.2126*float64(r8) + 0.7152*float64(g8) + 0.0722*float64(b8)
+			isBright := brightness > 160
+			isNotGray := math.Abs(float64(r8)-float64(g8)) > 25 || math.Abs(float64(g8)-float64(b8)) > 25
+			isNotWhite := !(r8 > 220 && g8 > 220 && b8 > 220)
+			if isBright && isNotGray && isNotWhite {
+				color := [3]int{r8, g8, b8}
+				colorCount[color]++
 			}
 		}
 	}
 
-	// 如果没有找到合适的颜色，尝试放宽条件
-	if len(colorBuckets) == 0 {
-		// 放宽条件：允许稍高的饱和度和亮度
-		for y := bounds.Min.Y; y < bounds.Max.Y; y += step * 2 {
-			for x := bounds.Min.X; x < bounds.Max.X; x += step * 2 {
-				pr, pg, pb, _ := img.At(x, y).RGBA()
-				r8, g8, b8 := int(pr>>8), int(pg>>8), int(pb>>8)
-
-				_, s, l := rgbToHSL(r8, g8, b8)
-
-				// 放宽的条件
-				isGoodBrightness := l >= 20 && l <= 85
-				isGoodSaturation := s >= 15 && s <= 85
-				isNotWhite := !(r8 > 230 && g8 > 230 && b8 > 230)
-				isNotBlack := !(r8 < 30 && g8 < 30 && b8 < 30)
-
-				if isGoodBrightness && isGoodSaturation && isNotWhite && isNotBlack {
-					bucketR := (r8 / 16) * 16
-					bucketG := (g8 / 16) * 16
-					bucketB := (b8 / 16) * 16
-					bucket := [3]int{bucketR, bucketG, bucketB}
-
-					colorBuckets[bucket]++
-				}
-			}
-		}
-	}
-
-	// 找到最频繁的颜色桶
 	maxCount := 0
-	var bestColor [3]int
-	for color, count := range colorBuckets {
+	var dominantColor [3]int
+	for color, count := range colorCount {
 		if count > maxCount {
 			maxCount = count
-			bestColor = color
+			dominantColor = color
 		}
 	}
 
 	if maxCount > 0 {
-		// 对颜色进行微调，使其更"高级"
-		r, g, b = adjustColorForSophistication(bestColor[0], bestColor[1], bestColor[2])
-		return r, g, b
+		return dominantColor[0], dominantColor[1], dominantColor[2]
 	}
 
+	// Fallback to the configured default color when no suitable color is found
 	// 当没有找到合适的颜色时，回退到配置的默认颜色
 	return GlobalConfig.App.DefaultColorR, GlobalConfig.App.DefaultColorG, GlobalConfig.App.DefaultColorB
-}
-
-// rgbToHSL 将RGB颜色转换为HSL颜色空间
-func rgbToHSL(r, g, b int) (h, s, l float64) {
-	rf := float64(r) / 255.0
-	gf := float64(g) / 255.0
-	bf := float64(b) / 255.0
-
-	max := math.Max(math.Max(rf, gf), bf)
-	min := math.Min(math.Min(rf, gf), bf)
-
-	// 亮度
-	l = (max + min) / 2.0
-
-	// 饱和度和色相
-	if max == min {
-		s = 0
-		h = 0
-	} else {
-		d := max - min
-		if l > 0.5 {
-			s = d / (2.0 - max - min)
-		} else {
-			s = d / (max + min)
-		}
-
-		switch max {
-		case rf:
-			h = (gf - bf) / d
-			if g < b {
-				h += 6
-			}
-		case gf:
-			h = (bf-rf)/d + 2
-		case bf:
-			h = (rf-gf)/d + 4
-		}
-		h /= 6
-	}
-
-	// 转换为百分比
-	s *= 100
-	l *= 100
-	h *= 360
-
-	return h, s, l
-}
-
-// adjustColorForSophistication 调整颜色使其看起来更"高级"
-func adjustColorForSophistication(r, g, b int) (int, int, int) {
-	// 转换为HSL以便调整
-	h, s, l := rgbToHSL(r, g, b)
-
-	// 调整策略：
-	// 1. 稍微降低饱和度（高级颜色通常饱和度适中）
-	// 2. 稍微调整亮度到更舒适的范围
-	// 3. 对于某些色相，进行特殊处理
-
-	// 降低饱和度（但不要降太多）
-	s = math.Max(20, s*0.8)
-
-	// 调整亮度到更舒适的范围（40-70%）
-	if l < 40 {
-		l = 40 + (l/40)*10
-	} else if l > 70 {
-		l = 70 + (l-70)*0.3
-	}
-
-	// 对于某些色相的特殊处理
-	if h >= 50 && h <= 70 {
-		// 黄色系：降低饱和度，增加一点红色调
-		s = math.Max(25, s*0.7)
-		h = h * 0.9
-	} else if h >= 100 && h <= 140 {
-		// 绿色系：降低饱和度，稍微偏蓝绿
-		s = math.Max(25, s*0.75)
-		h = h * 1.05
-	} else if h >= 200 && h <= 260 {
-		// 蓝色系：保持或稍微增加饱和度
-		s = math.Min(70, s*1.1)
-	}
-
-	// 转换回RGB
-	return hslToRGB(h, s, l)
-}
-
-// hslToRGB 将HSL颜色转换回RGB
-func hslToRGB(h, s, l float64) (int, int, int) {
-	// 将百分比转换回0-1范围
-	s /= 100
-	l /= 100
-
-	var r, g, b float64
-
-	if s == 0 {
-		// 灰色
-		r = l
-		g = l
-		b = l
-	} else {
-		var q float64
-		if l < 0.5 {
-			q = l * (1 + s)
-		} else {
-			q = l + s - l*s
-		}
-		p := 2*l - q
-
-		h /= 360
-		r = hueToRGB(p, q, h+1.0/3.0)
-		g = hueToRGB(p, q, h)
-		b = hueToRGB(p, q, h-1.0/3.0)
-	}
-
-	return int(r * 255), int(g * 255), int(b * 255)
-}
-
-// hueToRGB 辅助函数，用于HSL到RGB的转换
-func hueToRGB(p, q, t float64) float64 {
-	if t < 0 {
-		t += 1
-	}
-	if t > 1 {
-		t -= 1
-	}
-	if t < 1.0/6.0 {
-		return p + (q-p)*6*t
-	}
-	if t < 1.0/2.0 {
-		return q
-	}
-	if t < 2.0/3.0 {
-		return p + (q-p)*(2.0/3.0-t)*6
-	}
-	return p
 }
 
 // decodeAudioFile decodes an audio file based on its extension.
