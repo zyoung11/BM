@@ -4,7 +4,7 @@
 
 **中文版本**: [README_CN.md](README_CN.md)
 
-BM is a modern terminal music player written in Go, featuring a rich set of functions and a beautiful TUI interface. It supports FLAC, MP3, WAV, and OGG audio formats, providing album cover display, playlist management, fuzzy search, and more. This project exists purely because I love [kew](https://github.com/ravachol/kew) so much, but I'm not familiar with C language, so I wrote this terminal music player in Go that better suits my aesthetic and habits.
+BM is a modern terminal music player written in Go, featuring a rich set of functions and a beautiful TUI interface. It supports FLAC, MP3, WAV, and OGG audio formats, providing album cover display, playlist management, fuzzy search, and more. This project exists purely because I love [kew](https://github.com/ravachol/kew) so much, but I'm not familiar with C, so I wrote this terminal music player in Go that better suits my aesthetic and habits.
 
 ## Features
 
