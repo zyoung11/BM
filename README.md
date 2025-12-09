@@ -49,7 +49,7 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 
 ### Building from Source
 
-1. **Install Go 1.25.4 or higher**
+1. **Install Go**
 
    ```bash
    # Arch Linux
@@ -219,4 +219,3 @@ Thanks to the following open source projects:
 
 ---
 
-**BM** - Beautiful music playback experience for terminal users 🎶
