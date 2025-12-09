@@ -1,6 +1,6 @@
 # BM - Terminal Music Player
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)![Go Version](https://img.shields.io/badge/go-1.25.4+-blue.svg)![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)
+![](/home/zy/zy/XM/GO/BM/image.png)
 
 BM is a modern terminal music player written in Go, featuring a rich set of functions and a beautiful TUI interface. It supports FLAC, MP3, WAV, and OGG audio formats, providing album cover display, playlist management, fuzzy search, and more. This project exists purely because I love [kew](https://github.com/ravachol/kew) so much, but I'm not familiar with C language, so I wrote this terminal music player in Go that better suits my aesthetic and habits.
 
