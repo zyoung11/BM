@@ -1,6 +1,6 @@
 # BM - 终端音乐播放器
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)![Go Version](https://img.shields.io/badge/go-1.25.4+-blue.svg)![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)
+![](/home/zy/zy/XM/GO/BM/image.png)
 
 BM 是一个用 Go 语言编写的现代化终端音乐播放器，具有丰富的功能和美观的 TUI 界面。支持 FLAC、MP3、WAV、OGG 音频格式，提供专辑封面显示、播放列表管理、模糊搜索等功能。这个项目之所以存在纯粹是因为我太喜欢 [kew](https://github.com/ravachol/kew) 了，但是我并不熟悉C语言所以就用GO语言写了这个更符合我自己审美和使用习惯的终端音乐播放器。
 
