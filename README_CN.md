@@ -212,7 +212,8 @@ bm/
 - [beep](https://github.com/gopxl/beep) - Go 音频播放库
 - [tag](https://github.com/dhowden/tag) - 音频元数据读取
 - [dbus](https://github.com/godbus/dbus) - D-Bus Go 绑定
-- [go-term](https://golang.org/x/term) - 终端控制库
+- [go-term](https://github.com/golang/term) - 终端控制库
+- [go-sixel](https://github.com/mattn/go-sixel) - Sixel 协议编解码库
 
 ---
 
