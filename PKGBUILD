@@ -1,5 +1,5 @@
 # Maintainer: zyoung11 <zy3180250@163.com>
-pkgname='bm'
+pkgname='bm-terminal-music-player'
 pkgver=0.1.1
 pkgrel=1
 pkgdesc="A minimalist terminal music player."
