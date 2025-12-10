@@ -49,6 +49,16 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 
 ## Installation
 
+### Arch Linux (AUR)
+
+```bash
+# Using yay
+yay -S bm-terminal-music-player
+
+# Or using paru
+paru -S bm-terminal-music-player
+```
+
 ### Building from Source
 
 1. **Install Go**
