@@ -47,6 +47,16 @@ BM 是一个用 Go 语言编写的现代化终端音乐播放器，具有丰富�
 
 ## 安装
 
+### Arch Linux (AUR)
+
+```bash
+# 使用 yay
+yay -S bm-terminal-music-player
+
+# 或使用 paru
+paru -S bm-terminal-music-player
+```
+
 ### 从源码构建
 
 1. **安装 Go**
