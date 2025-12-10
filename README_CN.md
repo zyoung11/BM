@@ -183,30 +183,6 @@ BM 实现了完整的 MPRIS2（Media Player Remote Interfacing Specification）�
 - 音量控制
 - 播放位置同步
 
-## 项目结构
-
-```
-BM/
-├── main.go              # 应用程序入口和核心逻辑
-├── config.go            # 配置管理（TOML）
-├── player.go            # 音频播放和UI渲染
-├── library.go           # 媒体库浏览和管理
-├── playlist.go          # 播放列表管理
-├── storage.go           # 持久化存储（JSON）
-├── mpris.go             # MPRIS2 D-Bus 接口
-├── term_renderer.go     # 终端图像渲染
-├── notification.go      # 桌面通知
-├── sixel.go             # Sixel 图像编码器
-├── default_config.toml  # 默认配置文件
-├── default.jpg          # 默认封面图片
-├── go.mod               # Go 模块定义
-└── README.md            # 项目说明文档
-```
-
-## 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
 ## 致谢
 
 感谢以下开源项目的贡献：
