@@ -1,6 +1,6 @@
 # BM - Terminal Music Player
 
-![](image.png)
+![](images/image1.png)
 
 **中文版本**: [README_CN.md](README_CN.md)
 
@@ -25,8 +25,10 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 
 ### Media Management
 
+![](images/image2.png)
+
 - **Filesystem browsing**: Complete directory navigation functionality
-- **Fuzzy search**: Supports Chinese and English fuzzy matching
+- **Fuzzy search**: Supports Chinese and English fuzzy matchinga
 - **Playlist**: Dynamic playlist management
 - **Playback history**: Records up to 100 playback history entries
 - **Corrupted file detection**: Automatically marks unplayable files
@@ -186,7 +188,7 @@ BM implements a complete MPRIS2 (Media Player Remote Interfacing Specification) 
 ## Project Structure
 
 ```
-bm/
+BM/
 ├── main.go              # Application entry and core logic
 ├── config.go            # Configuration management (TOML)
 ├── player.go            # Audio playback and UI rendering
