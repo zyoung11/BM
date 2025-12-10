@@ -185,30 +185,6 @@ BM implements a complete MPRIS2 (Media Player Remote Interfacing Specification) 
 - Volume control
 - Playback position synchronization
 
-## Project Structure
-
-```
-BM/
-├── main.go              # Application entry and core logic
-├── config.go            # Configuration management (TOML)
-├── player.go            # Audio playback and UI rendering
-├── library.go           # Media library browsing and management
-├── playlist.go          # Playlist management
-├── storage.go           # Persistent storage (JSON)
-├── mpris.go             # MPRIS2 D-Bus interface
-├── term_renderer.go     # Terminal image rendering
-├── notification.go      # Desktop notifications
-├── sixel.go             # Sixel image encoder
-├── default_config.toml  # Default configuration file
-├── default.jpg          # Default cover image
-├── go.mod               # Go module definition
-└── README.md            # Project documentation
-```
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## Acknowledgments
 
 Thanks to the following open source projects:
