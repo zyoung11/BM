@@ -178,7 +178,7 @@ bm help
 - PNG
 
 ### 终端图像协议
-- **Kitty**: 现代终端（Kitty、WezTerm、Ghostty、Rio）
+- **Kitty**: 现代终端（Kitty、WezTerm、Ghostty 等）
 - **Sixel**: 传统终端支持
 - **iTerm2**: macOS iTerm2 终端
 - **Auto**: 自动检测最佳可用协议
