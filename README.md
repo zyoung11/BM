@@ -180,7 +180,7 @@ The configuration file supports complete key mapping customization, supporting s
 - PNG
 
 ### Terminal Image Protocols
-- **Kitty**: Modern terminals (Kitty, WezTerm, Ghostty, Rio)
+- **Kitty**: Modern terminals (Kitty, WezTerm, Ghostty and more)
 - **Sixel**: Traditional terminal support
 - **iTerm2**: macOS iTerm2 terminal
 - **Auto**: Automatically detects best available protocol
