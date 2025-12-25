@@ -82,7 +82,7 @@ paru -S bm-terminal-music-player
 
 ### 预编译二进制
 
-从 [Releases](https://github.com/yourusername/bm/releases) 页面下载对应平台的二进制文件，赋予执行权限后即可使用。
+从 [Releases](https://github.com/zyoung11/BM/releases) 页面下载对应平台的二进制文件，赋予执行权限后即可使用。
 
 ## 使用
 

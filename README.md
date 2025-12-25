@@ -84,7 +84,7 @@ paru -S bm-terminal-music-player
 
 ### Precompiled Binaries
 
-Download the binary for your platform from the [Releases](https://github.com/yourusername/bm/releases) page, grant execute permissions, and you're ready to use it.
+Download the binary for your platform from the [Releases](https://github.com/zyoung11/BM/releases) page, grant execute permissions, and you're ready to use it.
 
 ## Usage
 
