@@ -104,9 +104,14 @@ bm
 bm help
 ```
 
+### Get local music files (NetEase Cloud Music)
+
+You can use [FNE](https://github.com/zyoung11/FNE) another tool I made to decrypt encrypted music files from NetEase Cloud Music into the FLAC format that BM can use, but you will need a Windows computer and a NetEase Cloud Music membership.
+
 ### Operation Guide
 
 #### Global Shortcuts
+
 | Key | Function |
 |------|------|
 | `ESC` | Exit program |
