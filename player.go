@@ -438,9 +438,11 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 
 		err := p.app.PlaySongWithSwitchAndRender(nextSong, true, true)
 		if err == nil {
-			title, artist, _ := getSongMetadata(nextSong)
-			coverPath := saveCoverArt(nextSong)
-			sendNotification(artist, title, coverPath)
+			if len(p.app.Playlist) > 1 {
+				title, artist, _ := getSongMetadata(nextSong)
+				coverPath := saveCoverArt(nextSong)
+				sendNotification(artist, title, coverPath)
+			}
 			return
 		}
 		p.app.MarkFileAsCorrupted(nextSong)
@@ -528,9 +530,11 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 
 		err := p.app.PlaySongWithSwitchAndRender(prevSong, true, true)
 		if err == nil {
-			title, artist, _ := getSongMetadata(prevSong)
-			coverPath := saveCoverArt(prevSong)
-			sendNotification(artist, title, coverPath)
+			if len(p.app.Playlist) > 1 {
+				title, artist, _ := getSongMetadata(prevSong)
+				coverPath := saveCoverArt(prevSong)
+				sendNotification(artist, title, coverPath)
+			}
 			return
 		}
 		p.app.MarkFileAsCorrupted(prevSong)
@@ -719,9 +723,11 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		p.UpdateSong(songPath)
 	}
 
-	title, artist, _ := getSongMetadata(songPath)
-	coverPath := saveCoverArt(songPath)
-	sendNotification(artist, title, coverPath)
+	if len(p.app.Playlist) > 1 {
+		title, artist, _ := getSongMetadata(songPath)
+		coverPath := saveCoverArt(songPath)
+		sendNotification(artist, title, coverPath)
+	}
 
 	return nil
 }
