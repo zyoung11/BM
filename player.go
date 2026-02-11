@@ -782,15 +782,12 @@ func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format, volumeLevel 
 // If no folder image is found, it uses the default cover image.
 // It returns the path to the temporary file.
 func saveCoverArt(audioPath string) string {
-	// Try to get cover from audio file
 	coverImg := getCoverFromAudioFile(audioPath)
 
-	// If no cover found in audio file and folder covers are enabled, try folder images
 	if coverImg == nil && GlobalConfig != nil && GlobalConfig.App.EnableFolderCovers {
 		coverImg = getFolderCoverImage(audioPath)
 	}
 
-	// If no folder image found, try default cover
 	if coverImg == nil {
 		defaultCoverPath := getDefaultCoverPath()
 		if defaultCoverPath != "" {
@@ -824,7 +821,7 @@ func saveCoverArt(audioPath string) string {
 func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB int) {
 	// This function is very large. It remains mostly the same, but now it's a method.
 	// We access flacPath and cell sizes via `p`.
-	time.Sleep(50 * time.Millisecond) // This might be removed later for performance
+	time.Sleep(50 * time.Millisecond)
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		fmt.Print("\x1b[2J\x1b[H")
@@ -843,15 +840,12 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 	showTextOnly := h < 13
 	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20) && !showNothing && !showTextOnly
 
-	// Try to get cover from audio file
 	coverImg = getCoverFromAudioFile(p.flacPath)
 
-	// If no cover found in audio file and folder covers are enabled, try folder images
 	if coverImg == nil && GlobalConfig != nil && GlobalConfig.App.EnableFolderCovers {
 		coverImg = getFolderCoverImage(p.flacPath)
 	}
 
-	// If no folder image found, try default cover
 	if coverImg == nil {
 		defaultCoverPath := getDefaultCoverPath()
 		if defaultCoverPath != "" {
@@ -955,9 +949,7 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 
 		if !showNothing && !showTextOnly {
 			fmt.Printf("\x1b[%d;%dH", startRow, startCol)
-			// 使用新的终端图像渲染器
 			if err := RenderImage(scaledImg, imageWidthInChars, imageHeightInChars); err != nil {
-				// 如果新渲染器失败，回退到原来的sixel渲染器
 				_ = NewEncoder(os.Stdout).Encode(scaledImg)
 			}
 			if imageWidthInChars > 0 && startCol+imageWidthInChars <= w {
@@ -1026,21 +1018,16 @@ func (p *PlayerPage) updateStatus() {
 	}
 
 	if isWideTerminal && !p.textTooLongForWide {
-		// Normal wide terminal mode - show image on left, text on right
 		if p.imageRightEdge > 0 && w-p.imageRightEdge >= 30 {
 			p.updateRightPanel(w)
 		}
 	} else if isWideTerminal && p.textTooLongForWide && p.showTextInWideMode {
-		// Text too long for right panel, but can show below image - use narrow terminal layout
 		imageBottomRow := p.imageTop + p.imageHeight
 		if h-imageBottomRow >= 5 {
 			p.updateBottomStatus(imageBottomRow, w, h)
 		}
 	} else if isWideTerminal && p.textTooLongForWide && !p.showTextInWideMode {
-		// Text too long and cannot show below image - don't show text, just show centered image
-		// No need to call updateRightPanel or updateBottomStatus
 	} else {
-		// Normal narrow terminal mode
 		imageBottomRow := p.imageTop + p.imageHeight
 		if h-imageBottomRow >= 5 {
 			p.updateBottomStatus(imageBottomRow, w, h)
@@ -1055,7 +1042,6 @@ func (p *PlayerPage) updateRightPanel(w int) {
 
 	title, artist, album := getSongMetadata(p.flacPath)
 
-	// Use runewidth for accurate string width calculation
 	titleWidth := runewidth.StringWidth(title)
 	artistWidth := runewidth.StringWidth(artist)
 	albumWidth := runewidth.StringWidth(album)
@@ -1080,13 +1066,12 @@ func (p *PlayerPage) updateRightPanel(w int) {
 	}
 
 	colorCode := p.getColorCode()
-	// Use individual centering for each line (same as narrow terminal mode)
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", titleRow, centerCol-titleWidth/2, colorCode, title)
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", artistRow, centerCol-artistWidth/2, colorCode, artist)
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", albumRow, centerCol-albumWidth/2, colorCode, album)
 
 	progressBarStartCol := p.imageRightEdge + 5
-	progressBarWidth := w - progressBarStartCol - 2 // Reduced by 1 character
+	progressBarWidth := w - progressBarStartCol - 2
 	if progressBarWidth < 10 {
 		return
 	}
@@ -1102,7 +1087,6 @@ func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 	centerCol := w / 2
 
 	colorCode := p.getColorCode()
-	// Use runewidth for accurate string width calculation
 	titleWidth := runewidth.StringWidth(title)
 	artistWidth := runewidth.StringWidth(artist)
 	albumWidth := runewidth.StringWidth(album)
@@ -1125,7 +1109,6 @@ func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 	centerRow, centerCol := h/2, w/2
 
 	colorCode := p.getColorCode()
-	// Use runewidth for accurate string width calculation
 	titleWidth := runewidth.StringWidth(title)
 	artistWidth := runewidth.StringWidth(artist)
 	albumWidth := runewidth.StringWidth(album)
@@ -1152,12 +1135,9 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 
 	// --- Indicators (Volume & Rate & Resample) ---
 	indicatorRow := row - 1
-	// Ensure we don't draw at or above the first row, and there's a progress bar to align with.
 	if indicatorRow > 0 && width > 0 {
-		// Only clear the indicator area, not the whole line
 		fmt.Printf("\x1b[%d;%dH\x1b[K", indicatorRow, startCol)
 
-		// Draw Resample Indicator (居中显示，优先级最高)
 		if p.resampleDisplayTimer > 0 {
 			resampleStr := "↻ Resampling"
 			resampleWidth := runewidth.StringWidth(resampleStr)
@@ -1167,24 +1147,19 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 			}
 			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, resampleStartCol, colorCode, resampleStr)
 		} else {
-			// 如果没有重采样提示，显示音量和播放速度
-			// Draw Volume Indicator
 			if p.volumeDisplayTimer > 0 {
-				// With the new linear volume, we can just multiply by 100
 				volPercent := int(math.Round(p.app.linearVolume * 100))
 				volStr := fmt.Sprintf("%d%%", volPercent)
 				fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, startCol, colorCode, volStr)
 			}
 
-			// Draw Rate Indicator
 			if p.rateDisplayTimer > 0 {
 				rateVal := p.app.player.resampler.Ratio()
 				rateStr := fmt.Sprintf("%.2fx", rateVal)
-				// Align the end of the string with the end of the progress bar
 				rateWidth := runewidth.StringWidth(rateStr)
 				rateStartCol := startCol + width - rateWidth
-				if rateStartCol < startCol { // Ensure it doesn't overlap with volume
-					rateStartCol = startCol + 7 // A safe offset
+				if rateStartCol < startCol {
+					rateStartCol = startCol + 7
 				}
 				fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, rateStartCol, colorCode, rateStr)
 			}
@@ -1200,32 +1175,30 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 
 	playedChars := int(float64(width) * progress)
 
-	// 根据播放状态和播放模式显示图标
 	icon := "⏸"
 	if p.app.player.ctrl.Paused {
 		icon = "▶"
 	}
 
-	// 播放模式图标
-	modeIcon := "⟳" // 默认单曲循环
+	modeIcon := "⟳"
 	switch p.app.playMode {
 	case 1:
-		modeIcon = "⇆" // 列表循环
+		modeIcon = "⇆"
 	case 2:
-		modeIcon = "⤮" // 随机播放
+		modeIcon = "⤮"
 	}
 
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s", row, startCol-2, colorCode, icon)
 
 	var bar string
 	if playedChars > 0 {
-		bar += fmt.Sprintf("\x1b[2m%s", colorCode) // Dim played part
+		bar += fmt.Sprintf("\x1b[2m%s", colorCode)
 		for range playedChars {
 			bar += "━"
 		}
 		bar += "\x1b[0m"
 	}
-	bar += colorCode // Unplayed part
+	bar += colorCode
 	for i := playedChars; i < width; i++ {
 		bar += "━"
 	}
@@ -1238,7 +1211,7 @@ func (p *PlayerPage) getColorCode() string {
 	if p.useCoverColor {
 		return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", p.coverColorR, p.coverColorG, p.coverColorB)
 	}
-	return "\x1b[37m" // White
+	return "\x1b[37m"
 }
 
 // --- Misc Helper Functions ---
@@ -1252,18 +1225,14 @@ func (p *PlayerPage) getColorCode() string {
 // 如果解析失败则返回空字符串。
 func parseMetadataFromFilename(filePath string) (title, artist, album string) {
 	filename := filepath.Base(filePath)
-	// Remove file extension
 	ext := filepath.Ext(filename)
 	nameWithoutExt := filename[:len(filename)-len(ext)]
 
-	// Try to split by " - " (with spaces)
 	parts := strings.SplitN(nameWithoutExt, " - ", 2)
 	if len(parts) == 2 {
 		artist = strings.TrimSpace(parts[0])
 		title = strings.TrimSpace(parts[1])
 
-		// Clean up common patterns
-		// Remove track numbers like "01. ", "02 - ", etc.
 		if len(title) > 3 && title[2] == '.' && title[3] == ' ' {
 			title = title[4:]
 		}
@@ -1271,12 +1240,8 @@ func parseMetadataFromFilename(filePath string) (title, artist, album string) {
 			title = title[5:]
 		}
 
-		// Remove parentheses and brackets
 		title = strings.TrimSpace(title)
 		artist = strings.TrimSpace(artist)
-
-		// If artist contains commas, it's multiple artists
-		// We'll keep it as is for display
 	}
 
 	return title, artist, ""
@@ -1331,12 +1296,10 @@ func getSongMetadata(flacPath string) (title, artist, album string) {
 	defer f.Close()
 	m, err := tag.ReadFrom(f)
 	if err != nil {
-		// Try to parse from filename as fallback
 		return parseMetadataFromFilename(flacPath)
 	}
 	title, artist, album = m.Title(), m.Artist(), m.Album()
 
-	// If metadata is empty, try to parse from filename
 	if title == "" || artist == "" {
 		filenameTitle, filenameArtist, filenameAlbum := parseMetadataFromFilename(flacPath)
 		if title == "" && filenameTitle != "" {
@@ -1350,7 +1313,6 @@ func getSongMetadata(flacPath string) (title, artist, album string) {
 		}
 	}
 
-	// Final fallback to empty strings if still empty
 	if title == "" {
 		title = ""
 	}
@@ -1481,14 +1443,13 @@ func loadImageFile(filePath string) (image.Image, error) {
 func getFolderCoverImage(audioPath string) image.Image {
 	dir := filepath.Dir(audioPath)
 
-	// 读取目录内容
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
 
 	var imageFiles []string
-	var priorityImageFiles []string // 优先选择的图片（文件名包含封面相关关键词）
+	var priorityImageFiles []string
 
 	for _, file := range files {
 		if file.IsDir() {
@@ -1499,11 +1460,9 @@ func getFolderCoverImage(audioPath string) image.Image {
 		baseName := strings.ToLower(filepath.Base(name))
 		ext := strings.ToLower(filepath.Ext(name))
 
-		// 检查是否是支持的图片格式
 		if ext == ".jpg" || ext == ".jpeg" || ext == ".png" {
 			fullPath := filepath.Join(dir, name)
 
-			// 检查文件名是否包含封面相关关键词
 			if strings.Contains(baseName, "cover") ||
 				strings.Contains(baseName, "folder") ||
 				strings.Contains(baseName, "album") ||
@@ -1516,7 +1475,6 @@ func getFolderCoverImage(audioPath string) image.Image {
 		}
 	}
 
-	// 优先使用包含封面关键词的图片
 	var selectedImage string
 	if len(priorityImageFiles) > 0 {
 		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -1528,7 +1486,6 @@ func getFolderCoverImage(audioPath string) image.Image {
 		return nil
 	}
 
-	// 加载图片
 	img, err := loadImageFile(selectedImage)
 	if err != nil {
 		return nil

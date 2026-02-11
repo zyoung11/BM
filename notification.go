@@ -1,13 +1,24 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 )
 
+var notifySendAvailable bool
+
+func init() {
+	if _, err := exec.LookPath("notify-send"); err == nil {
+		notifySendAvailable = true
+	}
+}
+
 func sendNotification(artist, title, coverPath string) {
+	if !notifySendAvailable {
+		return
+	}
+
 	if GlobalConfig != nil && !GlobalConfig.App.EnableNotifications {
 		return
 	}
@@ -23,7 +34,6 @@ func sendNotification(artist, title, coverPath string) {
 			safeTitle = "Unknown Title"
 		}
 
-		appName := "BM"
 		icon := ""
 		if isValidIconPath(coverPath) {
 			icon = coverPath
@@ -31,16 +41,13 @@ func sendNotification(artist, title, coverPath string) {
 
 		cmd := exec.Command(
 			"notify-send",
-			"-a", appName,
+			"-a", "BM",
 			"-i", icon,
 			safeArtist,
 			safeTitle,
 		)
 
-		err := cmd.Run()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error sending notification: %v\n", err)
-		}
+		cmd.Run()
 	}()
 }
 

@@ -467,8 +467,7 @@ func (a *App) Run() error {
 	ticker := time.NewTicker(time.Second / 2)
 	defer ticker.Stop()
 
-	// Initial view rendering
-	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen before first draw
+	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 	a.pages[a.currentPageIndex].Init()
 	a.pages[a.currentPageIndex].View()
 
@@ -489,7 +488,7 @@ func (a *App) Run() error {
 						currentPage.View()
 					}
 				} else {
-					return nil // Exit application. / 退出应用。
+					return nil
 				}
 			} else if isActivelySearching(currentPage) {
 				// In search mode, pass all keys to the page's handler first.
@@ -512,7 +511,7 @@ func (a *App) Run() error {
 			} else {
 				_, needsRedraw, err := currentPage.HandleKey(key)
 				if err != nil {
-					return nil // Assume any error from HandleKey means quit. / 假设任何来自HandleKey的错误都意味着退出。
+					return nil
 				}
 				if needsRedraw {
 					currentPage.View()
@@ -560,7 +559,6 @@ func isInSearchMode(page Page) bool {
 }
 
 func main() {
-	// Check for help command first, before any terminal setup
 	if len(os.Args) >= 2 {
 		arg := os.Args[1]
 		if arg == "help" || arg == "-h" || arg == "-help" || arg == "--help" {
@@ -568,17 +566,13 @@ func main() {
 			return
 		}
 
-		// Check if the argument is an audio file
-		// We need to check this before loading config to avoid config validation errors
 		info, err := os.Stat(arg)
 		if err == nil && !info.IsDir() {
 			ext := filepath.Ext(arg)
 			ext = strings.ToLower(ext)
 			if ext == ".flac" || ext == ".mp3" || ext == ".wav" || ext == ".ogg" {
-				// Single song playback mode
-				// --- Terminal Setup ---
 				fmt.Print("\x1b[?1049h\x1b[?25l")
-				defer fmt.Print("\x1b[2J\x1b[?1049l\x1b[?25h") // Clear screen and restore on exit
+				defer fmt.Print("\x1b[2J\x1b[?1049l\x1b[?25h")
 
 				oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 				if err != nil {
@@ -611,13 +605,11 @@ func main() {
 
 	// --- App Logic ---
 	if err := runApplication(dirPath); err != nil {
-		// The deferred statements above will handle cleanup
 		log.Fatalf("%v", err)
 	}
 }
 
 func validateInputsAndConfig() (string, error) {
-	// Check configuration and path requirements BEFORE terminal setup
 	if err := LoadConfig(); err != nil {
 		return "", fmt.Errorf("Failed to load config: %v\n\n加载配置失败: %v", err, err)
 	}
@@ -626,7 +618,6 @@ func validateInputsAndConfig() (string, error) {
 		return "", fmt.Errorf("Configuration error: 'playlist_history' cannot be true when 'remember_library_path' is false\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false")
 	}
 
-	// Check if autostart_last_played is enabled but playlist_history is disabled
 	if GlobalConfig.App.AutostartLastPlayed && !GlobalConfig.App.PlaylistHistory {
 		return "", fmt.Errorf("Configuration error: 'autostart_last_played' cannot be true when 'playlist_history' is false\n\n配置错误: 'autostart_last_played' 为 true 时 'playlist_history' 不能为 false")
 	}
@@ -636,7 +627,6 @@ func validateInputsAndConfig() (string, error) {
 		dirPath = os.Args[1]
 	}
 
-	// Check if remember_library_path is enabled but no path is saved
 	if GlobalConfig.App.RememberLibraryPath && dirPath == "" {
 		storageData, err := loadStorageData()
 		if err != nil {
@@ -648,7 +638,6 @@ func validateInputsAndConfig() (string, error) {
 		dirPath = storageData.LibraryPath
 	}
 
-	// Check if no path is provided and remember_library_path is disabled
 	if !GlobalConfig.App.RememberLibraryPath && dirPath == "" {
 		return "", fmt.Errorf("Please enter a music directory path.\nIf you want the application to remember the path, set `remember_library_path = true` in the config file.\n\nUsage: %s <music_directory>\n\n请输入音乐目录路径。\n如果希望应用记住该路径，请在配置文件中设置 `remember_library_path = true`。\n\n用法: %s <music_directory>", os.Args[0], os.Args[0])
 	}
@@ -717,7 +706,7 @@ func runApplication(dirPath string) error {
 		historyIndex:        len(playHistory) - 1,
 		isNavigatingHistory: false,
 		corruptedFiles:      make(map[string]bool),
-		isSingleSongMode:    false, // Normal mode / 正常模式
+		isSingleSongMode:    false,
 	}
 
 	if GlobalConfig.App.RememberVolume && storageData.Volume != nil {
@@ -739,10 +728,8 @@ func runApplication(dirPath string) error {
 	if err != nil {
 		log.Printf("Warning: Could not load saved play mode: %v", err)
 	} else if GlobalConfig.App.DefaultPlayMode == 3 {
-		// Only use saved mode when default is 3 (memory)
 		app.playMode = savedPlayMode
 	}
-	// If default is 0/1/2, use the configured value (already set at line 667)
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH)
 	playListPage := NewPlayList(app)
@@ -750,7 +737,6 @@ func runApplication(dirPath string) error {
 	app.pages = []Page{playerPage, playListPage, libraryPage}
 
 	if GlobalConfig.App.AutostartLastPlayed {
-		// First try to load the current song from storage
 		currentSong, err := LoadCurrentSong(dirPath)
 		if err != nil {
 			log.Printf("Warning: Could not load current song: %v", err)
@@ -758,22 +744,17 @@ func runApplication(dirPath string) error {
 
 		var songToPlay string
 		if currentSong != "" {
-			// Use the current song from storage
 			songToPlay = currentSong
-			// If the current song is not the latest in play history, add it to history
 			if len(app.playHistory) == 0 || app.playHistory[len(app.playHistory)-1] != songToPlay {
 				app.addToPlayHistory(songToPlay)
 			}
 		} else if len(app.playHistory) > 0 {
-			// Fallback to the last song in play history
 			songToPlay = app.playHistory[len(app.playHistory)-1]
 		}
 
 		if songToPlay != "" {
-			// Check if the song still exists in the playlist
 			if !songExistsInPlaylist(songToPlay, app.Playlist) {
 				log.Printf("Warning: Last played song not found in playlist: %s", songToPlay)
-				// Clear the song path to show empty state
 				if playerPage, ok := app.pages[0].(*PlayerPage); ok {
 					playerPage.UpdateSong("")
 				}
@@ -794,7 +775,6 @@ func runApplication(dirPath string) error {
 //
 // runSingleSong 以单曲播放模式运行应用程序。
 func runSingleSong(songPath string) error {
-	// Check if the file exists and is accessible
 	info, err := os.Stat(songPath)
 	if err != nil {
 		return fmt.Errorf("Unable to access file: %v\n\n无法访问文件: %v", err, err)
@@ -803,13 +783,11 @@ func runSingleSong(songPath string) error {
 		return fmt.Errorf("Input must be an audio file, not a directory.\n\n输入必须是音频文件，而不是目录。")
 	}
 
-	// Get absolute path
 	absPath, err := filepath.Abs(songPath)
 	if err != nil {
 		return fmt.Errorf("Unable to get absolute path: %v\n\n无法获取绝对路径: %v", err, err)
 	}
 
-	// Load minimal config for single song mode
 	if err := loadMinimalConfig(); err != nil {
 		return fmt.Errorf("Failed to load minimal config: %v\n\n加载最小配置失败: %v", err, err)
 	}
@@ -822,14 +800,13 @@ func runSingleSong(songPath string) error {
 	sampleRate := beep.SampleRate(GlobalConfig.App.TargetSampleRate)
 	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
 
-	// Create app with single song
 	app := &App{
 		player:              nil,
 		mprisServer:         nil,
-		currentPageIndex:    0,                 // Player page only
-		Playlist:            []string{absPath}, // Single song playlist
+		currentPageIndex:    0,
+		Playlist:            []string{absPath},
 		LibraryPath:         filepath.Dir(absPath),
-		playMode:            0, // Repeat one
+		playMode:            0,
 		volume:              0,
 		linearVolume:        1.0,
 		playbackRate:        1.0,
@@ -839,19 +816,16 @@ func runSingleSong(songPath string) error {
 		historyIndex:        -1,
 		isNavigatingHistory: false,
 		corruptedFiles:      make(map[string]bool),
-		isSingleSongMode:    true, // Mark as single song mode / 标记为单曲播放模式
+		isSingleSongMode:    true,
 	}
 
-	// Create only the player page
 	playerPage := NewPlayerPage(app, "", cellW, cellH)
-	app.pages = []Page{playerPage} // Only player page
+	app.pages = []Page{playerPage}
 
-	// Play the song
 	if err := app.PlaySongWithSwitchAndRender(absPath, true, false); err != nil {
 		return fmt.Errorf("Failed to play song: %v\n\n播放歌曲失败: %v", err, err)
 	}
 
-	// Run the application (only player page)
 	return app.Run()
 }
 
@@ -859,7 +833,6 @@ func runSingleSong(songPath string) error {
 //
 // loadMinimalConfig 为单曲播放模式加载最小配置。
 func loadMinimalConfig() error {
-	// Create a minimal config with defaults
 	GlobalConfig = &Config{
 		Keymap: Keymap{
 			Global: GlobalKeymap{
