@@ -559,6 +559,10 @@ func isInSearchMode(page Page) bool {
 }
 
 func main() {
+	if os.Getenv("TMUX") != "" || os.Getenv("ZELLIJ") != "" {
+		log.Fatalf("BM does not support running inside tmux or zellij\n\nBM 不支持在tmux或zellij里运行")
+	}
+
 	if len(os.Args) >= 2 {
 		arg := os.Args[1]
 		if arg == "help" || arg == "-h" || arg == "-help" || arg == "--help" {
@@ -593,9 +597,8 @@ func main() {
 		log.Fatalf("%v", err)
 	}
 
-	// --- Terminal Setup ---
 	fmt.Print("\x1b[?1049h\x1b[?25l")
-	defer fmt.Print("\x1b[2J\x1b[?1049l\x1b[?25h") // Clear screen and restore on exit
+	defer fmt.Print("\x1b[2J\x1b[?1049l\x1b[?25h")
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
@@ -603,7 +606,6 @@ func main() {
 	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
-	// --- App Logic ---
 	if err := runApplication(dirPath); err != nil {
 		log.Fatalf("%v", err)
 	}
