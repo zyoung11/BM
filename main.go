@@ -124,6 +124,39 @@ const (
 	KeyBackspace
 )
 
+// consumeCSISequence reads and discards a CSI (Control Sequence Introducer) escape
+// sequence from the terminal. CSI sequences start with ESC [ followed by parameter
+// bytes (0x30-0x3F), intermediate bytes (0x20-0x2F), and a final byte (0x40-0x7E).
+// Only arrow key sequences (ending in A/B/C/D) are forwarded; all other CSI
+// sequences are silently discarded to prevent ESC from leaking as a quit signal.
+//
+// consumeCSISequence 从终端读取并丢弃一个CSI（控制序列引导符）转义序列。
+// CSI序列以 ESC [ 开头，后跟参数字节（0x30-0x3F）、中间字节（0x20-0x2F）和终止字节（0x40-0x7E）。
+// 只有箭头键序列（以A/B/C/D结尾）会被转发；所有其他CSI序列会被静默丢弃，
+// 以防止ESC泄露为退出信号。
+func consumeCSISequence(keys chan rune, keyCh chan<- rune) {
+	for {
+		select {
+		case b := <-keys:
+			if b >= 0x40 && b <= 0x7E {
+				switch b {
+				case 'A':
+					keyCh <- KeyArrowUp
+				case 'B':
+					keyCh <- KeyArrowDown
+				case 'C':
+					keyCh <- KeyArrowRight
+				case 'D':
+					keyCh <- KeyArrowLeft
+				}
+				return
+			}
+		case <-time.After(25 * time.Millisecond):
+			return
+		}
+	}
+}
+
 // App represents the main TUI application and holds shared state.
 //
 // App 代表主TUI应用程序并持有共享状态。
@@ -431,30 +464,15 @@ func (a *App) Run() error {
 			select {
 			case nextRune := <-keys:
 				if nextRune == '[' {
-					// This is likely an arrow key sequence.
-					// 这可能是一个方向键序列。
-					select {
-					case finalRune := <-keys:
-						switch finalRune {
-						case 'A':
-							keyCh <- KeyArrowUp
-						case 'B':
-							keyCh <- KeyArrowDown
-						case 'C':
-							keyCh <- KeyArrowRight
-						case 'D':
-							keyCh <- KeyArrowLeft
-						default:
-							keyCh <- r
-						}
-					case <-time.After(25 * time.Millisecond):
-						keyCh <- r
-					}
+					consumeCSISequence(keys, keyCh)
 				} else {
-					// It's another sequence, like Alt+key. Treat as two separate key presses.
-					// 这是其他序列，如Alt+键。视为两次单独的按键。
-					keyCh <- r
-					keyCh <- nextRune
+					// It's an Alt+key sequence. Set the high bit to encode the Alt modifier.
+					// 这是Alt+键序列。设置高位来编码Alt修饰符。
+					if nextRune > 0 && nextRune < 0x80 {
+						keyCh <- nextRune | 0x80
+					} else {
+						keyCh <- nextRune
+					}
 				}
 			case <-time.After(25 * time.Millisecond):
 				// Standalone ESC press.
