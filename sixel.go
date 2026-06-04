@@ -6,7 +6,6 @@ import (
 	"image/color"
 	"image/draw"
 	"io"
-	"math"
 	"runtime"
 	"sync"
 )
@@ -59,20 +58,7 @@ var bayer8x8 = [64]int8{
 	63, 31, 55, 23, 61, 29, 53, 21,
 }
 
-func linearToSRGB(v float64) uint8 {
-	if v <= 0.0031308 {
-		return uint8(math.Round(v * 12.92 * 255))
-	}
-	return uint8(math.Round((1.055*math.Pow(v, 1.0/2.4) - 0.055) * 255))
-}
-
-func srgbToLinear(v uint8) float64 {
-	s := float64(v) / 255.0
-	if s <= 0.04045 {
-		return s / 12.92
-	}
-	return math.Pow((s+0.055)/1.055, 2.4)
-}
+const ditherScale = 0.6
 
 func newSixelPalette(rBits, gBits, bBits int, dither bool) *sixelPalette {
 	rLevels := 1 << rBits
@@ -86,70 +72,64 @@ func newSixelPalette(rBits, gBits, bBits int, dither bool) *sixelPalette {
 	for ri := range rLevels {
 		for gi := range gLevels {
 			for bi := range bLevels {
-				tR := float64(ri) / float64(rLevels-1)
-				tG := float64(gi) / float64(gLevels-1)
-				tB := float64(bi) / float64(bLevels-1)
 				p.colors[ri<<rShift|gi<<gShift|bi] = color.RGBA{
-					linearToSRGB(tR),
-					linearToSRGB(tG),
-					linearToSRGB(tB),
+					uint8(ri * 255 / (rLevels - 1)),
+					uint8(gi * 255 / (gLevels - 1)),
+					uint8(bi * 255 / (bLevels - 1)),
 					255,
 				}
 			}
 		}
 	}
 
-	dR, dG, dB := makeGammaDither(rLevels, dither), makeGammaDither(gLevels, dither), makeGammaDither(bLevels, dither)
+	dR := makeBayerDither(rLevels, dither)
+	dG := makeBayerDither(gLevels, dither)
+	dB := makeBayerDither(bLevels, dither)
 
 	for b := range 64 {
 		for v := range 256 {
-			lin := srgbToLinear(uint8(v))
-
-			q := lin + dR[b]
-			if q < 0 {
-				q = 0
-			} else if q > 1 {
-				q = 1
+			s := int(v) + int(dR[b])
+			if s < 0 {
+				s = 0
+			} else if s > 255 {
+				s = 255
 			}
-			idx := int(math.Round(q * float64(rLevels-1)))
-			p.lutR[b][v] = uint16(idx << rShift)
+			p.lutR[b][v] = uint16((s >> (8 - rBits)) << rShift)
 
-			q = lin + dG[b]
-			if q < 0 {
-				q = 0
-			} else if q > 1 {
-				q = 1
+			s = int(v) + int(dG[b])
+			if s < 0 {
+				s = 0
+			} else if s > 255 {
+				s = 255
 			}
-			idx = int(math.Round(q * float64(gLevels-1)))
-			p.lutG[b][v] = uint16(idx << gShift)
+			p.lutG[b][v] = uint16((s >> (8 - gBits)) << gShift)
 
-			q = lin + dB[b]
-			if q < 0 {
-				q = 0
-			} else if q > 1 {
-				q = 1
+			s = int(v) + int(dB[b])
+			if s < 0 {
+				s = 0
+			} else if s > 255 {
+				s = 255
 			}
-			idx = int(math.Round(q * float64(bLevels-1)))
-			p.lutB[b][v] = uint16(idx)
+			p.lutB[b][v] = uint16(s >> (8 - bBits))
 		}
 	}
 	return p
 }
 
-func makeGammaDither(levels int, enabled bool) [64]float64 {
-	var d [64]float64
-	if !enabled {
+func makeBayerDither(levels int, enabled bool) [64]int16 {
+	var d [64]int16
+	if !enabled || levels <= 1 {
 		return d
 	}
-	step := 1.0 / float64(levels-1)
+	step := 256.0 / float64(levels-1)
 	for i, v := range bayer8x8 {
-		d[i] = (float64(v) - 31.5) / 64.0 * step * 0.35
+		d[i] = int16((float64(v) - 31.5) / 64.0 * step * ditherScale)
 	}
 	return d
 }
 
-var paletteLevels = []int{2, 8, 16, 32, 64, 128, 256, 512}
-var paletteBits = [][3]int{{0, 0, 0}, {1, 1, 1}, {2, 1, 1}, {2, 2, 1}, {2, 2, 2}, {3, 2, 2}, {3, 3, 2}, {3, 3, 3}}
+var paletteLevels = []int{2, 8, 16, 32, 64, 128, 256, 512, 1024, 4096}
+var paletteBits = [][3]int{{0, 0, 0}, {1, 1, 1}, {2, 1, 1}, {2, 2, 1}, {2, 2, 2}, {3, 2, 2}, {3, 3, 2}, {3, 3, 3}, {4, 3, 3}, {4, 4, 4}}
 var paletteCache sync.Map
 
 func getSixelPalette(nc int, dither bool) *sixelPalette {
@@ -203,13 +183,13 @@ func NewEncoder(w io.Writer) *Encoder {
 }
 
 // Encode encodes an image to the sixel format in parallel, using
-// gamma-aware uniform quantization with optional Bayer 8×8 ordered dithering.
+// uniform quantization in sRGB space with optional Bayer 8×8 ordered dithering.
 //
-// Encode 并行地将图像编码为sixel格式，使用gamma感知的均匀量化和可选的Bayer 8×8有序抖动。
+// Encode 并行地将图像编码为sixel格式，在sRGB空间均匀量化并可选Bayer 8×8有序抖动。
 func (e *Encoder) Encode(img image.Image) error {
 	nc := e.Colors
 	if nc < 2 {
-		nc = 512
+		nc = 1024
 	}
 
 	origWidth, origHeight := img.Bounds().Dx(), img.Bounds().Dy()
@@ -240,7 +220,7 @@ func (e *Encoder) Encode(img image.Image) error {
 
 	outBuf.Write([]byte{0x1b, 0x50, 0x30, 0x3b, 0x30, 0x3b, 0x38, 0x71, 0x22, 0x31, 0x3b, 0x31})
 
-	for i := 0; i < pal.nc; i++ {
+	for i := range pal.nc {
 		r, g, b, _ := pal.colors[i].RGBA()
 		outBuf.WriteByte('#')
 		writeSixelNum(outBuf, i+1)
@@ -265,12 +245,14 @@ func (e *Encoder) Encode(img image.Image) error {
 	resultCh := make(chan stripResult, workers)
 
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Go(func() {
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			for job := range jobCh {
 				processStrip(job, resultCh)
 			}
-		})
+		}()
 	}
 
 	makeJob := func(sixelRow int) stripJob {
@@ -468,7 +450,14 @@ func releaseStripState(st *stripState) {
 }
 
 func writeSixelNum(b *bytes.Buffer, n int) {
-	if n >= 100 {
+	if n >= 1000 {
+		b.Write([]byte{
+			byte(0x30 + n/1000),
+			byte(0x30 + (n%1000)/100),
+			byte(0x30 + (n%100)/10),
+			byte(0x30 + n%10),
+		})
+	} else if n >= 100 {
 		b.Write([]byte{
 			byte(0x30 + n/100),
 			byte(0x30 + (n%100)/10),
