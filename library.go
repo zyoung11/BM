@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -653,13 +654,7 @@ func (p *Library) toggleSelection(path string) {
 		p.removeSongFromPlaylist(path)
 	} else {
 		p.selected[path] = true
-		found := false
-		for _, s := range p.app.Playlist {
-			if s == path {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(p.app.Playlist, path)
 		if !found {
 			p.app.Playlist = append(p.app.Playlist, path)
 			if len(p.app.Playlist) == 1 {
@@ -841,7 +836,7 @@ func (p *Library) drawPathFooter(w, h int, footerText string) {
 //
 // renderFilteredListContent 是一个用于渲染筛选后列表内容的辅助函数。
 func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int) {
-	for i := 0; i < listHeight; i++ {
+	for i := range listHeight {
 		entryIndex := currentOffset + i
 		if entryIndex >= len(p.filteredSongPaths) {
 			break
@@ -924,7 +919,7 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 //
 // renderDirectoryListContent 是一个用于渲染目录列表内容的辅助函数。
 func (p *Library) renderDirectoryListContent(w, h, listHeight, currentOffset int) {
-	for i := 0; i < listHeight; i++ {
+	for i := range listHeight {
 		entryIndex := currentOffset + i
 		if entryIndex >= len(p.entries) {
 			break
@@ -1038,7 +1033,7 @@ func (p *Library) drawScrollbar(h, listHeight, totalItems, currentOffset int) {
 		thumbStart = currentOffset * thumbRange / scrollRange
 	}
 
-	for i := 0; i < listHeight; i++ {
+	for i := range listHeight {
 		if i >= thumbStart && i < thumbStart+thumbSize {
 			fmt.Printf("\x1b[%d;%dH┃", i+3, w)
 		} else {

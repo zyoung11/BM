@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -619,12 +620,7 @@ func (p *PlayerPage) playRandomSong() {
 //
 // isSongInPlaylist 检查歌曲是否在当前播放列表中。
 func (p *PlayerPage) isSongInPlaylist(songPath string) bool {
-	for _, song := range p.app.Playlist {
-		if song == songPath {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(p.app.Playlist, songPath)
 }
 
 // playSongFromHistory plays a song from history without adding a new history entry.
@@ -1190,20 +1186,20 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s", row, startCol-2, colorCode, icon)
 
-	var bar string
+	var bar strings.Builder
 	if playedChars > 0 {
-		bar += fmt.Sprintf("\x1b[2m%s", colorCode)
+		bar.WriteString(fmt.Sprintf("\x1b[2m%s", colorCode))
 		for range playedChars {
-			bar += "━"
+			bar.WriteString("━")
 		}
-		bar += "\x1b[0m"
+		bar.WriteString("\x1b[0m")
 	}
-	bar += colorCode
+	bar.WriteString(colorCode)
 	for i := playedChars; i < width; i++ {
-		bar += "━"
+		bar.WriteString("━")
 	}
 
-	fmt.Printf("\x1b[0m\x1b[%d;%dH%s", row, startCol, bar)
+	fmt.Printf("\x1b[0m\x1b[%d;%dH%s", row, startCol, bar.String())
 	fmt.Printf("\x1b[0m\x1b[%d;%dH\x1b[K%s%s\x1b[0m", row, startCol+width+1, colorCode, modeIcon)
 }
 

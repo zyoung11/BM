@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -104,12 +105,7 @@ func unicodeFold(r rune) rune {
 //
 // songExistsInPlaylist 检查歌曲是否存在于当前播放列表中。
 func songExistsInPlaylist(songPath string, playlist []string) bool {
-	for _, path := range playlist {
-		if path == songPath {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(playlist, songPath)
 }
 
 // Key constants for special keys.
