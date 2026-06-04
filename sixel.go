@@ -136,9 +136,9 @@ func (e *Encoder) processStrip(img image.Image, paletted *image.Paletted, startR
 	sixelRows := endRow - startRow
 
 	sixelMap := make([][][]byte, sixelRows)
-	for z := 0; z < sixelRows; z++ {
+	for z := range sixelRows {
 		sixelMap[z] = make([][]byte, nc)
-		for c := 0; c < nc; c++ {
+		for c := range nc {
 			sixelMap[z][c] = make([]byte, width)
 		}
 	}
@@ -160,7 +160,7 @@ func (e *Encoder) processStrip(img image.Image, paletted *image.Paletted, startR
 			if y >= paletted.Bounds().Dy() {
 				continue
 			}
-			for x := 0; x < width; x++ {
+			for x := range width {
 				if x >= paletted.Bounds().Dx() {
 					continue
 				}
@@ -185,7 +185,7 @@ func (e *Encoder) processStrip(img image.Image, paletted *image.Paletted, startR
 			if y >= paletted.Bounds().Dy() {
 				continue
 			}
-			for x := 0; x < width; x++ {
+			for x := range width {
 				if x >= paletted.Bounds().Dx() {
 					continue
 				}
@@ -203,7 +203,7 @@ func (e *Encoder) processStrip(img image.Image, paletted *image.Paletted, startR
 			if y >= paletted.Bounds().Dy() {
 				continue
 			}
-			for x := 0; x < width; x++ {
+			for x := range width {
 				if x >= paletted.Bounds().Dx() {
 					continue
 				}
@@ -242,7 +242,7 @@ func (e *Encoder) encodeSixelRows(outBuf *bytes.Buffer, resultChan <-chan stripR
 	}
 
 	tempBuf := make([]byte, 0, 256)
-	for z := 0; z < totalRows; z++ {
+	for z := range totalRows {
 		if z > 0 {
 			outBuf.WriteByte(0x2d)
 		}
@@ -253,11 +253,11 @@ func (e *Encoder) encodeSixelRows(outBuf *bytes.Buffer, resultChan <-chan stripR
 
 		colorData := orderedResults[z]
 
-		for colorIdx := 0; colorIdx < paletteSize; colorIdx++ {
+		for colorIdx := range paletteSize {
 			sixelRow := colorData[colorIdx]
 
 			hasData := false
-			for x := 0; x < width; x++ {
+			for x := range width {
 				if sixelRow[x] != 0 {
 					hasData = true
 					break

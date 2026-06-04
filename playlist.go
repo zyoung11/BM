@@ -324,7 +324,7 @@ func (p *PlayList) View() {
 		p.offset = p.cursor - listHeight + 1
 	}
 
-	for i := 0; i < listHeight; i++ {
+	for i := range listHeight {
 		trackIndex := p.offset + i
 		if trackIndex >= len(p.viewPlaylist) {
 			break
@@ -369,7 +369,7 @@ func (p *PlayList) View() {
 		if scrollRange > 0 {
 			thumbStart = p.offset * thumbRange / scrollRange
 		}
-		for i := 0; i < listHeight; i++ {
+		for i := range listHeight {
 			if i >= thumbStart && i < thumbStart+thumbSize {
 				fmt.Printf("\x1b[%d;%dH┃", i+3, w)
 			} else {

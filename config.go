@@ -258,7 +258,7 @@ func LoadConfig() error {
 //
 // validateKeymap 检查重复或无效的按键绑定。
 func validateKeymap(keymap Keymap) error {
-	pages := []interface{}{keymap.Global, keymap.Player, keymap.Library, keymap.Playlist}
+	pages := []any{keymap.Global, keymap.Player, keymap.Library, keymap.Playlist}
 	pageNames := []string{"Global", "Player", "Library", "Playlist"}
 
 	for i, page := range pages {
