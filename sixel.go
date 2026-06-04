@@ -44,24 +44,10 @@ type stripResult struct {
 type sixelPalette struct {
 	nc     int
 	colors []color.Color
+	palRGB [][3]uint8
 	cube   [32768]uint16
-	dR     [64]int16
-	dG     [64]int16
-	dB     [64]int16
 }
 
-var bayer8x8 = [64]int8{
-	0, 32, 8, 40, 2, 34, 10, 42,
-	48, 16, 56, 24, 50, 18, 58, 26,
-	12, 44, 4, 36, 14, 46, 6, 38,
-	60, 28, 52, 20, 62, 30, 54, 22,
-	3, 35, 11, 43, 1, 33, 9, 41,
-	51, 19, 59, 27, 49, 17, 57, 25,
-	15, 47, 7, 39, 13, 45, 5, 37,
-	63, 31, 55, 23, 61, 29, 53, 21,
-}
-
-const ditherScale = 0.35
 
 func buildAdaptivePalette(img image.Image) *sixelPalette {
 	bounds := img.Bounds()
@@ -93,6 +79,12 @@ func buildAdaptivePalette(img image.Image) *sixelPalette {
 		colors: paletted.Palette[:nc],
 	}
 
+	p.palRGB = make([][3]uint8, nc)
+	for i, c := range p.colors {
+		cr, cg, cb, _ := c.RGBA()
+		p.palRGB[i] = [3]uint8{uint8(cr >> 8), uint8(cg >> 8), uint8(cb >> 8)}
+	}
+
 	for ri := 0; ri < 32; ri++ {
 		rCenter := ri*8 + 4
 		for gi := 0; gi < 32; gi++ {
@@ -115,14 +107,6 @@ func buildAdaptivePalette(img image.Image) *sixelPalette {
 				p.cube[ri*1024+gi*32+bi] = uint16(bestIdx)
 			}
 		}
-	}
-
-	step := 8.0
-	for i := range 64 {
-		v := (float64(bayer8x8[i]) - 31.5) / 64.0 * step * ditherScale
-		p.dR[i] = int16(v)
-		p.dG[i] = int16(v)
-		p.dB[i] = int16(v)
 	}
 
 	return p
@@ -296,6 +280,11 @@ func processStrip(job stripJob, resultCh chan<- stripResult) {
 	nRows := job.yEnd - job.yStart
 	p := job.pal
 
+	errRows := make([][][3]int, nRows+1)
+	for i := range nRows + 1 {
+		errRows[i] = make([][3]int, imgWidth+2)
+	}
+
 	rowBytes := imgWidth * 4
 
 	for dy := range nRows {
@@ -303,41 +292,42 @@ func processStrip(job stripJob, resultCh chan<- stripResult) {
 		if y >= imgHeight {
 			continue
 		}
-		yb8 := (y & 7) << 3
 		bit := byte(1 << dy)
-
-		d0, d1, d2, d3 := p.dR[yb8|0], p.dR[yb8|1], p.dR[yb8|2], p.dR[yb8|3]
-		dg0, dg1, dg2, dg3 := p.dG[yb8|0], p.dG[yb8|1], p.dG[yb8|2], p.dG[yb8|3]
-		db0, db1, db2, db3 := p.dB[yb8|0], p.dB[yb8|1], p.dB[yb8|2], p.dB[yb8|3]
-		d4, d5, d6, d7 := p.dR[yb8|4], p.dR[yb8|5], p.dR[yb8|6], p.dR[yb8|7]
-		dg4, dg5, dg6, dg7 := p.dG[yb8|4], p.dG[yb8|5], p.dG[yb8|6], p.dG[yb8|7]
-		db4, db5, db6, db7 := p.dB[yb8|4], p.dB[yb8|5], p.dB[yb8|6], p.dB[yb8|7]
-
+		curErr := errRows[dy]
+		nextErr := errRows[dy+1]
 		pi := y * rowBytes
-		lim := imgWidth &^ 7
-		for x := 0; x < lim; x += 8 {
-			ci := cubeLookup(p, data[pi], data[pi+1], data[pi+2], d0, dg0, db0)
-			st.seenAndSet(int(ci), nc, x, bit)
-			ci = cubeLookup(p, data[pi+4], data[pi+5], data[pi+6], d1, dg1, db1)
-			st.seenAndSet(int(ci), nc, x+1, bit)
-			ci = cubeLookup(p, data[pi+8], data[pi+9], data[pi+10], d2, dg2, db2)
-			st.seenAndSet(int(ci), nc, x+2, bit)
-			ci = cubeLookup(p, data[pi+12], data[pi+13], data[pi+14], d3, dg3, db3)
-			st.seenAndSet(int(ci), nc, x+3, bit)
-			ci = cubeLookup(p, data[pi+16], data[pi+17], data[pi+18], d4, dg4, db4)
-			st.seenAndSet(int(ci), nc, x+4, bit)
-			ci = cubeLookup(p, data[pi+20], data[pi+21], data[pi+22], d5, dg5, db5)
-			st.seenAndSet(int(ci), nc, x+5, bit)
-			ci = cubeLookup(p, data[pi+24], data[pi+25], data[pi+26], d6, dg6, db6)
-			st.seenAndSet(int(ci), nc, x+6, bit)
-			ci = cubeLookup(p, data[pi+28], data[pi+29], data[pi+30], d7, dg7, db7)
-			st.seenAndSet(int(ci), nc, x+7, bit)
-			pi += 32
-		}
-		for x := lim; x < imgWidth; x++ {
-			b := yb8 | (x & 7)
-			ci := cubeLookup(p, data[pi], data[pi+1], data[pi+2], p.dR[b], p.dG[b], p.dB[b])
-			st.seenAndSet(int(ci), nc, x, bit)
+
+		for x := 0; x < imgWidth; x++ {
+			r := clampByteInt(int(data[pi]) + curErr[x][0])
+			g := clampByteInt(int(data[pi+1]) + curErr[x][1])
+			b := clampByteInt(int(data[pi+2]) + curErr[x][2])
+
+			ci := int(p.cube[(r>>3)*1024+(g>>3)*32+(b>>3)])
+			pr := p.palRGB[ci][0]
+			pg := p.palRGB[ci][1]
+			pb := p.palRGB[ci][2]
+
+			errR := int(data[pi]) - int(pr)
+			errG := int(data[pi+1]) - int(pg)
+			errB := int(data[pi+2]) - int(pb)
+
+			curErr[x+1][0] += errR * 7 / 16
+			curErr[x+1][1] += errG * 7 / 16
+			curErr[x+1][2] += errB * 7 / 16
+
+			if x > 0 {
+				nextErr[x-1][0] += errR * 3 / 16
+				nextErr[x-1][1] += errG * 3 / 16
+				nextErr[x-1][2] += errB * 3 / 16
+			}
+			nextErr[x][0] += errR * 5 / 16
+			nextErr[x][1] += errG * 5 / 16
+			nextErr[x][2] += errB * 5 / 16
+			nextErr[x+1][0] += errR * 1 / 16
+			nextErr[x+1][1] += errG * 1 / 16
+			nextErr[x+1][2] += errB * 1 / 16
+
+			st.seenAndSet(ci, nc, x, bit)
 			pi += 4
 		}
 	}
@@ -353,26 +343,14 @@ func processStrip(job stripJob, resultCh chan<- stripResult) {
 	resultCh <- stripResult{sixelRow: job.sixelRow, rleData: rleBytes}
 }
 
-func cubeLookup(p *sixelPalette, r, g, b byte, dr, dg, db int16) uint16 {
-	sr := int(r) + int(dr)
-	if sr < 0 {
-		sr = 0
-	} else if sr > 255 {
-		sr = 255
+func clampByteInt(v int) int {
+	if v < 0 {
+		return 0
 	}
-	sg := int(g) + int(dg)
-	if sg < 0 {
-		sg = 0
-	} else if sg > 255 {
-		sg = 255
+	if v > 255 {
+		return 255
 	}
-	sb := int(b) + int(db)
-	if sb < 0 {
-		sb = 0
-	} else if sb > 255 {
-		sb = 255
-	}
-	return p.cube[(sr>>3)*1024+(sg>>3)*32+(sb>>3)]
+	return v
 }
 
 func (st *stripState) seenAndSet(ci, nc, x int, bit byte) {
