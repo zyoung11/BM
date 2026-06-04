@@ -15,7 +15,7 @@ max_history_size = 100
 # Song switching debounce time (milliseconds) - prevents rapid continuous song switching, avoiding misoperation.
 #
 # 切歌防抖时间（毫秒）- 防止快速连续切歌，避免误操作
-switch_debounce_ms = 1000
+switch_debounce_ms = 100
 
 # Default starting page - the page displayed when the program starts.
 # 0 = Player page, 1 = PlayList page, 2 = Library page.
