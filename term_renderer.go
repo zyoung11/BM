@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -25,6 +26,26 @@ const (
 )
 
 var kittyImageID uint32 = uint32(os.Getpid()<<16) + uint32(time.Now().UnixMicro()&0xFFFF)
+
+var kittyZlibPool = sync.Pool{
+	New: func() any {
+		w, _ := zlib.NewWriterLevel(nil, zlib.BestSpeed)
+		return w
+	},
+}
+
+var kittyCompressPool = sync.Pool{
+	New: func() any {
+		return new(bytes.Buffer)
+	},
+}
+
+var kittyBase64Pool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 128*1024)
+		return &buf
+	},
+}
 
 func DetectTerminalProtocol() Protocol {
 	if GlobalConfig != nil && GlobalConfig.App.ImageProtocol != "" {
@@ -59,7 +80,13 @@ func DetectTerminalProtocol() Protocol {
 		return ProtocolITerm2
 	}
 
-	if strings.Contains(termName, "sixel") || strings.Contains(termName, "mlterm") {
+	sixelTerms := []string{"sixel", "mlterm", "foot", "contour", "xterm-sixel", "yaft-256color"}
+	for _, t := range sixelTerms {
+		if strings.Contains(termName, t) {
+			return ProtocolSixel
+		}
+	}
+	if termProgram == "foot" || termProgram == "contour" || termProgram == "mintty" || termProgram == "RLogin" {
 		return ProtocolSixel
 	}
 
@@ -96,24 +123,30 @@ func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 	var compressed bool
 	var compressedData []byte
 	if len(data) > 1024 {
-		var buf bytes.Buffer
-		w, err := zlib.NewWriterLevel(&buf, zlib.BestSpeed)
-		if err != nil {
-			return fmt.Errorf("failed to create zlib writer: %v", err)
-		}
-		if _, err := w.Write(data); err != nil {
-			return fmt.Errorf("failed to write to zlib writer: %v", err)
-		}
-		if err := w.Close(); err != nil {
-			return fmt.Errorf("failed to close zlib writer: %v", err)
-		}
-		compressedData = buf.Bytes()
+		buf := kittyCompressPool.Get().(*bytes.Buffer)
+		buf.Reset()
+		w := kittyZlibPool.Get().(*zlib.Writer)
+		w.Reset(buf)
+		w.Write(data)
+		w.Close()
+		compressedData = make([]byte, buf.Len())
+		copy(compressedData, buf.Bytes())
+		kittyZlibPool.Put(w)
+		kittyCompressPool.Put(buf)
 		compressed = true
 	} else {
 		compressedData = data
 	}
 
-	encoded := base64.StdEncoding.EncodeToString(compressedData)
+	encLen := base64.StdEncoding.EncodedLen(len(compressedData))
+	base64RawPtr := kittyBase64Pool.Get().(*[]byte)
+	base64Raw := *base64RawPtr
+	if cap(base64Raw) < encLen {
+		base64Raw = make([]byte, encLen)
+		*base64RawPtr = base64Raw
+	}
+	base64Buf := base64Raw[:encLen]
+	base64.StdEncoding.Encode(base64Buf, compressedData)
 
 	var control string
 	if compressed {
@@ -129,24 +162,24 @@ func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 	chunkSize := 4096
 	first := true
 
-	for i := 0; i < len(encoded); i += chunkSize {
+	for i := 0; i < encLen; i += chunkSize {
 		end := i + chunkSize
-		if end > len(encoded) {
-			end = len(encoded)
+		if end > encLen {
+			end = encLen
 		}
 
-		chunk := encoded[i:end]
+		chunk := base64Buf[i:end]
 		var chunkSequence string
 
 		if first {
 			first = false
-			if end < len(encoded) {
+			if end < encLen {
 				chunkSequence = fmt.Sprintf("\x1b_G%s,m=1;%s\x1b\\", control, chunk)
 			} else {
 				chunkSequence = fmt.Sprintf("\x1b_G%s;%s\x1b\\", control, chunk)
 			}
 		} else {
-			if end < len(encoded) {
+			if end < encLen {
 				chunkSequence = fmt.Sprintf("\x1b_Gm=1,q=2;%s\x1b\\", chunk)
 			} else {
 				chunkSequence = fmt.Sprintf("\x1b_Gm=0,q=2;%s\x1b\\", chunk)
@@ -157,12 +190,13 @@ func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 			chunkSequence = "\x1bPtmux;" + strings.ReplaceAll(chunkSequence, "\x1b", "\x1b\x1b") + "\x1b\\"
 		}
 
-		// 发送到终端
 		if _, err := io.WriteString(os.Stdout, chunkSequence); err != nil {
+			kittyBase64Pool.Put(base64RawPtr)
 			return fmt.Errorf("failed to write kitty image data: %v", err)
 		}
 	}
 
+	kittyBase64Pool.Put(base64RawPtr)
 	return nil
 }
 
