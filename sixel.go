@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/draw"
 	"io"
+	"math"
 	"runtime"
 	"sync"
 )
@@ -42,20 +43,35 @@ type stripResult struct {
 type sixelPalette struct {
 	nc     int
 	colors []color.Color
-	lutR   [16][256]uint8
-	lutG   [16][256]uint8
-	lutB   [16][256]uint8
+	lutR   [64][256]uint16
+	lutG   [64][256]uint16
+	lutB   [64][256]uint16
 }
 
-var bayer4x4 = [16]int8{0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5}
+var bayer8x8 = [64]int8{
+	0, 32, 8, 40, 2, 34, 10, 42,
+	48, 16, 56, 24, 50, 18, 58, 26,
+	12, 44, 4, 36, 14, 46, 6, 38,
+	60, 28, 52, 20, 62, 30, 54, 22,
+	3, 35, 11, 43, 1, 33, 9, 41,
+	51, 19, 59, 27, 49, 17, 57, 25,
+	15, 47, 7, 39, 13, 45, 5, 37,
+	63, 31, 55, 23, 61, 29, 53, 21,
+}
 
-func makeDither(levels int) [16]int8 {
-	step := 256 / (levels - 1)
-	var d [16]int8
-	for i, v := range bayer4x4 {
-		d[i] = int8((int(v) - 8) * step / 16)
+func linearToSRGB(v float64) uint8 {
+	if v <= 0.0031308 {
+		return uint8(math.Round(v * 12.92 * 255))
 	}
-	return d
+	return uint8(math.Round((1.055*math.Pow(v, 1.0/2.4) - 0.055) * 255))
+}
+
+func srgbToLinear(v uint8) float64 {
+	s := float64(v) / 255.0
+	if s <= 0.04045 {
+		return s / 12.92
+	}
+	return math.Pow((s+0.055)/1.055, 2.4)
 }
 
 func newSixelPalette(rBits, gBits, bBits int, dither bool) *sixelPalette {
@@ -70,55 +86,70 @@ func newSixelPalette(rBits, gBits, bBits int, dither bool) *sixelPalette {
 	for ri := range rLevels {
 		for gi := range gLevels {
 			for bi := range bLevels {
+				tR := float64(ri) / float64(rLevels-1)
+				tG := float64(gi) / float64(gLevels-1)
+				tB := float64(bi) / float64(bLevels-1)
 				p.colors[ri<<rShift|gi<<gShift|bi] = color.RGBA{
-					uint8(ri * 255 / (rLevels - 1)),
-					uint8(gi * 255 / (gLevels - 1)),
-					uint8(bi * 255 / (bLevels - 1)),
+					linearToSRGB(tR),
+					linearToSRGB(tG),
+					linearToSRGB(tB),
 					255,
 				}
 			}
 		}
 	}
 
-	var dR, dG, dB [16]int8
-	if dither {
-		dR = makeDither(rLevels)
-		dG = makeDither(gLevels)
-		dB = makeDither(bLevels)
-	}
+	dR, dG, dB := makeGammaDither(rLevels, dither), makeGammaDither(gLevels, dither), makeGammaDither(bLevels, dither)
 
-	for b := range 16 {
+	for b := range 64 {
 		for v := range 256 {
-			s := v + int(dR[b])
-			if s < 0 {
-				s = 0
-			} else if s > 255 {
-				s = 255
-			}
-			p.lutR[b][v] = uint8(s>>(8-rBits)) << rShift
+			lin := srgbToLinear(uint8(v))
 
-			s = v + int(dG[b])
-			if s < 0 {
-				s = 0
-			} else if s > 255 {
-				s = 255
+			q := lin + dR[b]
+			if q < 0 {
+				q = 0
+			} else if q > 1 {
+				q = 1
 			}
-			p.lutG[b][v] = uint8(s>>(8-gBits)) << gShift
+			idx := int(math.Round(q * float64(rLevels-1)))
+			p.lutR[b][v] = uint16(idx << rShift)
 
-			s = v + int(dB[b])
-			if s < 0 {
-				s = 0
-			} else if s > 255 {
-				s = 255
+			q = lin + dG[b]
+			if q < 0 {
+				q = 0
+			} else if q > 1 {
+				q = 1
 			}
-			p.lutB[b][v] = uint8(s >> (8 - bBits))
+			idx = int(math.Round(q * float64(gLevels-1)))
+			p.lutG[b][v] = uint16(idx << gShift)
+
+			q = lin + dB[b]
+			if q < 0 {
+				q = 0
+			} else if q > 1 {
+				q = 1
+			}
+			idx = int(math.Round(q * float64(bLevels-1)))
+			p.lutB[b][v] = uint16(idx)
 		}
 	}
 	return p
 }
 
-var paletteLevels = []int{2, 8, 16, 32, 64, 128, 256}
-var paletteBits = [][3]int{{0, 0, 0}, {1, 1, 1}, {2, 1, 1}, {2, 2, 1}, {2, 2, 2}, {3, 2, 2}, {3, 3, 2}}
+func makeGammaDither(levels int, enabled bool) [64]float64 {
+	var d [64]float64
+	if !enabled {
+		return d
+	}
+	step := 1.0 / float64(levels-1)
+	for i, v := range bayer8x8 {
+		d[i] = (float64(v) - 31.5) / 64.0 * step * 0.35
+	}
+	return d
+}
+
+var paletteLevels = []int{2, 8, 16, 32, 64, 128, 256, 512}
+var paletteBits = [][3]int{{0, 0, 0}, {1, 1, 1}, {2, 1, 1}, {2, 2, 1}, {2, 2, 2}, {3, 2, 2}, {3, 3, 2}, {3, 3, 3}}
 var paletteCache sync.Map
 
 func getSixelPalette(nc int, dither bool) *sixelPalette {
@@ -161,9 +192,6 @@ type Encoder struct {
 	Height int
 	Colors int
 
-	// Workers is the number of parallel workers to use (0 means use number of CPU cores).
-	//
-	// Workers 是要使用的并行工作线程数（0表示使用CPU核心数）。
 	Workers int
 }
 
@@ -174,14 +202,14 @@ func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{w: w, Workers: runtime.NumCPU(), Dither: true}
 }
 
-// Encode encodes an image to the sixel format in parallel, using uniform
-// quantization with optional Bayer ordered dithering for high performance.
+// Encode encodes an image to the sixel format in parallel, using
+// gamma-aware uniform quantization with optional Bayer 8×8 ordered dithering.
 //
-// Encode 并行地将图像编码为sixel格式，使用均匀量化和可选的Bayer有序抖动，性能极高。
+// Encode 并行地将图像编码为sixel格式，使用gamma感知的均匀量化和可选的Bayer 8×8有序抖动。
 func (e *Encoder) Encode(img image.Image) error {
 	nc := e.Colors
 	if nc < 2 {
-		nc = 255
+		nc = 512
 	}
 
 	origWidth, origHeight := img.Bounds().Dx(), img.Bounds().Dy()
@@ -327,60 +355,47 @@ func processStrip(job stripJob, resultCh chan<- stripResult) {
 		if y >= imgHeight {
 			continue
 		}
-		yb4 := (y & 3) << 2
+		yb8 := (y & 7) << 3
 		bit := byte(1 << dy)
 
-		r0, r1, r2, r3 := &job.pal.lutR[yb4|0], &job.pal.lutR[yb4|1], &job.pal.lutR[yb4|2], &job.pal.lutR[yb4|3]
-		g0, g1, g2, g3 := &job.pal.lutG[yb4|0], &job.pal.lutG[yb4|1], &job.pal.lutG[yb4|2], &job.pal.lutG[yb4|3]
-		b0, b1, b2, b3 := &job.pal.lutB[yb4|0], &job.pal.lutB[yb4|1], &job.pal.lutB[yb4|2], &job.pal.lutB[yb4|3]
+		r := [4]*[256]uint16{
+			&job.pal.lutR[yb8|0], &job.pal.lutR[yb8|1], &job.pal.lutR[yb8|2], &job.pal.lutR[yb8|3],
+		}
+		g := [4]*[256]uint16{
+			&job.pal.lutG[yb8|0], &job.pal.lutG[yb8|1], &job.pal.lutG[yb8|2], &job.pal.lutG[yb8|3],
+		}
+		b := [4]*[256]uint16{
+			&job.pal.lutB[yb8|0], &job.pal.lutB[yb8|1], &job.pal.lutB[yb8|2], &job.pal.lutB[yb8|3],
+		}
+		r4, r5, r6, r7 := &job.pal.lutR[yb8|4], &job.pal.lutR[yb8|5], &job.pal.lutR[yb8|6], &job.pal.lutR[yb8|7]
+		g4, g5, g6, g7 := &job.pal.lutG[yb8|4], &job.pal.lutG[yb8|5], &job.pal.lutG[yb8|6], &job.pal.lutG[yb8|7]
+		b4, b5, b6, b7 := &job.pal.lutB[yb8|4], &job.pal.lutB[yb8|5], &job.pal.lutB[yb8|6], &job.pal.lutB[yb8|7]
 
 		pi := y * rowBytes
-		lim := imgWidth &^ 3
-		for x := 0; x < lim; x += 4 {
-			ci := int(r0[data[pi]]) | int(g0[data[pi+1]]) | int(b0[data[pi+2]])
-			if ci < nc {
-				if st.seen[ci] != st.epoch {
-					st.seen[ci] = st.epoch
-					st.dirty = append(st.dirty, ci)
-				}
-				st.buf[ci*imgWidth+x] |= bit
-			}
-			ci = int(r1[data[pi+4]]) | int(g1[data[pi+5]]) | int(b1[data[pi+6]])
-			if ci < nc {
-				if st.seen[ci] != st.epoch {
-					st.seen[ci] = st.epoch
-					st.dirty = append(st.dirty, ci)
-				}
-				st.buf[ci*imgWidth+x+1] |= bit
-			}
-			ci = int(r2[data[pi+8]]) | int(g2[data[pi+9]]) | int(b2[data[pi+10]])
-			if ci < nc {
-				if st.seen[ci] != st.epoch {
-					st.seen[ci] = st.epoch
-					st.dirty = append(st.dirty, ci)
-				}
-				st.buf[ci*imgWidth+x+2] |= bit
-			}
-			ci = int(r3[data[pi+12]]) | int(g3[data[pi+13]]) | int(b3[data[pi+14]])
-			if ci < nc {
-				if st.seen[ci] != st.epoch {
-					st.seen[ci] = st.epoch
-					st.dirty = append(st.dirty, ci)
-				}
-				st.buf[ci*imgWidth+x+3] |= bit
-			}
-			pi += 16
+		lim := imgWidth &^ 7
+		for x := 0; x < lim; x += 8 {
+			ci := int(r[0][data[pi]]) | int(g[0][data[pi+1]]) | int(b[0][data[pi+2]])
+			st.seenAndSet(ci, nc, x, bit)
+			ci = int(r[1][data[pi+4]]) | int(g[1][data[pi+5]]) | int(b[1][data[pi+6]])
+			st.seenAndSet(ci, nc, x+1, bit)
+			ci = int(r[2][data[pi+8]]) | int(g[2][data[pi+9]]) | int(b[2][data[pi+10]])
+			st.seenAndSet(ci, nc, x+2, bit)
+			ci = int(r[3][data[pi+12]]) | int(g[3][data[pi+13]]) | int(b[3][data[pi+14]])
+			st.seenAndSet(ci, nc, x+3, bit)
+			ci = int(r4[data[pi+16]]) | int(g4[data[pi+17]]) | int(b4[data[pi+18]])
+			st.seenAndSet(ci, nc, x+4, bit)
+			ci = int(r5[data[pi+20]]) | int(g5[data[pi+21]]) | int(b5[data[pi+22]])
+			st.seenAndSet(ci, nc, x+5, bit)
+			ci = int(r6[data[pi+24]]) | int(g6[data[pi+25]]) | int(b6[data[pi+26]])
+			st.seenAndSet(ci, nc, x+6, bit)
+			ci = int(r7[data[pi+28]]) | int(g7[data[pi+29]]) | int(b7[data[pi+30]])
+			st.seenAndSet(ci, nc, x+7, bit)
+			pi += 32
 		}
 		for x := lim; x < imgWidth; x++ {
-			b := yb4 | (x & 3)
-			ci := int(job.pal.lutR[b][data[pi]]) | int(job.pal.lutG[b][data[pi+1]]) | int(job.pal.lutB[b][data[pi+2]])
-			if ci < nc {
-				if st.seen[ci] != st.epoch {
-					st.seen[ci] = st.epoch
-					st.dirty = append(st.dirty, ci)
-				}
-				st.buf[ci*imgWidth+x] |= bit
-			}
+			bayer := yb8 | (x & 7)
+			ci := int(job.pal.lutR[bayer][data[pi]]) | int(job.pal.lutG[bayer][data[pi+1]]) | int(job.pal.lutB[bayer][data[pi+2]])
+			st.seenAndSet(ci, nc, x, bit)
 			pi += 4
 		}
 	}
@@ -394,6 +409,17 @@ func processStrip(job stripJob, resultCh chan<- stripResult) {
 
 	releaseStripState(st)
 	resultCh <- stripResult{sixelRow: job.sixelRow, rleData: rleBytes}
+}
+
+func (st *stripState) seenAndSet(ci, nc, x int, bit byte) {
+	if ci >= nc {
+		return
+	}
+	if st.seen[ci] != st.epoch {
+		st.seen[ci] = st.epoch
+		st.dirty = append(st.dirty, ci)
+	}
+	st.buf[ci*len(st.buf)/nc+x] |= bit
 }
 
 func encodeStrip(buf *bytes.Buffer, st *stripState, sixelRow, width int) {
