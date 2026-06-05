@@ -30,6 +30,8 @@ import (
 	"github.com/mattn/go-runewidth"
 	"github.com/nfnt/resize"
 	"golang.org/x/term"
+
+	"golang.org/x/sys/unix"
 )
 
 // min returns the smaller of two values.
@@ -857,10 +859,41 @@ func saveCoverArt(audioPath string) string {
 // --- TUI / Drawing ---
 // All drawing functions are now methods on PlayerPage to access state.
 
+// refreshCellSize updates the player's cell pixel dimensions using the TIOCGWINSZ ioctl.
+// This accounts for DPI changes when the terminal is moved between displays.
+//
+// refreshCellSize 使用 TIOCGWINSZ ioctl 更新播放器的字符单元格像素尺寸。
+// 这可以应对终端在显示器之间移动时 DPI 变化的情况。
+func (p *PlayerPage) refreshCellSize() {
+	ws, err := unix.IoctlGetWinsize(int(os.Stdout.Fd()), unix.TIOCGWINSZ)
+	if err != nil {
+		return
+	}
+
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		return
+	}
+
+	if w > 0 && ws.Xpixel > 0 {
+		p.cellW = int(ws.Xpixel) / w
+	}
+	if h > 0 && ws.Ypixel > 0 {
+		p.cellH = int(ws.Ypixel) / h
+	}
+	if p.cellW == 0 {
+		p.cellW = 1
+	}
+	if p.cellH == 0 {
+		p.cellH = 1
+	}
+}
+
 func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB int) {
 	// This function is very large. It remains mostly the same, but now it's a method.
 	// We access flacPath and cell sizes via `p`.
 	time.Sleep(50 * time.Millisecond)
+	p.refreshCellSize()
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		fmt.Print("\x1b[2J\x1b[H")
