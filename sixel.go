@@ -48,7 +48,6 @@ type sixelPalette struct {
 	cube   [32768]uint16
 }
 
-
 func buildAdaptivePalette(img image.Image) *sixelPalette {
 	bounds := img.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
@@ -61,8 +60,8 @@ func buildAdaptivePalette(img image.Image) *sixelPalette {
 	sampleW := (w + stepX - 1) / stepX
 	sampleH := (h + stepY - 1) / stepY
 	sample := image.NewRGBA(image.Rect(0, 0, sampleW, sampleH))
-	for sy := 0; sy < sampleH; sy++ {
-		for sx := 0; sx < sampleW; sx++ {
+	for sy := range sampleH {
+		for sx := range sampleW {
 			sample.Set(sx, sy, img.At(sx*stepX+bounds.Min.X, sy*stepY+bounds.Min.Y))
 		}
 	}
@@ -85,11 +84,11 @@ func buildAdaptivePalette(img image.Image) *sixelPalette {
 		p.palRGB[i] = [3]uint8{uint8(cr >> 8), uint8(cg >> 8), uint8(cb >> 8)}
 	}
 
-	for ri := 0; ri < 32; ri++ {
+	for ri := range 32 {
 		rCenter := ri*8 + 4
-		for gi := 0; gi < 32; gi++ {
+		for gi := range 32 {
 			gCenter := gi*8 + 4
-			for bi := 0; bi < 32; bi++ {
+			for bi := range 32 {
 				bCenter := bi*8 + 4
 				bestIdx := 0
 				bestDist := int(^uint(0) >> 1)
@@ -195,13 +194,11 @@ func (e *Encoder) Encode(img image.Image) error {
 
 	var wg sync.WaitGroup
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for job := range jobCh {
 				processStrip(job, resultCh)
 			}
-		}()
+		})
 	}
 
 	makeJob := func(sixelRow int) stripJob {
@@ -297,7 +294,7 @@ func processStrip(job stripJob, resultCh chan<- stripResult) {
 		nextErr := errRows[dy+1]
 		pi := y * rowBytes
 
-		for x := 0; x < imgWidth; x++ {
+		for x := range imgWidth {
 			r := clampByteInt(int(data[pi]) + curErr[x][0])
 			g := clampByteInt(int(data[pi+1]) + curErr[x][1])
 			b := clampByteInt(int(data[pi+2]) + curErr[x][2])

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	"image/draw"
 	_ "image/jpeg"
 	"image/png"
 	_ "image/png"
@@ -881,8 +882,14 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 			p.cellH = 1
 		}
 
-		imageWidthInChars = (finalImgW + p.cellW - 1) / p.cellW
-		imageHeightInChars = (finalImgH + p.cellH - 1) / p.cellH
+		imageWidthInChars = finalImgW / p.cellW
+		if imageWidthInChars < 1 {
+			imageWidthInChars = 1
+		}
+		imageHeightInChars = finalImgH / p.cellH
+		if imageHeightInChars < 1 {
+			imageHeightInChars = 1
+		}
 
 		if imageWidthInChars > w {
 			imageWidthInChars = w
@@ -944,6 +951,18 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 		}
 
 		if !showNothing && !showTextOnly {
+			targetPixelW := imageWidthInChars * p.cellW
+			targetPixelH := imageHeightInChars * p.cellH
+			if targetPixelW > 0 && targetPixelH > 0 {
+				sb := scaledImg.Bounds()
+				if sb.Dx() >= targetPixelW && sb.Dy() >= targetPixelH &&
+					(sb.Dx() != targetPixelW || sb.Dy() != targetPixelH) {
+					aligned := image.NewRGBA(image.Rect(0, 0, targetPixelW, targetPixelH))
+					draw.Draw(aligned, aligned.Bounds(), scaledImg, sb.Min, draw.Src)
+					scaledImg = aligned
+				}
+			}
+
 			fmt.Printf("\x1b[%d;%dH", startRow, startCol)
 			if err := RenderImage(scaledImg, imageWidthInChars, imageHeightInChars); err != nil {
 				_ = NewEncoder(os.Stdout).Encode(scaledImg)
@@ -953,6 +972,9 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 				for row := startRow; row < startRow+imageHeightInChars; row++ {
 					fmt.Printf("\x1b[%d;%dH\x1b[K", row, fillStartCol)
 				}
+			}
+			if startRow+imageHeightInChars <= h {
+				fmt.Printf("\x1b[%d;%dH\x1b[J", startRow+imageHeightInChars, startCol)
 			}
 		}
 	}
