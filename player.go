@@ -647,25 +647,19 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		return fmt.Errorf("Failed to decode audio: %v\n\n解码音频失败: %v", err, err)
 	}
 
-	var audioStream beep.StreamSeeker = streamer
-	if format.SampleRate != p.app.sampleRate {
+	if p.app.player != nil && p.app.player.sampleRate != format.SampleRate {
 		p.resampleDisplayTimer = 10
-		// Only update status if we're on the player page and not during initial startup
-		// 只有在播放页面且不是初始启动时才更新状态
 		if p.app.currentPageIndex == 0 && p.flacPath != "" {
 			p.updateStatus()
 		}
-
-		// Use high-quality resampling with go-audio-resampler (最高质量)
-		resampledStream, err := highQualityResample(streamer, format.SampleRate, p.app.sampleRate)
-		if err != nil {
-			streamer.Close()
-			return fmt.Errorf("High-quality resampling failed: %v\n\n高质量重采样失败: %v", err, err)
-		}
-		audioStream = resampledStream
 	}
 
-	speaker.Init(p.app.sampleRate, p.app.sampleRate.N(time.Second/30))
+	if err := speaker.ReInit(format.SampleRate, format.SampleRate.N(time.Second/30)); err != nil {
+		streamer.Close()
+		return fmt.Errorf("Failed to reinit speaker: %v\n\n重新初始化扬声器失败: %v", err, err)
+	}
+
+	audioStream := streamer
 
 	player, err := newAudioPlayer(audioStream, format, p.app.volume, p.app.playbackRate)
 	if err != nil {
@@ -1198,7 +1192,7 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 		icon = "▶"
 	}
 
-	modeIcon := "⟳"
+	modeIcon := "🗘"
 	switch p.app.playMode {
 	case 1:
 		modeIcon = "⇆"
@@ -1212,13 +1206,13 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 	if playedChars > 0 {
 		bar.WriteString(fmt.Sprintf("\x1b[2m%s", colorCode))
 		for range playedChars {
-			bar.WriteString("━")
+			bar.WriteString("█")
 		}
 		bar.WriteString("\x1b[0m")
 	}
 	bar.WriteString(colorCode)
 	for i := playedChars; i < width; i++ {
-		bar.WriteString("━")
+		bar.WriteString("░")
 	}
 
 	fmt.Printf("\x1b[0m\x1b[%d;%dH%s", row, startCol, bar.String())
@@ -1569,25 +1563,5 @@ func getResamplingQuality(quality string) int {
 	}
 }
 
-// highQualityResample performs audio resampling using beep's built-in resampler
-// with the quality preset specified in the configuration.
-func highQualityResample(streamer beep.Streamer, inputRate, outputRate beep.SampleRate) (beep.StreamSeeker, error) {
-	// Get the quality from configuration
-	quality := getResamplingQuality(GlobalConfig.App.ResamplingQuality)
-
-	// Use beep's built-in Resample function
-	resampled := beep.Resample(quality, inputRate, outputRate, streamer)
-
-	// Create a buffer with the resampled audio to make it seekable
-	bufferFormat := beep.Format{
-		SampleRate:  outputRate,
-		NumChannels: 2,
-		Precision:   3, // 24-bit audio
-	}
-
-	// Create buffer and append the resampled streamer
-	audioBuffer := beep.NewBuffer(bufferFormat)
-	audioBuffer.Append(resampled)
-
-	return audioBuffer.Streamer(0, audioBuffer.Len()), nil
-}
+// highQualityResample was removed; the speaker now switches sample rate
+// dynamically so resampling is no longer needed.

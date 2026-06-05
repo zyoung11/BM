@@ -253,27 +253,20 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 		playerPage = page
 	}
 
-	// Resample if necessary and use a buffer to create a seekable stream (StreamSeeker).
-	// 如果需要，进行重采样，并使用缓冲区创建一个可跳转的流 (StreamSeeker)。
-	var audioStream beep.StreamSeeker = streamer
-	if format.SampleRate != a.sampleRate {
-		if playerPage != nil {
-			playerPage.resampleDisplayTimer = 10 // Show for 10 ticks (about 5s) / 显示10个tick周期（约5秒）
-			// Force immediate UI update to show resampling indicator only if we're on player page and not during initial startup
-			// 只有在播放页面且不是初始启动时才强制立即更新UI以显示重采样指示器
-			if a.currentPageIndex == 0 && playerPage.flacPath != "" {
-				playerPage.updateStatus()
-			}
+	// Dynamic sample rate: switch the speaker to match the song's native rate.
+	if playerPage != nil && playerPage.app.player != nil && playerPage.app.player.sampleRate != format.SampleRate {
+		playerPage.resampleDisplayTimer = 10
+		if a.currentPageIndex == 0 && playerPage.flacPath != "" {
+			playerPage.updateStatus()
 		}
-
-		// Use high-quality resampling with go-audio-resampler (最高质量)
-		resampledStream, err := highQualityResample(streamer, format.SampleRate, a.sampleRate)
-		if err != nil {
-			streamer.Close()
-			return fmt.Errorf("High-quality resampling failed: %v\n\n高质量重采样失败: %v", err, err)
-		}
-		audioStream = resampledStream
 	}
+
+	if err := speaker.ReInit(format.SampleRate, format.SampleRate.N(time.Second/30)); err != nil {
+		streamer.Close()
+		return fmt.Errorf("Failed to reinit speaker: %v\n\n重新初始化扬声器失败: %v", err, err)
+	}
+
+	audioStream := streamer
 
 	player, err := newAudioPlayer(audioStream, format, a.volume, a.playbackRate)
 	if err != nil {
