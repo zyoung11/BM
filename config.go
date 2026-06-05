@@ -88,6 +88,7 @@ type AppConfig struct {
 	DefaultCoverPath     string `toml:"default_cover_path"`
 	EnableFolderCovers   bool   `toml:"enable_folder_covers"`
 	Icons                string `toml:"icons"`
+	ShuffleHistoryWindow int    `toml:"shuffle_history_window"`
 }
 
 // Keymap defines all the keybindings for the application, organized by page.

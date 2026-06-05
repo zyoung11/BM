@@ -397,10 +397,7 @@ func (p *PlayerPage) playNextSong() {
 			p.playNextInRandomMode()
 			return
 		} else {
-			nextIndex = rand.Intn(len(p.app.Playlist))
-			if nextIndex == currentIndex && len(p.app.Playlist) > 1 {
-				nextIndex = (nextIndex + 1) % len(p.app.Playlist)
-			}
+			nextIndex = p.pickRandomIndex(currentIndex)
 		}
 	default: // Single repeat or manual switch / 单曲循环或手动切换
 		nextIndex = (currentIndex + 1) % len(p.app.Playlist)
@@ -580,6 +577,80 @@ func (p *PlayerPage) playPreviousInRandomMode() {
 	p.lastSwitchTime = time.Now()
 }
 
+// pickRandomIndex selects a random index from the playlist for shuffle mode.
+// It uses a sliding window: excludes the last N unique songs from play history
+// to avoid frequent repeats. The window is capped at playlistLen-2 to ensure
+// at least one candidate is always available.
+// N = 0: pure random (disabled).
+// N < 0 or N >= playlistLen: treat as the maximum possible window, meaning
+//   songs cycle through the entire playlist before any repeats.
+// N > 0: exclude last N unique songs from history.
+//
+// pickRandomIndex 使用滑动窗口从播放列表中随机选择下一首。
+// 排除播放历史中最近 N 首不重复歌曲以避免频繁重复。
+// 窗口上限为 playlistLen-2，保证始终至少有一个候选。
+// N = 0: 纯随机（禁用）。
+// N < 0 或 N >= 歌单长度: 使用最大窗口，歌单内所有歌曲循环一遍后才重复。
+// N > 0: 排除最近 N 首不重复歌曲。
+func (p *PlayerPage) pickRandomIndex(currentIndex int) int {
+	playlistLen := len(p.app.Playlist)
+	if playlistLen == 0 {
+		return 0
+	}
+	if playlistLen == 1 {
+		return 0
+	}
+
+	n := GlobalConfig.App.ShuffleHistoryWindow
+	if n == 0 {
+		for {
+			idx := rand.Intn(playlistLen)
+			if idx != currentIndex {
+				return idx
+			}
+		}
+	}
+
+	maxN := playlistLen - 2
+	if n < 0 || n > maxN {
+		n = maxN
+	}
+	if n < 0 {
+		n = 0
+	}
+
+	recentlyPlayed := make(map[string]bool, n)
+	count := 0
+	for i := len(p.app.playHistory) - 1; i >= 0 && count < n; i-- {
+		song := p.app.playHistory[i]
+		if song != p.flacPath && !recentlyPlayed[song] {
+			recentlyPlayed[song] = true
+			count++
+		}
+	}
+
+	candidates := make([]int, 0, playlistLen)
+	for i, song := range p.app.Playlist {
+		if i == currentIndex {
+			continue
+		}
+		if !recentlyPlayed[song] {
+			candidates = append(candidates, i)
+		}
+	}
+
+	if len(candidates) == 0 {
+		for {
+			idx := rand.Intn(playlistLen)
+			if idx != currentIndex {
+				return idx
+			}
+		}
+	}
+
+	return candidates[rand.Intn(len(candidates))]
+}
+
 // playRandomSong plays a random song from the playlist.
 //
 // playRandomSong 从播放列表中随机播放一首歌曲。
@@ -596,17 +667,7 @@ func (p *PlayerPage) playRandomSong() {
 		}
 	}
 
-	var randomIndex int
-	if len(p.app.Playlist) > 1 {
-		for {
-			randomIndex = rand.Intn(len(p.app.Playlist))
-			if randomIndex != currentIndex {
-				break
-			}
-		}
-	} else {
-		randomIndex = 0
-	}
+	randomIndex := p.pickRandomIndex(currentIndex)
 
 	p.app.PlaySongWithSwitchAndRender(p.app.Playlist[randomIndex], true, true)
 
