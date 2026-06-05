@@ -14,7 +14,7 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 - **Playback control**: Play/Pause, Fast forward/Rewind (5-second intervals)
 - **Volume control**: Logarithmic volume curve with fine adjustment
 - **Speed control**: 0.1x to 4.0x playback speed control
-- **High-quality resampling**: Support for multiple resampling quality options
+- **Dynamic sample rate**: Automatically switches speaker sample rate per song, no resampling needed
 
 ### Terminal Interface
 
@@ -43,9 +43,10 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 ### Highly Configurable
 
 - **Key mappings**: Fully customizable all shortcuts
-- **Playback modes**: Single loop, list loop, shuffle, memory mode
-- **Startup behavior**: Configurable default page and auto-play
+- **Playback modes**: Single repeat, list repeat, shuffle with sliding window (avoid frequent repeats)
+- **Startup behavior**: Configurable default page with memory mode, auto-play
 - **Image protocol**: Auto-detection or manual specification of terminal image protocol
+- **Player icons**: Customizable play/pause/progress bar/repeat mode icons per terminal type
 
 ## Installation
 
@@ -170,6 +171,10 @@ Configuration file is located at `~/.config/BM/config.toml` and will be automati
 ### Key Mapping Configuration
 
 The configuration file supports complete key mapping customization, supporting single keys or key lists. Refer to the generated default configuration file for detailed settings.
+
+### Icon Configuration
+
+Player UI icons (play, pause, progress bar, repeat modes) are fully customizable via `[icons]` sections. Named icon sets can be defined for specific terminals (e.g. `[icons.xterm-ghostty]`), with `icons = "auto"` auto-detecting the best match from `$TERM` and `$TERM_PROGRAM`.
 
 ## Cover Support
 
