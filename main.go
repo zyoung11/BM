@@ -322,6 +322,12 @@ func (a *App) addToPlayHistory(songPath string) {
 		a.playHistory = a.playHistory[:a.historyIndex+1]
 	}
 
+	if len(a.playHistory) > 0 && a.playHistory[len(a.playHistory)-1] == songPath {
+		a.historyIndex = len(a.playHistory) - 1
+		a.isNavigatingHistory = false
+		return
+	}
+
 	a.playHistory = append(a.playHistory, songPath)
 
 	if len(a.playHistory) > GlobalConfig.App.MaxHistorySize {
@@ -759,9 +765,6 @@ func runApplication(dirPath string) error {
 		var songToPlay string
 		if currentSong != "" {
 			songToPlay = currentSong
-			if len(app.playHistory) == 0 || app.playHistory[len(app.playHistory)-1] != songToPlay {
-				app.addToPlayHistory(songToPlay)
-			}
 		} else if len(app.playHistory) > 0 {
 			songToPlay = app.playHistory[len(app.playHistory)-1]
 		}

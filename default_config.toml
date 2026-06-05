@@ -132,6 +132,17 @@ enable_folder_covers = true
 # 命名图标集定义在下方 [icons.<name>] 节中。
 icons = "auto"
 
+# Shuffle history window - when in random play mode, exclude the last N unique songs from play history
+# from the random selection to avoid frequent repeats.
+# 0 = disabled (pure random).
+# -1 or value >= playlist length = never repeat until all songs in the playlist have been played.
+# Positive value = exclude the last N unique songs from history.
+#
+# 随机播放历史窗口 - 在随机播放模式下，从播放历史的最近 N 首不重复歌曲中排除，
+# 避免频繁重复。设为 0 禁用此功能（纯随机）。负值或大于等于歌单长度的值表示歌单内
+# 所有歌曲都听过一遍之前不重复。
+shuffle_history_window = -1
+
 # Keymap settings - defines all keybindings for the application.
 #
 # 键位映射设置 - 定义应用程序的所有按键绑定。
