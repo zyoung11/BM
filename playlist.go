@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gopxl/beep/v2/flac"
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
@@ -379,23 +378,12 @@ func (p *PlayList) View() {
 	}
 }
 
-// NeedsResampling checks if a song needs resampling.
+// NeedsResampling always returns false; the speaker now switches sample rate
+// dynamically so resampling is no longer needed.
 //
-// NeedsResampling 检查歌曲是否需要重采样。
+// NeedsResampling 始终返回 false；扬声器现在动态切换采样率, 因此不再需要重采样。
 func (p *PlayList) NeedsResampling(songPath string) (bool, error) {
-	f, err := os.Open(songPath)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-
-	streamer, format, err := flac.Decode(f)
-	if err != nil {
-		return false, err
-	}
-	streamer.Close()
-
-	return format.SampleRate != p.app.sampleRate, nil
+	return false, nil
 }
 
 // Tick for PlayList does nothing, as it's event-driven.
