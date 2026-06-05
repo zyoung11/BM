@@ -253,14 +253,6 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 		playerPage = page
 	}
 
-	// Dynamic sample rate: switch the speaker to match the song's native rate.
-	if playerPage != nil && playerPage.app.player != nil && playerPage.app.player.sampleRate != format.SampleRate {
-		playerPage.resampleDisplayTimer = 10
-		if a.currentPageIndex == 0 && playerPage.flacPath != "" {
-			playerPage.updateStatus()
-		}
-	}
-
 	if err := speaker.ReInit(format.SampleRate, format.SampleRate.N(time.Second/30)); err != nil {
 		streamer.Close()
 		return fmt.Errorf("Failed to reinit speaker: %v\n\n重新初始化扬声器失败: %v", err, err)
@@ -295,10 +287,6 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	a.addToPlayHistory(songPath)
 
 	speaker.Play(a.player.volume)
-
-	if playerPage != nil {
-		playerPage.resampleDisplayTimer = 0
-	}
 
 	if switchToPlayer {
 		a.currentPageIndex = 0 // Directly set the page index
@@ -902,7 +890,6 @@ func loadMinimalConfig() error {
 			AutostartLastPlayed:  false,
 			RememberVolume:       false,
 			RememberPlaybackRate: false,
-			ResamplingQuality:    "quick",
 			DefaultColorR:        100,
 			DefaultColorG:        149,
 			DefaultColorB:        237,

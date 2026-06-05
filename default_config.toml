@@ -64,13 +64,6 @@ remember_volume = true
 # 是否记录播放速度
 remember_playback_rate = true
 
-# Audio resampling quality - determines the quality of audio resampling when sample rate conversion is needed.
-# Available options: "quick", "low", "medium", "high", "very_high"
-#
-# 音频重采样质量 - 当需要进行采样率转换时，决定音频重采样的质量。
-# 可用选项: "quick", "low", "medium", "high", "very_high"
-resampling_quality = "quick"
-
 # Default text color - the color used for text display when no suitable color is found from album art.
 # RGB values range from 0 to 255.
 #

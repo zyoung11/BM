@@ -68,7 +68,6 @@ type PlayerPage struct {
 	useCoverColor                         bool
 	volumeDisplayTimer                    int
 	rateDisplayTimer                      int
-	resampleDisplayTimer                  int  // Timer for showing the resampling indicator. / 用于显示重采样提示的计时器。
 	textTooLongForWide                    bool // True if text is too long for wide terminal mode. / 如果文本太长不适合宽终端模式则为true。
 	showTextInWideMode                    bool // True if text can be shown below image in wide mode. / 如果可以在宽终端模式下在图片下方显示文本则为true。
 
@@ -317,9 +316,6 @@ func (p *PlayerPage) Tick() {
 	}
 	if p.rateDisplayTimer > 0 {
 		p.rateDisplayTimer--
-	}
-	if p.resampleDisplayTimer > 0 {
-		p.resampleDisplayTimer--
 	}
 
 	if p.flacPath == "" {
@@ -647,13 +643,6 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		return fmt.Errorf("Failed to decode audio: %v\n\n解码音频失败: %v", err, err)
 	}
 
-	if p.app.player != nil && p.app.player.sampleRate != format.SampleRate {
-		p.resampleDisplayTimer = 10
-		if p.app.currentPageIndex == 0 && p.flacPath != "" {
-			p.updateStatus()
-		}
-	}
-
 	if err := speaker.ReInit(format.SampleRate, format.SampleRate.N(time.Second/30)); err != nil {
 		streamer.Close()
 		return fmt.Errorf("Failed to reinit speaker: %v\n\n重新初始化扬声器失败: %v", err, err)
@@ -691,8 +680,6 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	}
 
 	speaker.Play(p.app.player.volume)
-
-	p.resampleDisplayTimer = 0
 
 	// Reset cover image position and dimensions
 	// 重置封面图片位置和尺寸
@@ -1147,36 +1134,26 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 		return
 	}
 
-	// --- Indicators (Volume & Rate & Resample) ---
+	// --- Indicators (Volume & Rate) ---
 	indicatorRow := row - 1
 	if indicatorRow > 0 && width > 0 {
 		fmt.Printf("\x1b[%d;%dH\x1b[K", indicatorRow, startCol)
 
-		if p.resampleDisplayTimer > 0 {
-			resampleStr := "↻ Resampling"
-			resampleWidth := runewidth.StringWidth(resampleStr)
-			resampleStartCol := startCol + (width-resampleWidth)/2
-			if resampleStartCol < startCol {
-				resampleStartCol = startCol
-			}
-			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, resampleStartCol, colorCode, resampleStr)
-		} else {
-			if p.volumeDisplayTimer > 0 {
-				volPercent := int(math.Round(p.app.linearVolume * 100))
-				volStr := fmt.Sprintf("%d%%", volPercent)
-				fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, startCol, colorCode, volStr)
-			}
+		if p.volumeDisplayTimer > 0 {
+			volPercent := int(math.Round(p.app.linearVolume * 100))
+			volStr := fmt.Sprintf("%d%%", volPercent)
+			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, startCol, colorCode, volStr)
+		}
 
-			if p.rateDisplayTimer > 0 {
-				rateVal := p.app.player.resampler.Ratio()
-				rateStr := fmt.Sprintf("%.2fx", rateVal)
-				rateWidth := runewidth.StringWidth(rateStr)
-				rateStartCol := startCol + width - rateWidth
-				if rateStartCol < startCol {
-					rateStartCol = startCol + 7
-				}
-				fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, rateStartCol, colorCode, rateStr)
+		if p.rateDisplayTimer > 0 {
+			rateVal := p.app.player.resampler.Ratio()
+			rateStr := fmt.Sprintf("%.2fx", rateVal)
+			rateWidth := runewidth.StringWidth(rateStr)
+			rateStartCol := startCol + width - rateWidth
+			if rateStartCol < startCol {
+				rateStartCol = startCol + 7
 			}
+			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, rateStartCol, colorCode, rateStr)
 		}
 	}
 
@@ -1541,29 +1518,3 @@ func getDefaultCoverPath() string {
 	return path
 }
 
-// getResamplingQuality converts the quality string from config to the corresponding beep resampling quality.
-// beep.Resample quality values:
-// 1 = very high performance, on-the-fly resampling, low quality
-// 3-4 = good performance, on-the-fly resampling, good quality
-// 6 = higher CPU usage, usually not suitable for on-the-fly resampling, very good quality
-// >6 = even higher CPU usage, for offline resampling, very good quality
-func getResamplingQuality(quality string) int {
-	switch quality {
-	case "quick":
-		return 1
-	case "low":
-		return 3
-	case "medium":
-		return 4
-	case "high":
-		return 6
-	case "very_high":
-		return 8
-	default:
-		// Default to medium quality if invalid value
-		return 4
-	}
-}
-
-// highQualityResample was removed; the speaker now switches sample rate
-// dynamically so resampling is no longer needed.
