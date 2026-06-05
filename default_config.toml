@@ -121,6 +121,17 @@ default_cover_path = "~/.config/BM/default.jpg"
 # 优先选择文件名包含封面相关关键词的图片（cover、folder、album等）
 enable_folder_covers = true
 
+# Icon set - which icon set to use for player UI elements (play, pause, progress bar, etc.).
+# Set to "auto" to auto-detect based on $TERM and $TERM_PROGRAM.
+# Set to a named set like "default" or "nerd_font" to use that specific set.
+# Named icon sets are defined in [icons.<name>] sections below.
+#
+# 图标集 - 播放器UI元素使用哪套图标（播放、暂停、进度条等）。
+# 设置为 "auto" 时根据 $TERM 和 $TERM_PROGRAM 自动检测。
+# 设置为 "default" 或 "nerd_font" 等命名集合直接使用对应图标集。
+# 命名图标集定义在下方 [icons.<name>] 节中。
+icons = "auto"
+
 # Keymap settings - defines all keybindings for the application.
 #
 # 键位映射设置 - 定义应用程序的所有按键绑定。
@@ -330,3 +341,49 @@ enable_folder_covers = true
       #
       # 搜索框退格。
       SearchBackspace = ["backspace"]
+
+# Icon sets - customizable icons for player UI elements.
+# Define named sets under [icons.<name>]. The "default" set is used as fallback.
+# You can create terminal-specific sets like [icons.foot] or [icons.kitty].
+#
+# 图标集 - 播放器UI元素的可自定义图标。
+# 在 [icons.<name>] 下定义命名集合。"default" 集合用作回退。
+# 可以创建终端专用集合如 [icons.foot] 或 [icons.kitty]。
+
+[icons.default]
+# Play icon - shown when paused.
+# 播放图标 - 暂停时显示。
+play = "▶"
+
+# Pause icon - shown when playing.
+# 暂停图标 - 播放时显示。
+pause = "⏸"
+
+# Progress bar filled character.
+# 进度条已播放部分字符。
+progress_filled = "█"
+
+# Progress bar empty character.
+# 进度条未播放部分字符。
+progress_empty = "░"
+
+# Single song repeat mode icon.
+# 单曲循环模式图标。
+repeat_one = "🗘"
+
+# List repeat mode icon.
+# 列表循环模式图标。
+repeat_all = "⇆"
+
+# Shuffle/random mode icon.
+# 随机播放模式图标。
+shuffle = "⤮"
+
+[icons.xterm-ghostty]
+play = "▶"
+pause = "𐽕"
+progress_filled = "█"
+progress_empty = "░"
+repeat_one = "🗘"
+repeat_all = "⇆"
+shuffle = "⤮"

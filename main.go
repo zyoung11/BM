@@ -903,6 +903,8 @@ func loadMinimalConfig() error {
 		},
 	}
 
+	resolveIconSet(GlobalConfig)
+
 	return nil
 }
 

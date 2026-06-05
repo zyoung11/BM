@@ -41,12 +41,27 @@ func (k *Key) UnmarshalTOML(data []byte) error {
 	return fmt.Errorf("key must be a string or a list of strings\n\n键必须是字符串或字符串列表")
 }
 
+// IconsConfig holds the customizable icons used in the player UI.
+//
+// IconsConfig 保存播放器UI中可自定义的图标。
+type IconsConfig struct {
+	Play           string `toml:"play"`
+	Pause          string `toml:"pause"`
+	ProgressFilled string `toml:"progress_filled"`
+	ProgressEmpty  string `toml:"progress_empty"`
+	RepeatOne      string `toml:"repeat_one"`
+	RepeatAll      string `toml:"repeat_all"`
+	Shuffle        string `toml:"shuffle"`
+}
+
 // Config holds the application's configuration, loaded from a TOML file.
 //
 // Config 保存从TOML文件加载的应用程序配置。
 type Config struct {
-	Keymap Keymap    `toml:"keymap"`
-	App    AppConfig `toml:"app"`
+	Keymap      Keymap                 `toml:"keymap"`
+	App         AppConfig              `toml:"app"`
+	Icons       map[string]IconsConfig `toml:"icons"`
+	ActiveIcons *IconsConfig           `toml:"-"`
 }
 
 // AppConfig holds application-level configuration settings.
@@ -72,6 +87,7 @@ type AppConfig struct {
 	Storage              string `toml:"storage"`
 	DefaultCoverPath     string `toml:"default_cover_path"`
 	EnableFolderCovers   bool   `toml:"enable_folder_covers"`
+	Icons                string `toml:"icons"`
 }
 
 // Keymap defines all the keybindings for the application, organized by page.
@@ -250,6 +266,8 @@ func LoadConfig() error {
 		return fmt.Errorf("autostart_last_played can only be enabled when both remember_library_path and playlist_history are also enabled\n\nautostart_last_played 只能在 remember_library_path 和 playlist_history 同时开启时才能开启")
 	}
 
+	resolveIconSet(GlobalConfig)
+
 	return validateKeymap(GlobalConfig.Keymap)
 }
 
@@ -309,6 +327,55 @@ func validateKeymap(keymap Keymap) error {
 		}
 	}
 	return nil
+}
+
+// resolveIconSet resolves which icon set to use based on the app.icons setting.
+// If set to "auto", it auto-detects from $TERM and $TERM_PROGRAM environment variables.
+// Falls back to the "default" set or hardcoded defaults.
+//
+// resolveIconSet 根据 app.icons 设置解析使用哪个图标集。
+// 如果设置为 "auto"，则从 $TERM 和 $TERM_PROGRAM 环境变量自动检测。
+// 回退到 "default" 集合或硬编码的默认值。
+func resolveIconSet(config *Config) {
+	defaultIcons := IconsConfig{
+		Play:           "▶",
+		Pause:          "⏸",
+		ProgressFilled: "█",
+		ProgressEmpty:  "░",
+		RepeatOne:      "🗘",
+		RepeatAll:      "⇆",
+		Shuffle:        "⤮",
+	}
+
+	iconSetName := config.App.Icons
+	if iconSetName == "" {
+		iconSetName = "auto"
+	}
+
+	if iconSetName == "auto" {
+		for _, env := range []string{"TERM", "TERM_PROGRAM"} {
+			if term := os.Getenv(env); term != "" {
+				term = strings.ToLower(term)
+				if icons, ok := config.Icons[term]; ok {
+					config.ActiveIcons = &icons
+					return
+				}
+			}
+		}
+		if icons, ok := config.Icons["default"]; ok {
+			config.ActiveIcons = &icons
+			return
+		}
+		config.ActiveIcons = &defaultIcons
+		return
+	}
+
+	if icons, ok := config.Icons[iconSetName]; ok {
+		config.ActiveIcons = &icons
+		return
+	}
+
+	config.ActiveIcons = &defaultIcons
 }
 
 // IsKey checks if the given rune matches any of the keys for the given action.
