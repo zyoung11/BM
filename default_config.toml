@@ -15,14 +15,14 @@ max_history_size = 100
 # Song switching debounce time (milliseconds) - prevents rapid continuous song switching, avoiding misoperation.
 #
 # 切歌防抖时间（毫秒）- 防止快速连续切歌，避免误操作
-switch_debounce_ms = 100
+switch_debounce_ms = 50
 
 # Default starting page - the page displayed when the program starts.
-# 0 = Player page, 1 = PlayList page, 2 = Library page.
+# 0 = Player page, 1 = PlayList page, 2 = Library page, 3 = memory (use saved page from last session).
 #
 # 默认启动页面 - 程序启动时显示的页面。
-# 0 = 播放器页面, 1 = 播放列表页面, 2 = 媒体库页面。
-default_page = 2
+# 0 = 播放器页面, 1 = 播放列表页面, 2 = 媒体库页面, 3 = 记忆（使用上次保存的页面）。
+default_page = 3
 
 # Default play mode - the playback mode when the program starts.
 # 0 = repeat one, 1 = repeat all, 2 = random, 3 = memory (use saved play mode from last session).
