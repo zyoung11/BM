@@ -19,6 +19,7 @@ type StorageData struct {
 	Volume       *float64 `json:"volume,omitempty"`
 	PlaybackRate *float64 `json:"playback_rate,omitempty"`
 	PlayMode     *int     `json:"play_mode,omitempty"`
+	Page         *int     `json:"page,omitempty"`
 }
 
 // getStoragePath returns the absolute path to the storage file.
@@ -343,4 +344,39 @@ func LoadPlayMode() (int, error) {
 	}
 
 	return *storageData.PlayMode, nil
+}
+
+// SavePage saves the current page index to the storage.json file.
+//
+// SavePage 将当前页面索引保存到 storage.json 文件。
+func SavePage(page int) error {
+	storageData, err := loadStorageData()
+	if err != nil {
+		return fmt.Errorf("could not load storage data for page: %v\n\n无法加载页面的存储数据: %v", err, err)
+	}
+
+	storageData.Page = &page
+
+	if err := saveStorageData(storageData); err != nil {
+		return fmt.Errorf("could not save page data: %v\n\n无法保存页面数据: %v", err, err)
+	}
+	return nil
+}
+
+// LoadPage loads the page index from the storage.json file.
+// If no page is saved, it returns 0 (player page).
+//
+// LoadPage 从 storage.json 文件加载页面索引。
+// 如果没有保存页面，则返回 0（播放器页面）。
+func LoadPage() (int, error) {
+	storageData, err := loadStorageData()
+	if err != nil {
+		return 0, fmt.Errorf("could not load storage data for page: %v\n\n无法加载页面的存储数据: %v", err, err)
+	}
+
+	if storageData.Page == nil {
+		return 0, nil
+	}
+
+	return *storageData.Page, nil
 }

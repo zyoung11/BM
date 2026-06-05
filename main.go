@@ -200,6 +200,11 @@ type Page interface {
 func (a *App) switchToPage(index int) {
 	if index >= 0 && index < len(a.pages) && index != a.currentPageIndex {
 		a.currentPageIndex = index
+		if GlobalConfig.App.DefaultPage == 3 {
+			if err := SavePage(index); err != nil {
+				log.Printf("Warning: failed to save page: %v\n\n警告: 保存页面失败: %v", err, err)
+			}
+		}
 		newPage := a.pages[a.currentPageIndex]
 		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen completely
 		newPage.Init()
@@ -690,7 +695,7 @@ func runApplication(dirPath string) error {
 	app := &App{
 		player:              nil,
 		mprisServer:         nil,
-		currentPageIndex:    GlobalConfig.App.DefaultPage,
+		currentPageIndex:    0,
 		Playlist:            playlist,
 		LibraryPath:         dirPath,
 		playMode:            GlobalConfig.App.DefaultPlayMode,
@@ -704,6 +709,18 @@ func runApplication(dirPath string) error {
 		isNavigatingHistory: false,
 		corruptedFiles:      make(map[string]bool),
 		isSingleSongMode:    false,
+	}
+
+	if GlobalConfig.App.DefaultPage == 3 {
+		savedPage, err := LoadPage()
+		if err != nil {
+			log.Printf("Warning: Could not load saved page: %v", err)
+			app.currentPageIndex = 0
+		} else {
+			app.currentPageIndex = savedPage
+		}
+	} else {
+		app.currentPageIndex = GlobalConfig.App.DefaultPage
 	}
 
 	if GlobalConfig.App.RememberVolume && storageData.Volume != nil {
