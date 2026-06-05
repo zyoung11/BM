@@ -1166,17 +1166,19 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 
 	playedChars := int(float64(width) * progress)
 
-	icon := "⏸"
+	icons := GlobalConfig.ActiveIcons
+
+	icon := icons.Pause
 	if p.app.player.ctrl.Paused {
-		icon = "▶"
+		icon = icons.Play
 	}
 
-	modeIcon := "🗘"
+	modeIcon := icons.RepeatOne
 	switch p.app.playMode {
 	case 1:
-		modeIcon = "⇆"
+		modeIcon = icons.RepeatAll
 	case 2:
-		modeIcon = "⤮"
+		modeIcon = icons.Shuffle
 	}
 
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s", row, startCol-2, colorCode, icon)
@@ -1185,13 +1187,13 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 	if playedChars > 0 {
 		bar.WriteString(fmt.Sprintf("\x1b[2m%s", colorCode))
 		for range playedChars {
-			bar.WriteString("█")
+			bar.WriteString(icons.ProgressFilled)
 		}
 		bar.WriteString("\x1b[0m")
 	}
 	bar.WriteString(colorCode)
 	for i := playedChars; i < width; i++ {
-		bar.WriteString("░")
+		bar.WriteString(icons.ProgressEmpty)
 	}
 
 	fmt.Printf("\x1b[0m\x1b[%d;%dH%s", row, startCol, bar.String())
