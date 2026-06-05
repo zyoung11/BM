@@ -951,8 +951,10 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 				sb := scaledImg.Bounds()
 				if sb.Dx() >= targetPixelW && sb.Dy() >= targetPixelH &&
 					(sb.Dx() != targetPixelW || sb.Dy() != targetPixelH) {
+					offsetX := (sb.Dx() - targetPixelW) / 2
+					offsetY := (sb.Dy() - targetPixelH) / 2
 					aligned := image.NewRGBA(image.Rect(0, 0, targetPixelW, targetPixelH))
-					draw.Draw(aligned, aligned.Bounds(), scaledImg, sb.Min, draw.Src)
+					draw.Draw(aligned, aligned.Bounds(), scaledImg, image.Point{X: offsetX, Y: offsetY}, draw.Src)
 					scaledImg = aligned
 				}
 			}
