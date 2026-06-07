@@ -1276,11 +1276,10 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 
 	var bar strings.Builder
 	if playedChars > 0 {
-		bar.WriteString(fmt.Sprintf("\x1b[2m%s", colorCode))
+		bar.WriteString(colorCode)
 		for range playedChars {
 			bar.WriteString(icons.ProgressFilled)
 		}
-		bar.WriteString("\x1b[0m")
 	}
 	bar.WriteString(colorCode)
 	for i := playedChars; i < width; i++ {
