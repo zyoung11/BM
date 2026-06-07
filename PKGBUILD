@@ -1,6 +1,6 @@
 # Maintainer: zyoung11 <zy3180250@163.com>
 pkgname='bm-terminal-music-player'
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="A minimalist terminal music player."
 arch=('x86_64')
@@ -15,7 +15,6 @@ sha256sums=('SKIP')
 
 build() {
   cd "$pkgname"
-  go mod tidy
   go build -trimpath -buildmode=pie -ldflags="-s -w -linkmode=external -extldflags=-Wl,-z,relro,-z,now" .
 }
 

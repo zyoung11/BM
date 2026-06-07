@@ -6,7 +6,6 @@ require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/godbus/dbus/v5 v5.2.0
-	github.com/gopxl/beep/v2 v2.1.1
 	github.com/mattn/go-runewidth v0.0.19
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
 	github.com/soniakeys/quant v1.0.0
@@ -15,7 +14,6 @@ require (
 
 require (
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
-	github.com/ebitengine/oto/v3 v3.3.2 // indirect
 	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/hajimehoshi/go-mp3 v0.3.4 // indirect
 	github.com/icza/bitio v1.1.0 // indirect
@@ -29,8 +27,3 @@ require (
 )
 
 replace github.com/blacktop/go-termimg => ./kitty_test/go-termimg
-
-replace (
-	github.com/ebitengine/oto/v3 => ./oto
-	github.com/gopxl/beep/v2 => ./beep
-)
