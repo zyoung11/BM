@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"os/signal"
@@ -202,7 +201,7 @@ func (a *App) switchToPage(index int) {
 		a.currentPageIndex = index
 		if GlobalConfig.App.DefaultPage == 3 {
 			if err := SavePage(index); err != nil {
-				log.Printf("Warning: failed to save page: %v\n\n警告: 保存页面失败: %v", err, err)
+				l.Warnf("failed to save page: %v\n\n警告: 保存页面失败: %v", err, err)
 			}
 		}
 		newPage := a.pages[a.currentPageIndex]
@@ -339,10 +338,10 @@ func (a *App) addToPlayHistory(songPath string) {
 
 	// Save both play history and current song
 	if err := SavePlayHistory(a.playHistory, a.LibraryPath); err != nil {
-		log.Printf("Warning: failed to save play history: %v\n\n警告: 保存播放历史失败: %v", err, err)
+		l.Warnf("failed to save play history: %v\n\n警告: 保存播放历史失败: %v", err, err)
 	}
 	if err := SaveCurrentSong(songPath, a.LibraryPath); err != nil {
-		log.Printf("Warning: failed to save current song: %v\n\n警告: 保存当前歌曲失败: %v", err, err)
+		l.Warnf("failed to save current song: %v\n\n警告: 保存当前歌曲失败: %v", err, err)
 	}
 }
 
@@ -378,7 +377,7 @@ func (a *App) SaveSettings() {
 
 	storageData, err := loadStorageData()
 	if err != nil {
-		log.Printf("Warning: could not load storage data to save settings: %v", err)
+		l.Warnf("could not load storage data to save settings: %v\n\n无法加载存储数据以保存设置: %v", err, err)
 		return
 	}
 
@@ -392,7 +391,7 @@ func (a *App) SaveSettings() {
 	}
 
 	if err := saveStorageData(storageData); err != nil {
-		log.Printf("Warning: could not save settings to storage: %v", err)
+		l.Warnf("could not save settings to storage: %v\n\n无法保存设置到存储: %v", err, err)
 	}
 }
 
@@ -566,7 +565,7 @@ func isInSearchMode(page Page) bool {
 
 func main() {
 	if os.Getenv("TMUX") != "" || os.Getenv("ZELLIJ") != "" {
-		log.Fatalf("BM does not support running inside tmux or zellij\n\nBM 不支持在tmux或zellij里运行")
+		l.Fatalf("BM does not support running inside tmux or zellij\n\nBM 不支持在tmux或zellij里运行")
 	}
 
 	if len(os.Args) >= 2 {
@@ -586,12 +585,12 @@ func main() {
 
 				oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 				if err != nil {
-					log.Fatalf("Failed to set raw mode: %v\n\n设置原始模式失败: %v", err, err)
+					l.Fatalf("failed to set raw mode: %v\n\n设置原始模式失败: %v", err, err)
 				}
 				defer term.Restore(int(os.Stdin.Fd()), oldState)
 
 				if err := runSingleSong(arg); err != nil {
-					log.Fatalf("Failed to play single song: %v\n\n播放单曲失败: %v", err, err)
+					l.Fatalf("failed to play single song: %v\n\n播放单曲失败: %v", err, err)
 				}
 				return
 			}
@@ -600,7 +599,7 @@ func main() {
 
 	dirPath, err := validateInputsAndConfig()
 	if err != nil {
-		log.Fatalf("%v", err)
+		l.Fatalf("%v", err)
 	}
 
 	fmt.Print("\x1b[?1049h\x1b[?25l")
@@ -608,12 +607,12 @@ func main() {
 
 	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		log.Fatalf("Failed to set raw mode: %v\n\n设置原始模式失败: %v", err, err)
+		l.Fatalf("failed to set raw mode: %v\n\n设置原始模式失败: %v", err, err)
 	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
 	if err := runApplication(dirPath); err != nil {
-		log.Fatalf("%v", err)
+		l.Fatalf("%v", err)
 	}
 }
 
@@ -661,10 +660,10 @@ func validateInputsAndConfig() (string, error) {
 	if GlobalConfig.App.RememberLibraryPath {
 		absPath, err := filepath.Abs(dirPath)
 		if err != nil {
-			log.Printf("Warning: Unable to get absolute path: %v\n\n警告: 无法获取绝对路径: %v", err, err)
+			l.Warnf("Unable to get absolute path: %v\n\n警告: 无法获取绝对路径: %v", err, err)
 		} else {
 			if err := SaveLibraryPath(absPath); err != nil {
-				log.Printf("Warning: Unable to save music library path: %v\n\n警告: 无法保存音乐库路径: %v", err, err)
+				l.Warnf("Unable to save music library path: %v\n\n警告: 无法保存音乐库路径: %v", err, err)
 			}
 		}
 	}
@@ -688,13 +687,13 @@ func runApplication(dirPath string) error {
 
 	playlist, err := LoadPlaylist(dirPath)
 	if err != nil {
-		log.Printf("Warning: Could not load playlist: %v\n\n警告: 无法加载播放列表: %v", err, err)
+		l.Warnf("Could not load playlist: %v\n\n警告: 无法加载播放列表: %v", err, err)
 		playlist = make([]string, 0)
 	}
 
 	playHistory, err := LoadPlayHistory(dirPath)
 	if err != nil {
-		log.Printf("Warning: Could not load play history: %v\n\n警告: 无法加载播放历史: %v", err, err)
+		l.Warnf("Could not load play history: %v\n\n警告: 无法加载播放历史: %v", err, err)
 		playHistory = make([]string, 0)
 	}
 
@@ -720,7 +719,7 @@ func runApplication(dirPath string) error {
 	if GlobalConfig.App.DefaultPage == 3 {
 		savedPage, err := LoadPage()
 		if err != nil {
-			log.Printf("Warning: Could not load saved page: %v", err)
+			l.Warnf("Could not load saved page: %v\n\n无法加载已保存的页面: %v", err, err)
 			app.currentPageIndex = 0
 		} else {
 			app.currentPageIndex = savedPage
@@ -746,7 +745,7 @@ func runApplication(dirPath string) error {
 	// If default play mode is 3 (memory), use saved play mode
 	savedPlayMode, err := LoadPlayMode()
 	if err != nil {
-		log.Printf("Warning: Could not load saved play mode: %v", err)
+		l.Warnf("Could not load saved play mode: %v\n\n无法加载已保存的播放模式: %v", err, err)
 	} else if GlobalConfig.App.DefaultPlayMode == 3 {
 		app.playMode = savedPlayMode
 	}
@@ -759,7 +758,7 @@ func runApplication(dirPath string) error {
 	if GlobalConfig.App.AutostartLastPlayed {
 		currentSong, err := LoadCurrentSong(dirPath)
 		if err != nil {
-			log.Printf("Warning: Could not load current song: %v", err)
+			l.Warnf("Could not load current song: %v\n\n无法加载当前歌曲: %v", err, err)
 		}
 
 		var songToPlay string
@@ -771,7 +770,7 @@ func runApplication(dirPath string) error {
 
 		if songToPlay != "" {
 			if !songExistsInPlaylist(songToPlay, app.Playlist) {
-				log.Printf("Warning: Last played song not found in playlist: %s", songToPlay)
+				l.Warnf("Last played song not found in playlist: %s\n\n上次播放的歌曲未在播放列表中找到: %s", songToPlay, songToPlay)
 				if playerPage, ok := app.pages[0].(*PlayerPage); ok {
 					playerPage.UpdateSong("")
 				}
@@ -779,7 +778,7 @@ func runApplication(dirPath string) error {
 				switchToPlayer := app.currentPageIndex == 0
 				err := app.PlaySongWithSwitchAndRender(songToPlay, switchToPlayer, false)
 				if err != nil {
-					log.Printf("Warning: Could not autostart last played song: %v", err)
+					l.Warnf("Could not autostart last played song: %v\n\n无法自动启动上次播放的歌曲: %v", err, err)
 				}
 			}
 		}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -625,7 +624,7 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 
 		// 保存空播放列表
 		if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
-			log.Printf("Warning: failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
+			l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 		}
 
 		// 记录移除历史（用于防抖）
@@ -664,7 +663,7 @@ func (p *Library) toggleSelection(path string) {
 	// Clear cache on selection change
 	p.dirSelectionCache = make(map[string]bool)
 	if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
-		log.Printf("Warning: failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
+		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
 }
 

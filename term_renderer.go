@@ -192,7 +192,7 @@ func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 
 		if _, err := io.WriteString(os.Stdout, chunkSequence); err != nil {
 			kittyBase64Pool.Put(base64RawPtr)
-			return fmt.Errorf("failed to write kitty image data: %v", err)
+			return fmt.Errorf("failed to write kitty image data: %v\n\n无法写入 kitty 图像数据: %v", err, err)
 		}
 	}
 
@@ -203,7 +203,7 @@ func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 func renderITerm2Image(img image.Image, widthChars, heightChars int) error {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
-		return fmt.Errorf("failed to encode PNG: %v", err)
+		return fmt.Errorf("failed to encode PNG: %v\n\n无法编码 PNG: %v", err, err)
 	}
 
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
@@ -216,7 +216,7 @@ func renderITerm2Image(img image.Image, widthChars, heightChars int) error {
 	}
 
 	if _, err := io.WriteString(os.Stdout, sequence); err != nil {
-		return fmt.Errorf("failed to write iTerm2 image data: %v", err)
+		return fmt.Errorf("failed to write iTerm2 image data: %v\n\n无法写入 iTerm2 图像数据: %v", err, err)
 	}
 
 	return nil
@@ -234,7 +234,7 @@ func ClearKittyImages() error {
 	}
 
 	if _, err := io.WriteString(os.Stdout, sequence); err != nil {
-		return fmt.Errorf("failed to clear kitty images: %v", err)
+		return fmt.Errorf("failed to clear kitty images: %v\n\n无法清除 kitty 图像: %v", err, err)
 	}
 
 	return nil
