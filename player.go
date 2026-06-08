@@ -8,7 +8,6 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	_ "image/png"
-	"log"
 	"math"
 	"math/rand"
 	"os"
@@ -223,7 +222,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		if !p.app.isSingleSongMode {
 			p.app.playMode = (p.app.playMode + 1) % 3
 			if err := SavePlayMode(p.app.playMode); err != nil {
-				log.Printf("Warning: failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
+				l.Warnf("failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
 			}
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleTextColor) {
@@ -739,7 +738,7 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 
 	// Save the current song when playing from history
 	if err := SaveCurrentSong(songPath, p.app.LibraryPath); err != nil {
-		log.Printf("Warning: failed to save current song from history: %v\n\n警告: 从历史记录保存当前歌曲失败: %v", err, err)
+		l.Warnf("failed to save current song from history: %v\n\n警告: 从历史记录保存当前歌曲失败: %v", err, err)
 	}
 
 	speaker.Play(p.app.player.volume)
@@ -894,7 +893,7 @@ func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, c
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		fmt.Print("\x1b[2J\x1b[H")
-		fmt.Println("无法获取终端尺寸")
+		l.Warnf("Unable to get terminal size\n\n无法获取终端尺寸")
 		return 0, 0, 0, 255, 255, 255
 	}
 
@@ -1349,15 +1348,15 @@ func getCellSize() (width, height int, err error) {
 		}
 	}
 	if !(len(buf) > 2 && buf[0] == '\x1b' && buf[1] == '[' && buf[len(buf)-1] == 't') {
-		return 0, 0, fmt.Errorf("无法解析的终端响应格式: %q", buf)
+		return 0, 0, fmt.Errorf("Unable to parse terminal response: %q\n\n无法解析的终端响应格式: %q", buf, buf)
 	}
 	content := buf[2 : len(buf)-1]
 	parts := bytes.Split(content, []byte(";"))
 	if len(parts) != 3 {
-		return 0, 0, fmt.Errorf("预期的响应分段为3, 实际为 %d: %q", len(parts), buf)
+		return 0, 0, fmt.Errorf("Expected 3 response segments, got %d: %q\n\n预期的响应分段为3, 实际为 %d: %q", len(parts), buf, len(parts), buf)
 	}
 	if string(parts[0]) != "6" {
-		return 0, 0, fmt.Errorf("预期的响应代码为 6, 实际为 %s", parts[0])
+		return 0, 0, fmt.Errorf("Expected response code 6, got %s\n\n预期的响应代码为 6, 实际为 %s", parts[0], parts[0])
 	}
 	h, err := strconv.Atoi(string(parts[1]))
 	if err != nil {
@@ -1466,7 +1465,7 @@ func decodeAudioFile(filePath string) (beep.StreamSeekCloser, beep.Format, error
 		return vorbis.Decode(f)
 	default:
 		f.Close()
-		return nil, beep.Format{}, fmt.Errorf("unsupported audio format: %s", ext)
+		return nil, beep.Format{}, fmt.Errorf("unsupported audio format: %s\n\n不支持的音频格式: %s", ext, ext)
 	}
 }
 

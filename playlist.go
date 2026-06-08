@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -195,7 +194,7 @@ func (p *PlayList) removeCurrentSong() {
 
 	p.app.Playlist = append(p.app.Playlist[:originalIndex], p.app.Playlist[originalIndex+1:]...)
 	if err := SavePlaylist(p.app.Playlist, p.app.LibraryPath); err != nil {
-		log.Printf("Warning: failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
+		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
 
 	for _, page := range p.app.pages {
