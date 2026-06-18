@@ -143,6 +143,14 @@ icons = "auto"
 # 所有歌曲都听过一遍之前不重复。
 shuffle_history_window = -1
 
+# Maximum number of directory results to show in search - limits the visible directory entries
+# in search results on the Library page. The rest of the directories are still accessible via scrolling.
+# Files below the separator are not limited.
+#
+# 搜索结果中最多显示的目录数量 - 限制媒体库页面搜索结果中可见的目录条目。
+# 其余目录仍可通过滚动访问。分割线下的文件不受此限制。
+max_search_dirs = 15
+
 # Keymap settings - defines all keybindings for the application.
 #
 # 键位映射设置 - 定义应用程序的所有按键绑定。
@@ -281,7 +289,7 @@ shuffle_history_window = -1
     # Enter search mode.
     #
     # 进入搜索模式。
-    Search = ["f"]
+    Search = ["/", "f"]
     
     # Search mode keybindings.
     #
@@ -331,7 +339,7 @@ shuffle_history_window = -1
     # Enter search mode.
     #
     # 进入搜索模式。
-    Search = ["f"]
+    Search = ["/", "f"]
     
     # Search mode keybindings.
     #

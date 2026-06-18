@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"syscall"
 	"time"
+
+	"bm/search"
 
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
@@ -26,6 +29,8 @@ type PlayList struct {
 	viewPlaylist    []string // The filtered playlist to be displayed. / 要显示的已过滤播放列表。
 	originalIndices []int    // Map from viewPlaylist index to app.Playlist index. / 从viewPlaylist索引到app.Playlist索引的映射。
 
+	searchEngine *search.Engine
+
 	// Debounce mechanism to prevent accidental rapid removal of the current song.
 	// 防抖机制，防止快速连续移除当前播放歌曲。
 	lastRemoveTime time.Time
@@ -41,6 +46,7 @@ func NewPlayList(app *App) *PlayList {
 		searchQuery:     "",
 		viewPlaylist:    make([]string, 0),
 		originalIndices: make([]int, 0),
+		searchEngine:    search.New(),
 	}
 }
 
@@ -66,14 +72,16 @@ func (p *PlayList) filterPlaylist() {
 	} else {
 		type scoredSong struct {
 			path  string
-			score int
+			score float64
 			index int
 		}
 		var scoredSongs []scoredSong
 
+		p.searchEngine.BuildFromPaths(p.app.Playlist)
+
 		for i, songPath := range p.app.Playlist {
 			songName := filepath.Base(songPath)
-			score := fuzzyMatch(p.searchQuery, songName)
+			score := p.searchEngine.Match(p.searchQuery, songName)
 			if score > 0 {
 				scoredSongs = append(scoredSongs, scoredSong{
 					path:  songPath,
@@ -84,7 +92,10 @@ func (p *PlayList) filterPlaylist() {
 		}
 
 		sort.Slice(scoredSongs, func(i, j int) bool {
-			return scoredSongs[i].score > scoredSongs[j].score
+			if math.Abs(scoredSongs[i].score-scoredSongs[j].score) > 0.0001 {
+				return scoredSongs[i].score > scoredSongs[j].score
+			}
+			return scoredSongs[i].index < scoredSongs[j].index
 		})
 
 		for _, scored := range scoredSongs {

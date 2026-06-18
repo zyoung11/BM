@@ -11,94 +11,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
-
 	"github.com/gopxl/beep/v2"
 	"github.com/gopxl/beep/v2/speaker"
 	"golang.org/x/term"
 )
-
-// fuzzyMatch performs a case-insensitive fuzzy search with Unicode support.
-// It returns a score indicating the quality of the match (higher is better), or 0 if no match is found.
-//
-// fuzzyMatch 函数执行一个不区分大小写的、支持Unicode的模糊搜索。
-// 它返回一个表示匹配质量的分数（越高越好），如果没有找到匹配项则返回0。
-func fuzzyMatch(query, text string) int {
-	queryRunes := []rune(query)
-	textRunes := []rune(text)
-
-	if len(queryRunes) == 0 {
-		return 100
-	}
-
-	queryIdx := 0
-	firstMatchIndex := -1
-	lastMatchIndex := -1
-	consecutiveMatches := 0
-	maxConsecutive := 0
-
-	for i, textRune := range textRunes {
-		if unicodeFold(textRune) == unicodeFold(queryRunes[queryIdx]) {
-			if firstMatchIndex == -1 {
-				firstMatchIndex = i
-			}
-			lastMatchIndex = i
-
-			consecutiveMatches++
-			if consecutiveMatches > maxConsecutive {
-				maxConsecutive = consecutiveMatches
-			}
-
-			queryIdx++
-			if queryIdx == len(queryRunes) {
-				break
-			}
-		} else {
-			consecutiveMatches = 0
-		}
-	}
-
-	if queryIdx < len(queryRunes) {
-		return 0
-	}
-
-	score := 100
-
-	matchSpread := lastMatchIndex - firstMatchIndex
-	if matchSpread > 0 {
-		spreadPenalty := (matchSpread * 10) / len(textRunes)
-		score -= spreadPenalty
-	}
-
-	if maxConsecutive > 1 {
-		consecutiveBonus := maxConsecutive * 5
-		score += consecutiveBonus
-	}
-
-	if firstMatchIndex == 0 {
-		score += 20
-	}
-
-	if len(textRunes) < 50 {
-		score += (50 - len(textRunes)) / 5
-	}
-
-	if score < 1 {
-		score = 1
-	}
-
-	return score
-}
-
-// unicodeFold performs Unicode-aware case folding for case-insensitive comparison.
-//
-// unicodeFold 函数执行支持Unicode的大小写折叠，用于不区分大小写的比较。
-func unicodeFold(r rune) rune {
-	if r >= 'A' && r <= 'Z' {
-		return r + ('a' - 'A')
-	}
-	return unicode.ToLower(r)
-}
 
 // songExistsInPlaylist checks if a song exists in the current playlist.
 //
@@ -879,7 +795,7 @@ func loadMinimalConfig() error {
 				NavExitDir:      Key{"h", "a", "left"},
 				ToggleSelect:    Key{"space"},
 				ToggleSelectAll: Key{"e"},
-				Search:          Key{"f"},
+				Search:          Key{"/", "f"},
 				SearchMode: SearchModeKeymap{
 					ConfirmSearch:   Key{"enter"},
 					EscapeSearch:    Key{"esc"},
@@ -891,7 +807,7 @@ func loadMinimalConfig() error {
 				NavDown:    Key{"j", "s", "down"},
 				RemoveSong: Key{"space"},
 				PlaySong:   Key{"enter"},
-				Search:     Key{"f"},
+				Search:     Key{"/", "f"},
 				SearchMode: SearchModeKeymap{
 					ConfirmSearch:   Key{"enter"},
 					EscapeSearch:    Key{"esc"},
@@ -919,6 +835,7 @@ func loadMinimalConfig() error {
 			Storage:              "",
 			DefaultCoverPath:     "",
 			EnableFolderCovers:   true,
+			MaxSearchDirs:        15,
 		},
 	}
 

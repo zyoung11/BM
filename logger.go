@@ -62,6 +62,7 @@ func (l *Logger) Errorf(format string, args ...any) {
 
 func (l *Logger) Fatalf(format string, args ...any) {
 	l.Errorf(format, args...)
+	l.out.Sync()
 	os.Exit(1)
 }
 
