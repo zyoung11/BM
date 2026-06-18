@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"bm/search"
 
 	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
@@ -42,6 +45,8 @@ type Library struct {
 	searchQuery       string
 	globalFileCache   []string        // Cache of all audio file paths. / 所有音频文件路径的缓存。
 	filteredSongPaths []string        // Results of the current search. / 当前搜索的结果。
+	searchEngine      *search.Engine
+	searchDirCount    int             // Number of dirs in filtered results, for separator. / 筛选结果中目录数量，用于分割线。
 	dirSelectionCache map[string]bool // Cache for directory partial selection state. / 目录部分选择状态的缓存。
 	lastRemoveTime    time.Time       // Debounce mechanism for removing currently playing song. / 移除当前播放歌曲的防抖机制。
 }
@@ -58,6 +63,7 @@ func NewLibrary(app *App) *Library {
 		pathHistory:       make(map[string]int),
 		dirSelectionCache: make(map[string]bool),
 		lastRemoveTime:    time.Time{},
+		searchEngine:      search.New(),
 	}
 }
 
@@ -72,12 +78,13 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 
 	return &Library{
 		app:               app,
-		currentPath:       startPath,
-		initialPath:       startPath,
+		currentPath:       filepath.Clean(startPath),
+		initialPath:       filepath.Clean(startPath),
 		selected:          selectedSongs,
 		pathHistory:       make(map[string]int),
 		dirSelectionCache: make(map[string]bool),
 		lastRemoveTime:    time.Time{},
+		searchEngine:      search.New(),
 	}
 }
 
@@ -218,6 +225,7 @@ func (p *Library) ensureGlobalCache() {
 		cache = append(cache, path)
 	}
 	p.globalFileCache = cache
+	p.searchEngine.BuildFromPaths(cache)
 }
 
 // filterSongs updates filteredSongPaths based on the searchQuery.
@@ -233,14 +241,14 @@ func (p *Library) filterSongs() {
 	p.ensureGlobalCache()
 	type scoredItem struct {
 		path     string
-		score    int
+		score    float64
 		isDir    bool
 		itemName string
 	}
 	var scoredItems []scoredItem
 
 	for _, path := range p.globalFileCache {
-		score := fuzzyMatch(p.searchQuery, path)
+		score := p.searchEngine.Match(p.searchQuery, path)
 		if score > 0 {
 			info, err := os.Stat(path)
 			isDir := err == nil && info.IsDir()
@@ -258,15 +266,27 @@ func (p *Library) filterSongs() {
 		if scoredItems[i].isDir != scoredItems[j].isDir {
 			return scoredItems[i].isDir
 		}
-		if scoredItems[i].score != scoredItems[j].score {
+		if math.Abs(scoredItems[i].score-scoredItems[j].score) > 0.0001 {
 			return scoredItems[i].score > scoredItems[j].score
 		}
 		return strings.ToLower(scoredItems[i].itemName) < strings.ToLower(scoredItems[j].itemName)
 	})
 
+	maxDirs := GlobalConfig.App.MaxSearchDirs
+	if maxDirs <= 0 {
+		maxDirs = 15
+	}
+
 	p.filteredSongPaths = make([]string, 0, len(scoredItems))
+	p.searchDirCount = 0
 	for _, scored := range scoredItems {
+		if scored.isDir && p.searchDirCount >= maxDirs {
+			continue
+		}
 		p.filteredSongPaths = append(p.filteredSongPaths, scored.path)
+		if scored.isDir {
+			p.searchDirCount++
+		}
 	}
 	p.cursor = 0
 	p.offset = 0
@@ -763,11 +783,15 @@ func (p *Library) View() {
 	currentCursor = p.cursor
 	currentOffset = p.offset
 
+	effectiveHeight := listHeight
+	if p.searchQuery != "" && p.searchDirCount > 0 && p.searchDirCount < len(p.filteredSongPaths) {
+		effectiveHeight--
+	}
 	if currentCursor < currentOffset {
 		currentOffset = currentCursor
 	}
-	if currentCursor >= currentOffset+listHeight {
-		currentOffset = currentCursor - listHeight + 1
+	if currentCursor >= currentOffset+effectiveHeight {
+		currentOffset = currentCursor - effectiveHeight + 1
 	}
 
 	p.offset = currentOffset
@@ -821,26 +845,73 @@ func (p *Library) drawPathFooter(w, h int, footerText string) {
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
 }
 
-// renderFilteredListContent is a helper for rendering the filtered list content.
+// renderFilteredListContent renders the search results with directories on top,
+// files on bottom, separated by a gray dashed line.
 //
-// renderFilteredListContent 是一个用于渲染筛选后列表内容的辅助函数。
+// renderFilteredListContent 渲染搜索结果，目录在上，歌曲在下，中间用灰色虚线分隔。
 func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int) {
+	dirCount := p.searchDirCount
+	totalCount := len(p.filteredSongPaths)
+	hasSep := dirCount > 0 && dirCount < totalCount
+
+	itemOffset := currentOffset
+	visualOffset := itemOffset
+	if hasSep && itemOffset >= dirCount {
+		visualOffset = itemOffset + 1
+	}
+
+	cleanInitial := filepath.Clean(p.initialPath)
+
 	for i := range listHeight {
-		entryIndex := currentOffset + i
-		if entryIndex >= len(p.filteredSongPaths) {
+		visualRow := visualOffset + i
+
+		if hasSep && visualRow == dirCount {
+			sepWidth := w - 1
+			if sepWidth < 1 {
+				sepWidth = 1
+			}
+			sepText := strings.Repeat("─", sepWidth)
+			fmt.Printf("\x1b[%d;1H\x1b[K\x1b[90m%s\x1b[0m", i+3, sepText)
+			continue
+		}
+
+		var itemIdx int
+		if hasSep && visualRow > dirCount {
+			itemIdx = visualRow - 1
+		} else {
+			itemIdx = visualRow
+		}
+
+		if itemIdx >= totalCount {
 			break
 		}
 
-		path := p.filteredSongPaths[entryIndex]
-		line := ""
-		style := "\x1b[0m"
+		fullPath := p.filteredSongPaths[itemIdx]
 
-		info, err := os.Stat(path)
+		info, err := os.Stat(fullPath)
 		isDir := err == nil && info.IsDir()
 
-		isSelected := p.selected[path]
+		var displayPath string
+		if isDir {
+			cleanPath := filepath.Clean(fullPath)
+			if rel, relErr := filepath.Rel(cleanInitial, cleanPath); relErr == nil && !strings.HasPrefix(rel, "..") {
+				displayPath = rel
+			} else {
+				displayPath = cleanPath
+			}
+			if displayPath == "." {
+				displayPath = filepath.Base(cleanInitial)
+				if displayPath == "." {
+					displayPath = "(root)"
+				}
+			}
+		} else {
+			displayPath = filepath.Base(fullPath)
+		}
+
+		isSelected := p.selected[fullPath]
 		if isDir && !isSelected {
-			if cached, ok := p.dirSelectionCache[path]; ok {
+			if cached, ok := p.dirSelectionCache[fullPath]; ok {
 				isSelected = cached
 			} else {
 				var checkSelected func(string) bool
@@ -876,23 +947,29 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 					}
 					return false
 				}
-				isSelected = checkSelected(path)
-				p.dirSelectionCache[path] = isSelected
+				isSelected = checkSelected(fullPath)
+				p.dirSelectionCache[fullPath] = isSelected
 			}
 		}
 
+		line := ""
+		style := "\x1b[0m"
 		if isSelected {
-			line = "✓ " + path
 			style += "\x1b[32m"
+			if isDir {
+				line = "✓ " + displayPath + "/"
+			} else {
+				line = "✓ " + displayPath
+			}
 		} else {
-			line = "  " + path
+			if isDir {
+				line = "▸ " + displayPath + "/"
+			} else {
+				line = "  " + displayPath
+			}
 		}
 
-		if isDir {
-			line += "/"
-		}
-
-		if entryIndex == p.cursor {
+		if itemIdx == p.cursor {
 			style += "\x1b[7m"
 		}
 		if runewidth.StringWidth(line) > w-1 {
