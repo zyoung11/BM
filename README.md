@@ -30,7 +30,7 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 - **Filesystem browsing**: Complete directory navigation functionality
 - **Fuzzy search**: Supports Chinese and English fuzzy matchinga
 - **Playlist**: Dynamic playlist management
-- **Playback history**: Records up to 100 playback history entries
+- **Playback history**: Dynamic history limit (min of max_history_size and playlist length), only records in shuffle mode
 - **Corrupted file detection**: Automatically marks unplayable files
 
 ### System Integration
