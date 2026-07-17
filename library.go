@@ -631,7 +631,7 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 		}
 
 		// 清空当前播放状态
-		p.app.currentSongPath = ""
+		p.app.setCurrentSong("")
 		if p.app.mprisServer != nil {
 			p.app.mprisServer.StopService()
 			p.app.mprisServer = nil
@@ -724,7 +724,7 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 					speaker.Unlock()
 				}
 				p.app.player = nil
-				p.app.currentSongPath = ""
+				p.app.setCurrentSong("")
 				if p.app.mprisServer != nil {
 					p.app.mprisServer.StopService()
 					p.app.mprisServer = nil

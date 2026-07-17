@@ -96,6 +96,9 @@ type App struct {
 
 	// Single song mode flag. / 单曲播放模式标志。
 	isSingleSongMode bool // True if in single song playback mode. / 如果处于单曲播放模式，则为true。
+
+	// Random mode transition tracking. / 随机模式切换跟踪。
+	switchedToRandom bool // True if just switched to random mode and haven't played yet. / 如果刚切换到随机模式且尚未播放。
 }
 
 // Page defines the interface for a TUI page.
@@ -239,6 +242,9 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 func (a *App) addToPlayHistory(songPath string) {
 	if a.playMode != 2 {
 		a.isNavigatingHistory = false
+		if err := SaveCurrentSong(songPath, a.LibraryPath); err != nil {
+			l.Warnf("failed to save current song: %v\n\n警告: 保存当前歌曲失败: %v", err, err)
+		}
 		return
 	}
 
@@ -313,6 +319,43 @@ func (a *App) removeFromPlayHistory(songPath string) {
 	}
 }
 
+// recordCurrentSongToHistory records the current song to play history.
+// Used when switching to random mode or exiting while in random mode.
+//
+// recordCurrentSongToHistory 记录当前歌曲到播放历史。
+// 用于切换到随机模式或在随机模式下退出时。
+func (a *App) recordCurrentSongToHistory() {
+	if a.currentSongPath == "" {
+		return
+	}
+
+	// Remove existing entry if present
+	for i, song := range a.playHistory {
+		if song == a.currentSongPath {
+			a.playHistory = append(a.playHistory[:i], a.playHistory[i+1:]...)
+			if i < a.historyIndex {
+				a.historyIndex--
+			} else if i == a.historyIndex {
+				a.historyIndex = len(a.playHistory) - 1
+			}
+			break
+		}
+	}
+
+	a.playHistory = append(a.playHistory, a.currentSongPath)
+
+	effectiveSize := a.getEffectiveHistorySize()
+	if len(a.playHistory) > effectiveSize {
+		a.playHistory = a.playHistory[1:]
+	}
+
+	a.historyIndex = len(a.playHistory) - 1
+
+	if err := SavePlayHistory(a.playHistory, a.LibraryPath); err != nil {
+		l.Warnf("failed to save play history: %v\n\n警告: 保存播放历史失败: %v", err, err)
+	}
+}
+
 // getEffectiveHistorySize returns the effective history size limit.
 // It is the minimum of MaxHistorySize and the playlist length.
 //
@@ -327,6 +370,16 @@ func (a *App) getEffectiveHistorySize() int {
 		return playlistLen
 	}
 	return GlobalConfig.App.MaxHistorySize
+}
+
+// setCurrentSong updates the current song path and saves it to storage.
+//
+// setCurrentSong 更新当前歌曲路径并保存到存储。
+func (a *App) setCurrentSong(songPath string) {
+	a.currentSongPath = songPath
+	if err := SaveCurrentSong(songPath, a.LibraryPath); err != nil {
+		l.Warnf("failed to save current song: %v\n\n警告: 保存当前歌曲失败: %v", err, err)
+	}
 }
 
 // sanitizePlayHistory cleans up the play history at startup:
@@ -524,6 +577,9 @@ func (a *App) Run() error {
 						currentPage.View()
 					}
 				} else {
+					if a.switchedToRandom {
+						a.recordCurrentSongToHistory()
+					}
 					return nil
 				}
 			} else if isActivelySearching(currentPage) {
@@ -556,6 +612,9 @@ func (a *App) Run() error {
 
 		case sig := <-sigCh:
 			if sig == syscall.SIGINT {
+				if a.switchedToRandom {
+					a.recordCurrentSongToHistory()
+				}
 				return nil
 			}
 			if err := currentPage.HandleSignal(sig); err != nil {
@@ -750,6 +809,7 @@ func runApplication(dirPath string) error {
 		isNavigatingHistory: false,
 		corruptedFiles:      make(map[string]bool),
 		isSingleSongMode:    false,
+		switchedToRandom:    false,
 	}
 
 	if GlobalConfig.App.DefaultPage == 3 {
@@ -807,6 +867,7 @@ func runApplication(dirPath string) error {
 		if songToPlay != "" {
 			if !songExistsInPlaylist(songToPlay, app.Playlist) {
 				l.Warnf("Last played song not found in playlist: %s\n\n上次播放的歌曲未在播放列表中找到: %s", songToPlay, songToPlay)
+				app.setCurrentSong("")
 				if playerPage, ok := app.pages[0].(*PlayerPage); ok {
 					playerPage.UpdateSong("")
 				}

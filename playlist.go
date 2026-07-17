@@ -243,7 +243,7 @@ func (p *PlayList) stopPlaybackAndShowEmptyState() {
 		speaker.Unlock()
 	}
 	p.app.player = nil
-	p.app.currentSongPath = ""
+	p.app.setCurrentSong("")
 	if p.app.mprisServer != nil {
 		p.app.mprisServer.StopService()
 		p.app.mprisServer = nil
