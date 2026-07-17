@@ -128,6 +128,7 @@ type PlayerKeymap struct {
 	TogglePlayMode  Key `toml:"TogglePlayMode"`
 	ToggleTextColor Key `toml:"ToggleTextColor"`
 	Reset           Key `toml:"Reset"`
+	ToggleLayout    Key `toml:"ToggleLayout"`
 }
 
 // LibraryKeymap holds keybindings for the Library page.
@@ -250,6 +251,9 @@ func LoadConfig() error {
 		}
 		GlobalConfig = &config
 	} else {
+		if err := updateConfigFile(configFile); err != nil {
+			return fmt.Errorf("could not update config file: %v\n\n无法更新配置文件: %v", err, err)
+		}
 		var config Config
 		if _, err := toml.DecodeFile(configFile, &config); err != nil {
 			return fmt.Errorf("could not decode config file: %v\n\n无法解析配置文件: %v", err, err)
@@ -272,6 +276,89 @@ func LoadConfig() error {
 // validateKeymap checks for duplicate or invalid keybindings.
 //
 // validateKeymap 检查重复或无效的按键绑定。
+// updateConfigFile checks for missing keys in the config file and adds defaults.
+//
+// updateConfigFile 检查配置文件中是否有缺失的键，并添加默认值。
+func updateConfigFile(configPath string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+
+	content := string(data)
+	updated := false
+
+	missingKeys := []struct {
+		section string
+		key     string
+		value   string
+		comment string
+	}{
+		{"[keymap.player]", "ToggleLayout", "    ToggleLayout = [\"o\"]", "    # Toggle layout mode (only works in wide/narrow mode).\n    #\n    # 切换布局模式（仅在宽/窄模式下有效）。"},
+		{"[app]", "max_history_size", "max_history_size = 100", "# Maximum number of history entries - limits the maximum number of playback history records.\n#\n# 最大历史记录数量 - 限制播放历史记录的最大条数"},
+		{"[app]", "switch_debounce_ms", "switch_debounce_ms = 50", "# Song switching debounce time (milliseconds) - prevents rapid continuous song switching, avoiding misoperation.\n#\n# 切歌防抖时间（毫秒）- 防止快速连续切歌，避免误操作"},
+		{"[app]", "default_page", "default_page = 3", "# Default starting page - the page displayed when the program starts.\n# 0 = Player page, 1 = PlayList page, 2 = Library page, 3 = memory (use saved page from last session).\n#\n# 默认启动页面 - 程序启动时显示的页面。\n# 0 = 播放器页面, 1 = 播放列表页面, 2 = 媒体库页面, 3 = 记忆（使用上次保存的页面）。"},
+		{"[app]", "default_play_mode", "default_play_mode = 3", "# Default play mode - the playback mode when the program starts.\n# 0 = repeat one, 1 = repeat all, 2 = random, 3 = memory (use saved play mode from last session).\n#\n# 默认播放模式 - 程序启动时的播放模式。\n# 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放, 3 = 记忆（使用上次保存的播放模式）。"},
+		{"[app]", "remember_library_path", "remember_library_path = true", "# Whether to remember the music library path - if true, the program will remember the last used music library path.\n# If no path parameter is specified next time the program starts, the saved path will be used automatically.\n#\n# 是否记录音乐库路径 - 如果为true，程序会记住上次使用的音乐库路径。\n# 下次启动时如果不指定路径参数，会自动使用保存的路径。"},
+		{"[app]", "playlist_history", "playlist_history = true", "# Whether to record the playlist - if true, the program will record the playlist and load it next time it starts.\n# Note: 'remember_library_path' must also be true for this to take effect.\n#\n# 是否记录播放列表 - 如果为true，程序会记录播放列表并在下次启动时加载。\n# 注意: 'remember_library_path' 也必须为 true 才能生效。"},
+		{"[app]", "autostart_last_played", "autostart_last_played = true", "# Autostart last played song\n# When enabled, the program will automatically play the last played song when starting.\n# Note: This requires both 'remember_library_path' and 'playlist_history' to be enabled.\n#\n# 自动播放上次播放的歌曲\n# 启用后，程序启动时会自动播放上次播放的歌曲。\n# 注意：这需要 'remember_library_path' 和 'playlist_history' 同时启用。"},
+		{"[app]", "remember_volume", "remember_volume = true", "# Whether to remember the volume of the last playback\n#\n# 是否记住上次播放的音量"},
+		{"[app]", "remember_playback_rate", "remember_playback_rate = true", "# Whether to remember the playback rate\n#\n# 是否记录播放速度"},
+		{"[app]", "default_color_r", "default_color_r = 100", "# Default text color - the color used for text display when no suitable color is found from album art.\n# RGB values range from 0 to 255.\n#\n# 默认文字颜色 - 当从专辑封面中找不到合适的颜色时，用于文字显示的颜色。\n# RGB 值的范围是 0 到 255。"},
+		{"[app]", "default_color_g", "default_color_g = 149", ""},
+		{"[app]", "default_color_b", "default_color_b = 237", ""},
+		{"[app]", "image_protocol", "image_protocol = \"auto\"", "# Image rendering protocol - determines which terminal protocol to use for displaying album art.\n# Available options: \"auto\", \"kitty\", \"sixel\", \"iterm2\"\n# \"auto\" will automatically detect the best available protocol.\n#\n# 图像渲染协议 - 决定使用哪种终端协议来显示专辑封面。\n# 可用选项: \"auto\", \"kitty\", \"sixel\", \"iterm2\"\n# \"auto\" 会自动检测最佳可用协议。"},
+		{"[app]", "enable_notifications", "enable_notifications = true", "# Enable desktop notifications - whether to show desktop notifications when songs change.\n# If true, the program will send desktop notifications using the freedesktop.org standard.\n#\n# 启用桌面通知 - 是否在歌曲切换时显示桌面通知。\n# 如果为true，程序将使用freedesktop.org标准发送桌面通知。"},
+		{"[app]", "storage", "storage = \"~/.config/BM/storage.json\"", "# Storage file path - used to save full path information entered by the user.\n#\n# 存储文件路径 - 用于保存用户输入的完整路径信息。"},
+		{"[app]", "default_cover_path", "default_cover_path = \"~/.config/BM/default.jpg\"", "# Default cover art path - the image file to use when a song has no embedded cover art.\n# Supports JPG and PNG formats. If empty or the file doesn't exist, no cover will be shown.\n#\n# 默认封面图片路径 - 当歌曲没有内嵌封面时使用的图片文件。\n# 支持 JPG 和 PNG 格式。如果为空或文件不存在，则不显示封面。"},
+		{"[app]", "enable_folder_covers", "enable_folder_covers = true", "# Enable folder cover art - when a song has no embedded cover art, search for image files\n# (jpg, jpeg, png) in the same folder and use one as the cover.\n# If multiple images are found, one is randomly selected.\n# Priority is given to files with names containing cover-related keywords (cover, folder, album, etc.)\n#\n# 启用文件夹封面功能 - 当歌曲没有内嵌封面时，在相同文件夹中搜索图片文件\n# (jpg, jpeg, png) 并使用其中一张作为封面。\n# 如果找到多个图片，随机选择一张。\n# 优先选择文件名包含封面相关关键词的图片（cover、folder、album等）"},
+		{"[app]", "icons", "icons = \"auto\"", "# Icon set - which icon set to use for player UI elements (play, pause, progress bar, etc.).\n# Set to \"auto\" to auto-detect based on $TERM and $TERM_PROGRAM.\n# Set to a named set like \"default\" or \"nerd_font\" to use that specific set.\n# Named icon sets are defined in [icons.<name>] sections below.\n#\n# 图标集 - 播放器UI元素使用哪套图标（播放、暂停、进度条等）。\n# 设置为 \"auto\" 时根据 $TERM 和 $TERM_PROGRAM 自动检测。\n# 设置为 \"default\" 或 \"nerd_font\" 等命名集合直接使用对应图标集。\n# 命名图标集定义在下方 [icons.<name>] 节中。"},
+		{"[app]", "shuffle_history_window", "shuffle_history_window = -1", "# Shuffle history window - when in random play mode, exclude the last N unique songs from play history\n# from the random selection to avoid frequent repeats.\n# 0 = disabled (pure random).\n# -1 or value >= playlist length = never repeat until all songs in the playlist have been played.\n# Positive value = exclude the last N unique songs from history.\n#\n# 随机播放历史窗口 - 在随机播放模式下，从播放历史的最近 N 首不重复歌曲中排除，\n# 避免频繁重复。设为 0 禁用此功能（纯随机）。负值或大于等于歌单长度的值表示歌单内\n# 所有歌曲都听过一遍之前不重复。"},
+		{"[app]", "max_search_dirs", "max_search_dirs = 15", "# Maximum number of directory results to show in search - limits the visible directory entries\n# in search results on the Library page. The rest of the directories are still accessible via scrolling.\n# Files below the separator are not limited.\n#\n# 搜索结果中最多显示的目录数量 - 限制媒体库页面搜索结果中可见的目录条目。\n# 其余目录仍可通过滚动访问。分割线下的文件不受此限制。"},
+	}
+
+	for _, missing := range missingKeys {
+		if strings.Contains(content, missing.section) && !strings.Contains(content, missing.key) {
+			lines := strings.Split(content, "\n")
+			var newLines []string
+			inSection := false
+			added := false
+
+			for _, line := range lines {
+				newLines = append(newLines, line)
+				if strings.Contains(line, missing.section) {
+					inSection = true
+				}
+				if inSection && !added {
+					if strings.HasPrefix(strings.TrimSpace(line), "Reset") || (strings.HasPrefix(strings.TrimSpace(line), "[") && !strings.Contains(line, missing.section)) {
+						if missing.comment != "" {
+							newLines = append(newLines, "\n"+missing.comment)
+						}
+						newLines = append(newLines, missing.value)
+						added = true
+						updated = true
+					}
+				}
+				if inSection && strings.HasPrefix(strings.TrimSpace(line), "[") && !strings.Contains(line, missing.section) {
+					inSection = false
+				}
+			}
+
+			if added {
+				content = strings.Join(newLines, "\n")
+			}
+		}
+	}
+
+	if updated {
+		if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func validateKeymap(keymap Keymap) error {
 	pages := []any{keymap.Global, keymap.Player, keymap.Library, keymap.Playlist}
 	pageNames := []string{"Global", "Player", "Library", "Playlist"}

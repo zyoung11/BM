@@ -69,6 +69,8 @@ type PlayerPage struct {
 	rateDisplayTimer                      int
 	textTooLongForWide                    bool // True if text is too long for wide terminal mode. / 如果文本太长不适合宽终端模式则为true。
 	showTextInWideMode                    bool // True if text can be shown below image in wide mode. / 如果可以在宽终端模式下在图片下方显示文本则为true。
+	overrideLayout                        LayoutType // Override layout (-1=none). / 覆盖布局（-1=无）。
+	lastLayoutSwitchTime                  time.Time  // Debounce for layout switching. / 布局切换防抖。
 
 	// Debounce mechanism for song switching. / 切歌防抖机制。
 	lastSwitchTime time.Time
@@ -84,6 +86,7 @@ func NewPlayerPage(app *App, flacPath string, cellW, cellH int) *PlayerPage {
 		useCoverColor:  true,
 		cellW:          cellW,
 		cellH:          cellH,
+		overrideLayout: -1,
 		lastSwitchTime: time.Now().Add(-2 * time.Second),
 	}
 }
@@ -250,6 +253,8 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 				"Rate":   rate.Value(),
 			})
 		}
+	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleLayout) {
+		p.cycleLayout()
 	} else {
 		needsRedraw = false
 	}
@@ -310,6 +315,83 @@ func (p *PlayerPage) displayEmptyState() {
 	footer := ""
 	footerX := (w - len(footer)) / 2
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
+}
+
+// cycleLayout cycles through available layout overrides based on current layout.
+// Wide mode: switch-narrow -> switch-text -> switch-image -> auto
+// Narrow mode: switch-text -> switch-image -> auto
+//
+// cycleLayout 根据当前布局循环切换可用的布局覆盖。
+// 宽模式：切换窄屏 -> 切换纯文本 -> 切换纯封面 -> 自动
+// 窄模式：切换纯文本 -> 切换纯封面 -> 自动
+func (p *PlayerPage) cycleLayout() {
+	if time.Since(p.lastLayoutSwitchTime) < time.Duration(GlobalConfig.App.SwitchDebounceMs)*time.Millisecond {
+		return
+	}
+	p.lastLayoutSwitchTime = time.Now()
+
+	w, h, _ := term.GetSize(int(os.Stdout.Fd()))
+	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
+
+	var nextLayout LayoutType
+
+	if isWideTerminal {
+		switch p.overrideLayout {
+		case -1:
+			nextLayout = LayoutSwitchNarrow
+		case LayoutSwitchNarrow:
+			nextLayout = LayoutSwitchText
+		case LayoutSwitchText:
+			nextLayout = LayoutSwitchImage
+		default:
+			nextLayout = -1
+		}
+	} else {
+		switch p.overrideLayout {
+		case -1:
+			nextLayout = LayoutSwitchText
+		case LayoutSwitchText:
+			nextLayout = LayoutSwitchImage
+		default:
+			nextLayout = -1
+		}
+	}
+
+	p.overrideLayout = nextLayout
+	p.showLayoutIndicator()
+	p.View()
+}
+
+// showLayoutIndicator displays the current layout mode briefly.
+//
+// showLayoutIndicator 短暂显示当前布局模式。
+func (p *PlayerPage) showLayoutIndicator() {
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		w, h = 80, 24
+	}
+
+	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
+
+	var layoutStr string
+	switch p.overrideLayout {
+	case -1:
+		layoutStr = "auto"
+	case LayoutSwitchText:
+		layoutStr = "text"
+	case LayoutSwitchImage:
+		layoutStr = "image"
+	case LayoutSwitchNarrow:
+		layoutStr = "narrow"
+	default:
+		layoutStr = "auto"
+	}
+
+	msgX := (w - len(layoutStr)) / 2
+	centerRow := h / 2
+	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow, msgX, layoutStr)
+
+	time.Sleep(500 * time.Millisecond)
 }
 
 // Tick is called periodically by the main loop to update dynamic elements like timers and progress bars.
@@ -937,6 +1019,18 @@ func (p *PlayerPage) updateStatus() {
 		return
 	}
 
+	if p.overrideLayout >= LayoutSwitchText {
+		switch p.overrideLayout {
+		case LayoutSwitchText:
+			p.updateSwitchTextMode(w, h)
+		case LayoutSwitchImage:
+		case LayoutSwitchNarrow:
+			imageBottomRow := p.imageTop + p.imageHeight
+			p.updateSwitchNarrowMode(imageBottomRow, w, h)
+		}
+		return
+	}
+
 	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
 
 	if isWideTerminal {
@@ -1033,6 +1127,46 @@ func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
 
+// updateSwitchNarrowMode renders text and progress for switch narrow layout.
+// Limits max gap between image and info, and between album and progress to 5 rows.
+// Centers the content vertically.
+//
+// updateSwitchNarrowMode 为切换窄屏布局渲染文本和进度条。
+// 限制图片和信息之间、专辑和进度条之间的最大间隔为5行。
+// 内容垂直居中。
+func (p *PlayerPage) updateSwitchNarrowMode(imageBottomRow, w, h int) {
+	title, artist, album := getSongMetadata(p.flacPath)
+
+	colorCode := p.getColorCode()
+
+	virtualWidth := 80
+	if virtualWidth > w {
+		virtualWidth = w
+	}
+	offset := (w - virtualWidth) / 2
+
+	availableRows := h - imageBottomRow
+	infoRow := imageBottomRow + availableRows/3
+	progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
+
+	centerCol := offset + virtualWidth/2
+	titleWidth := runewidth.StringWidth(title)
+	artistWidth := runewidth.StringWidth(artist)
+	albumWidth := runewidth.StringWidth(album)
+
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, centerCol-titleWidth/2, colorCode, title)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
+
+	progressBarStartCol := offset + 5
+	progressBarWidth := virtualWidth - 10
+	if progressBarWidth < 10 {
+		progressBarWidth = 10
+	}
+
+	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
+}
+
 func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 	title, artist, album := getSongMetadata(p.flacPath)
 	centerRow, centerCol := h/2, w/2
@@ -1052,6 +1186,40 @@ func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 		progressBarWidth = 10
 	}
 	progressRow := centerRow + 3
+
+	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
+}
+
+// updateSwitchTextMode renders centered text and progress bar for switch layout.
+//
+// updateSwitchTextMode 为切换布局渲染居中的文本和进度条。
+func (p *PlayerPage) updateSwitchTextMode(w, h int) {
+	title, artist, album := getSongMetadata(p.flacPath)
+	centerRow, centerCol := h/2, w/2
+
+	colorCode := p.getColorCode()
+	titleWidth := runewidth.StringWidth(title)
+	artistWidth := runewidth.StringWidth(artist)
+	albumWidth := runewidth.StringWidth(album)
+
+	infoRow := centerRow - 1
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, centerCol-titleWidth/2, colorCode, title)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
+
+	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
+	var progressBarStartCol, progressBarWidth int
+	if isWideTerminal {
+		progressBarStartCol = w / 4
+		progressBarWidth = w / 2
+	} else {
+		progressBarStartCol = 7
+		progressBarWidth = w - 14
+	}
+	if progressBarWidth < 10 {
+		progressBarWidth = 10
+	}
+	progressRow := centerRow + 5
 
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }

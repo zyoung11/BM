@@ -24,6 +24,9 @@ const (
 	LayoutWideBottomText                   // Wide terminal: image top, text bottom
 	LayoutWideImageOnly                    // Wide terminal: centered image only
 	LayoutNarrow                           // Normal narrow terminal: image top, text bottom
+	LayoutSwitchText                       // Switchable: centered text + progress
+	LayoutSwitchImage                      // Switchable: centered image only
+	LayoutSwitchNarrow                     // Switchable: image top, text bottom (centered)
 )
 
 // LayoutMetrics holds the metrics used to determine layout.
@@ -105,6 +108,10 @@ func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 		return LayoutTextOnly
 	}
 
+	if p.overrideLayout >= LayoutSwitchText {
+		return p.overrideLayout
+	}
+
 	if w < metrics.MaxTextLength || h < 10 {
 		return LayoutInfoOnly
 	}
@@ -160,6 +167,22 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 		return LayoutPosition{
 			StartCol: (w - imageWidth) / 2,
 			StartRow: (h - imageHeight + 1) / 2,
+			Width:    imageWidth,
+			Height:   imageHeight,
+		}
+
+	case LayoutSwitchImage:
+		return LayoutPosition{
+			StartCol: (w - imageWidth) / 2,
+			StartRow: (h - imageHeight + 1) / 2,
+			Width:    imageWidth,
+			Height:   imageHeight,
+		}
+
+	case LayoutSwitchNarrow:
+		return LayoutPosition{
+			StartCol: (w - imageWidth) / 2,
+			StartRow: 2,
 			Width:    imageWidth,
 			Height:   imageHeight,
 		}
@@ -325,6 +348,15 @@ func (p *PlayerPage) renderTextByLayout(layout LayoutType, metrics *LayoutMetric
 
 	case LayoutWideImageOnly:
 		// No text rendering for wide image-only layout
+
+	case LayoutSwitchText:
+		p.updateSwitchTextMode(w, h)
+
+	case LayoutSwitchImage:
+
+	case LayoutSwitchNarrow:
+		imageBottomRow := p.imageTop + p.imageHeight
+		p.updateSwitchNarrowMode(imageBottomRow, w, h)
 	}
 }
 
@@ -360,7 +392,7 @@ func (p *PlayerPage) renderWithLayout() {
 	var imageWidthInChars, imageHeightInChars int
 	var startCol, startRow int
 
-	if coverImg != nil && layout != LayoutNothing && layout != LayoutTextOnly {
+	if coverImg != nil && layout != LayoutNothing && layout != LayoutTextOnly && layout != LayoutSwitchText {
 		pixelW, pixelH := p.calculatePixelSize(&metrics, layout)
 		if pixelW < 10 {
 			pixelW = 10
