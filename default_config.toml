@@ -246,6 +246,11 @@ max_search_dirs = 15
     # 重置音量和播放速度。
     Reset = ["backspace"]
 
+    # Toggle layout mode (only works in wide/narrow mode).
+    #
+    # 切换布局模式（仅在宽/窄模式下有效）。
+    ToggleLayout = ["o"]
+
   # Library page keybindings.
   #
   # 媒体库页面快捷键。
