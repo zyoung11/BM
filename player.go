@@ -1266,6 +1266,9 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 	progress := 0.0
 	if totalLen > 0 {
 		progress = float64(currentPos) / float64(totalLen)
+		if totalLen-currentPos <= p.app.player.sampleRate.N(time.Second) {
+			progress = 1.0
+		}
 	}
 
 	playedChars := int(float64(width) * progress)
