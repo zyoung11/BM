@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"image"
-	"image/draw"
 	_ "image/jpeg"
 	"image/png"
 	_ "image/png"
@@ -27,7 +26,6 @@ import (
 	"github.com/gopxl/beep/v2/vorbis"
 	"github.com/gopxl/beep/v2/wav"
 	"github.com/mattn/go-runewidth"
-	"github.com/nfnt/resize"
 	"golang.org/x/term"
 
 	"golang.org/x/sys/unix"
@@ -220,7 +218,13 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		// Disable play mode toggle in single song mode
 		// 在单曲播放模式下禁用播放模式切换
 		if !p.app.isSingleSongMode {
+			oldMode := p.app.playMode
 			p.app.playMode = (p.app.playMode + 1) % 3
+			if oldMode != 2 && p.app.playMode == 2 {
+				p.app.switchedToRandom = true
+			} else {
+				p.app.switchedToRandom = false
+			}
 			if err := SavePlayMode(p.app.playMode); err != nil {
 				l.Warnf("failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
 			}
@@ -275,7 +279,7 @@ func (p *PlayerPage) View() {
 		p.displayEmptyState()
 		return
 	}
-	p.imageTop, p.imageHeight, p.imageRightEdge, p.coverColorR, p.coverColorG, p.coverColorB = p.displayAlbumArt()
+	p.renderWithLayout()
 	p.updateStatus()
 }
 
@@ -376,6 +380,11 @@ func (p *PlayerPage) playNextSong() {
 		return
 	}
 
+	if p.app.switchedToRandom {
+		p.app.recordCurrentSongToHistory()
+		p.app.switchedToRandom = false
+	}
+
 	currentIndex := -1
 	for i, song := range p.app.Playlist {
 		if song == p.flacPath {
@@ -422,7 +431,7 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 				p.app.player.ctrl.Paused = true
 				speaker.Unlock()
 			}
-			p.app.currentSongPath = ""
+			p.app.setCurrentSong("")
 			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
 				playerPage.UpdateSong("")
 			}
@@ -451,7 +460,7 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 				p.app.player.ctrl.Paused = true
 				speaker.Unlock()
 			}
-			p.app.currentSongPath = ""
+			p.app.setCurrentSong("")
 			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
 				playerPage.UpdateSong("")
 			}
@@ -470,6 +479,11 @@ func (p *PlayerPage) playPreviousSong() {
 
 	if len(p.app.Playlist) == 0 {
 		return
+	}
+
+	if p.app.switchedToRandom {
+		p.app.recordCurrentSongToHistory()
+		p.app.switchedToRandom = false
 	}
 
 	if p.app.playMode == 2 {
@@ -514,7 +528,7 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 				p.app.player.ctrl.Paused = true
 				speaker.Unlock()
 			}
-			p.app.currentSongPath = ""
+			p.app.setCurrentSong("")
 			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
 				playerPage.UpdateSong("")
 			}
@@ -547,7 +561,7 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 				p.app.player.ctrl.Paused = true
 				speaker.Unlock()
 			}
-			p.app.currentSongPath = ""
+			p.app.setCurrentSong("")
 			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
 				playerPage.UpdateSong("")
 			}
@@ -744,13 +758,9 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	speaker.Lock()
 	p.app.player = player
 	p.app.mprisServer = mprisServer
-	p.app.currentSongPath = songPath
 	speaker.Unlock()
 
-	// Save the current song when playing from history
-	if err := SaveCurrentSong(songPath, p.app.LibraryPath); err != nil {
-		l.Warnf("failed to save current song from history: %v\n\n警告: 从历史记录保存当前歌曲失败: %v", err, err)
-	}
+	p.app.setCurrentSong(songPath)
 
 	speaker.Play(p.app.player.volume)
 
@@ -898,192 +908,6 @@ func (p *PlayerPage) refreshCellSize() {
 		p.cellH = 1
 	}
 }
-
-func (p *PlayerPage) displayAlbumArt() (imageTop, imageHeight, imageRightEdge, coverColorR, coverColorG, coverColorB int) {
-	// This function is very large. It remains mostly the same, but now it's a method.
-	// We access flacPath and cell sizes via `p`.
-	time.Sleep(50 * time.Millisecond)
-	p.refreshCellSize()
-	w, h, err := term.GetSize(int(os.Stdout.Fd()))
-	if err != nil {
-		fmt.Print("\x1b[2J\x1b[H")
-		l.Warnf("Unable to get terminal size\n\n无法获取终端尺寸")
-		return 0, 0, 0, 255, 255, 255
-	}
-
-	fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen
-
-	var finalImgH int
-	var imageWidthInChars, imageHeightInChars int
-	var startCol, startRow int
-	var coverImg image.Image
-
-	showNothing := w < 23 || h < 5
-	showTextOnly := h < 13
-	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20) && !showNothing && !showTextOnly
-
-	coverImg = getCoverFromAudioFile(p.flacPath)
-
-	if coverImg == nil && GlobalConfig != nil && GlobalConfig.App.EnableFolderCovers {
-		coverImg = getFolderCoverImage(p.flacPath)
-	}
-
-	if coverImg == nil {
-		defaultCoverPath := getDefaultCoverPath()
-		if defaultCoverPath != "" {
-			if img, err := loadImageFile(defaultCoverPath); err == nil {
-				coverImg = img
-			}
-		}
-	}
-
-	if coverImg != nil {
-		var pixelW, pixelH int
-		if showNothing || showTextOnly {
-			pixelW, pixelH = 0, 0
-		} else if isWideTerminal {
-			pixelW = (w - 30) * p.cellW
-			pixelH = (h - 1) * p.cellH
-		} else {
-			pixelW = w * p.cellW
-			pixelH = (h - 2) * p.cellH
-		}
-
-		if pixelW < 10 {
-			pixelW = 10
-		}
-		if pixelH < 10 {
-			pixelH = 10
-		}
-
-		normalizedImg := resize.Resize(960, 960, coverImg, resize.Lanczos3)
-		scaledImg := resize.Thumbnail(uint(pixelW), uint(pixelH), normalizedImg, resize.Lanczos3)
-		finalImgW, finalImgH := scaledImg.Bounds().Dx(), scaledImg.Bounds().Dy()
-
-		if p.cellW == 0 {
-			p.cellW = 1
-		}
-		if p.cellH == 0 {
-			p.cellH = 1
-		}
-
-		imageWidthInChars = finalImgW / p.cellW
-		if imageWidthInChars < 1 {
-			imageWidthInChars = 1
-		}
-		imageHeightInChars = finalImgH / p.cellH
-		if imageHeightInChars < 1 {
-			imageHeightInChars = 1
-		}
-
-		if imageWidthInChars > w {
-			imageWidthInChars = w
-		}
-		if imageHeightInChars > h {
-			imageHeightInChars = h
-		}
-
-		title, artist, album := getSongMetadata(p.flacPath)
-		maxTextLength := max(max(len(title), len(artist)), len(album))
-
-		showNothing = w < 23 || h < 5
-		showTextOnly = h < 13 && !showNothing
-		showInfoOnly := (w < maxTextLength || h < 10) && !showNothing && !showTextOnly
-
-		p.textTooLongForWide = false
-		p.showTextInWideMode = false
-		if isWideTerminal {
-			availableWidth := w - (startCol + imageWidthInChars)
-			if availableWidth < maxTextLength+10 {
-				p.textTooLongForWide = true
-				// Check if we can show text below image in wide mode
-				// 检查是否可以在宽终端模式下在图片下方显示文本
-				if h-imageHeightInChars >= 5 { // Need at least 5 rows for text / 至少需要5行来显示文本
-					p.showTextInWideMode = true
-				}
-			}
-		}
-
-		if showNothing || showTextOnly {
-			startCol, startRow, imageWidthInChars, imageHeightInChars = 0, 0, 0, 0
-		} else if showInfoOnly {
-			startCol, startRow = (w-imageWidthInChars)/2, (h-imageHeightInChars)/2
-		} else if isWideTerminal && !p.textTooLongForWide {
-			// Normal wide terminal mode - image on left, text on right
-			startCol, startRow = 1, (h-imageHeightInChars+1)/2
-		} else if isWideTerminal && p.textTooLongForWide && p.showTextInWideMode {
-			// Text too long for right panel, but can show below image - use narrow terminal layout
-			startCol, startRow = (w-imageWidthInChars)/2, 2
-		} else if isWideTerminal && p.textTooLongForWide && !p.showTextInWideMode {
-			// Text too long and cannot show below image - center the image only
-			startCol, startRow = (w-imageWidthInChars)/2, (h-imageHeightInChars+1)/2
-		} else {
-			// Normal narrow terminal mode
-			startCol, startRow = (w-imageWidthInChars)/2, 2
-		}
-
-		if startCol < 1 {
-			startCol = 1
-		}
-		if startRow < 1 {
-			startRow = 1
-		}
-		if startCol+imageWidthInChars > w {
-			imageWidthInChars = w - startCol
-		}
-		if startRow+imageHeightInChars > h {
-			imageHeightInChars = h - startRow
-		}
-
-		if !showNothing && !showTextOnly {
-			targetPixelW := imageWidthInChars * p.cellW
-			targetPixelH := imageHeightInChars * p.cellH
-			if targetPixelW > 0 && targetPixelH > 0 {
-				sb := scaledImg.Bounds()
-				if sb.Dx() >= targetPixelW && sb.Dy() >= targetPixelH &&
-					(sb.Dx() != targetPixelW || sb.Dy() != targetPixelH) {
-					offsetX := (sb.Dx() - targetPixelW) / 2
-					offsetY := (sb.Dy() - targetPixelH) / 2
-					aligned := image.NewRGBA(image.Rect(0, 0, targetPixelW, targetPixelH))
-					draw.Draw(aligned, aligned.Bounds(), scaledImg, image.Point{X: offsetX, Y: offsetY}, draw.Src)
-					scaledImg = aligned
-				}
-			}
-
-			fmt.Printf("\x1b[%d;%dH", startRow, startCol)
-			if err := RenderImage(scaledImg, imageWidthInChars, imageHeightInChars); err != nil {
-				_ = NewEncoder(os.Stdout).Encode(scaledImg)
-			}
-			if imageWidthInChars > 0 && startCol+imageWidthInChars <= w {
-				fillStartCol := startCol + imageWidthInChars
-				for row := startRow; row < startRow+imageHeightInChars; row++ {
-					fmt.Printf("\x1b[%d;%dH\x1b[K", row, fillStartCol)
-				}
-			}
-			if startRow+imageHeightInChars <= h {
-				fmt.Printf("\x1b[%d;%dH\x1b[J", startRow+imageHeightInChars, startCol)
-			}
-		}
-	}
-
-	if coverImg != nil {
-		r, g, b := analyzeCoverColor(coverImg)
-		coverColorR, coverColorG, coverColorB = r, g, b
-	} else {
-		coverColorR, coverColorG, coverColorB = 255, 255, 255
-	}
-
-	imageRightEdgeVal := 0
-	if isWideTerminal {
-		imageRightEdgeVal = startCol + imageWidthInChars
-	}
-	if imageHeightInChars == 0 && finalImgH > 0 && p.cellH > 0 {
-		imageHeightInChars = 1
-	}
-
-	return startRow, imageHeightInChars, imageRightEdgeVal, coverColorR, coverColorG, coverColorB
-}
-
 func (p *PlayerPage) updateStatus() {
 	if p.app.currentPageIndex != 0 || p.flacPath == "" {
 		return
