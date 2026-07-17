@@ -230,22 +230,38 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 }
 
 // addToPlayHistory adds a song to the play history.
+// Only records in random mode (playMode == 2).
+// Ensures uniqueness: if the song already exists, removes the old entry first.
 //
 // addToPlayHistory 添加歌曲到播放历史记录。
+// 仅在随机模式（playMode == 2）下记录。
+// 确保唯一性：如果歌曲已存在，先删除旧记录。
 func (a *App) addToPlayHistory(songPath string) {
-	if a.historyIndex < len(a.playHistory)-1 {
-		a.playHistory = a.playHistory[:a.historyIndex+1]
-	}
-
-	if len(a.playHistory) > 0 && a.playHistory[len(a.playHistory)-1] == songPath {
-		a.historyIndex = len(a.playHistory) - 1
+	if a.playMode != 2 {
 		a.isNavigatingHistory = false
 		return
 	}
 
+	for i, song := range a.playHistory {
+		if song == songPath {
+			a.playHistory = append(a.playHistory[:i], a.playHistory[i+1:]...)
+			if i < a.historyIndex {
+				a.historyIndex--
+			} else if i == a.historyIndex {
+				a.historyIndex = len(a.playHistory) - 1
+			}
+			break
+		}
+	}
+
+	if a.historyIndex < len(a.playHistory)-1 {
+		a.playHistory = a.playHistory[:a.historyIndex+1]
+	}
+
 	a.playHistory = append(a.playHistory, songPath)
 
-	if len(a.playHistory) > GlobalConfig.App.MaxHistorySize {
+	effectiveSize := a.getEffectiveHistorySize()
+	if len(a.playHistory) > effectiveSize {
 		a.playHistory = a.playHistory[1:]
 	}
 
@@ -259,6 +275,105 @@ func (a *App) addToPlayHistory(songPath string) {
 	if err := SaveCurrentSong(songPath, a.LibraryPath); err != nil {
 		l.Warnf("failed to save current song: %v\n\n警告: 保存当前歌曲失败: %v", err, err)
 	}
+}
+
+// removeFromPlayHistory removes all occurrences of a song from the play history.
+//
+// removeFromPlayHistory 从播放历史中删除指定歌曲的所有记录。
+func (a *App) removeFromPlayHistory(songPath string) {
+	newHistory := make([]string, 0, len(a.playHistory))
+	newIndex := a.historyIndex
+	removedBefore := 0
+
+	for i, song := range a.playHistory {
+		if song == songPath {
+			if i < a.historyIndex {
+				removedBefore++
+			}
+			continue
+		}
+		newHistory = append(newHistory, song)
+	}
+
+	if removedBefore > 0 {
+		newIndex = a.historyIndex - removedBefore
+		if newIndex < 0 {
+			newIndex = 0
+		}
+	}
+	if newIndex >= len(newHistory) {
+		newIndex = len(newHistory) - 1
+	}
+
+	a.playHistory = newHistory
+	a.historyIndex = newIndex
+
+	if err := SavePlayHistory(a.playHistory, a.LibraryPath); err != nil {
+		l.Warnf("failed to save play history: %v\n\n警告: 保存播放历史失败: %v", err, err)
+	}
+}
+
+// getEffectiveHistorySize returns the effective history size limit.
+// It is the minimum of MaxHistorySize and the playlist length.
+//
+// getEffectiveHistorySize 返回有效的历史记录大小限制。
+// 它是 MaxHistorySize 和播放列表长度的最小值。
+func (a *App) getEffectiveHistorySize() int {
+	playlistLen := len(a.Playlist)
+	if playlistLen == 0 {
+		return GlobalConfig.App.MaxHistorySize
+	}
+	if playlistLen < GlobalConfig.App.MaxHistorySize {
+		return playlistLen
+	}
+	return GlobalConfig.App.MaxHistorySize
+}
+
+// sanitizePlayHistory cleans up the play history at startup:
+// 1. Removes songs not in the playlist
+// 2. Removes duplicate entries (keeps the newest)
+// 3. Trims history from the oldest if it exceeds the limit
+//
+// sanitizePlayHistory 在启动时清理播放历史：
+// 1. 删除不在播放列表中的歌曲
+// 2. 删除重复项（保留最新的）
+// 3. 如果超出限制，从最旧的开始删除
+func sanitizePlayHistory(history []string, playlist []string) []string {
+	if len(history) == 0 {
+		return history
+	}
+
+	playlistSet := make(map[string]bool, len(playlist))
+	for _, song := range playlist {
+		playlistSet[song] = true
+	}
+
+	seen := make(map[string]bool)
+	cleaned := make([]string, 0, len(history))
+	for _, song := range slices.Backward(history) {
+		if !playlistSet[song] {
+			continue
+		}
+		if seen[song] {
+			continue
+		}
+		seen[song] = true
+		cleaned = append(cleaned, song)
+	}
+
+	for i, j := 0, len(cleaned)-1; i < j; i, j = i+1, j-1 {
+		cleaned[i], cleaned[j] = cleaned[j], cleaned[i]
+	}
+
+	effectiveSize := GlobalConfig.App.MaxHistorySize
+	if len(playlist) > 0 && len(playlist) < effectiveSize {
+		effectiveSize = len(playlist)
+	}
+	if len(cleaned) > effectiveSize {
+		cleaned = cleaned[len(cleaned)-effectiveSize:]
+	}
+
+	return cleaned
 }
 
 // NextSong switches to the next song.
@@ -611,6 +726,11 @@ func runApplication(dirPath string) error {
 	if err != nil {
 		l.Warnf("Could not load play history: %v\n\n警告: 无法加载播放历史: %v", err, err)
 		playHistory = make([]string, 0)
+	}
+
+	playHistory = sanitizePlayHistory(playHistory, playlist)
+	if err := SavePlayHistory(playHistory, dirPath); err != nil {
+		l.Warnf("Could not save sanitized play history: %v\n\n警告: 无法保存清理后的播放历史: %v", err, err)
 	}
 
 	app := &App{

@@ -557,11 +557,22 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 }
 
 // playPreviousInRandomMode handles the logic for "previous" in random mode by using play history.
+// When at the beginning of history, cycles back to the current song.
 //
 // playPreviousInRandomMode 通过使用播放历史来处理随机模式下的“上一首”逻辑。
+// 当到达历史记录开头时，循环回到当前歌曲。
 func (p *PlayerPage) playPreviousInRandomMode() {
+	if len(p.app.playHistory) == 0 {
+		return
+	}
+
 	if p.app.historyIndex <= 0 {
-		p.playRandomSong()
+		p.app.historyIndex = len(p.app.playHistory) - 1
+		currentSong := p.app.playHistory[p.app.historyIndex]
+		if p.isSongInPlaylist(currentSong) {
+			p.playSongFromHistory(currentSong, true)
+		}
+		p.lastSwitchTime = time.Now()
 		return
 	}
 
@@ -805,7 +816,10 @@ type audioPlayer struct {
 }
 
 func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format, volumeLevel float64, playbackRate float64) (*audioPlayer, error) {
-	loopStreamer := beep.Loop(-1, streamer)
+	loopStreamer, err := beep.Loop2(streamer)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to create loop streamer: %v\n\n创建循环流失败: %v", err, err)
+	}
 	ctrl := &beep.Ctrl{Streamer: loopStreamer}
 	resampler := beep.ResampleRatio(4, 1, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2}

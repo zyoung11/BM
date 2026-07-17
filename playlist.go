@@ -208,6 +208,8 @@ func (p *PlayList) removeCurrentSong() {
 		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
 
+	p.app.removeFromPlayHistory(songPath)
+
 	for _, page := range p.app.pages {
 		if libPage, ok := page.(*Library); ok {
 			delete(libPage.selected, songPath)

@@ -713,6 +713,8 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 				p.app.mprisServer.UpdateProperties()
 			}
 
+			p.app.removeFromPlayHistory(songPath)
+
 			if len(p.app.Playlist) == 0 {
 				if p.app.player != nil {
 					speaker.Lock()
