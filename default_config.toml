@@ -98,11 +98,6 @@ storage = "~/.config/BM/storage.json"
 # Common values: 44100 (CD), 48000 (professional audio/video).
 # Changing this value can optimize playback performance for specific sample rates and reduce unnecessary resampling.
 #
-# 目标音频采样率 (Hz) - 程序启动时音频输出设备的采样率。
-# 常见值: 44100 (CD), 48000 (专业音频/视频)。
-# 更改此值可优化特定采样率音频的播放性能，减少不必要的重采样。
-target_sample_rate = 44100
-
 # Default cover art path - the image file to use when a song has no embedded cover art.
 # Supports JPG and PNG formats. If empty or the file doesn't exist, no cover will be shown.
 #

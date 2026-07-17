@@ -772,7 +772,7 @@ func runApplication(dirPath string) error {
 		return fmt.Errorf("Unable to get terminal cell size: %v\n\n无法获取终端单元格尺寸: %v", err, err)
 	}
 
-	sampleRate := beep.SampleRate(GlobalConfig.App.TargetSampleRate)
+	sampleRate := beep.SampleRate(44100)
 	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
 
 	playlist, err := LoadPlaylist(dirPath)
@@ -910,7 +910,7 @@ func runSingleSong(songPath string) error {
 		return fmt.Errorf("Unable to get terminal cell size: %v\n\n无法获取终端单元格尺寸: %v", err, err)
 	}
 
-	sampleRate := beep.SampleRate(GlobalConfig.App.TargetSampleRate)
+	sampleRate := beep.SampleRate(44100)
 	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
 
 	app := &App{
@@ -1012,7 +1012,6 @@ func loadMinimalConfig() error {
 			ImageProtocol:        "auto",
 			EnableNotifications:  false,
 			LibraryPath:          "",
-			TargetSampleRate:     44100,
 			Storage:              "",
 			DefaultCoverPath:     "",
 			EnableFolderCovers:   true,

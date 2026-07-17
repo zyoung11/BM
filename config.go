@@ -83,7 +83,6 @@ type AppConfig struct {
 	ImageProtocol        string `toml:"image_protocol"`
 	EnableNotifications  bool   `toml:"enable_notifications"`
 	LibraryPath          string `toml:"library_path"`
-	TargetSampleRate     int    `toml:"target_sample_rate"`
 	Storage              string `toml:"storage"`
 	DefaultCoverPath     string `toml:"default_cover_path"`
 	EnableFolderCovers   bool   `toml:"enable_folder_covers"`
@@ -258,9 +257,6 @@ func LoadConfig() error {
 		GlobalConfig = &config
 	}
 
-	if GlobalConfig.App.TargetSampleRate <= 0 {
-		GlobalConfig.App.TargetSampleRate = 44100
-	}
 	if GlobalConfig.App.SwitchDebounceMs <= 0 {
 		GlobalConfig.App.SwitchDebounceMs = 200
 	}
