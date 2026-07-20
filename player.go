@@ -71,6 +71,7 @@ type PlayerPage struct {
 	showTextInWideMode                    bool // True if text can be shown below image in wide mode. / 如果可以在宽终端模式下在图片下方显示文本则为true。
 	overrideLayout                        LayoutType // Override layout (-1=none). / 覆盖布局（-1=无）。
 	lastLayoutSwitchTime                  time.Time  // Debounce for layout switching. / 布局切换防抖。
+	layoutShift                           int        // Vertical shift for layout centering. / 布局居中的垂直偏移。
 
 	// Debounce mechanism for song switching. / 切歌防抖机制。
 	lastSwitchTime time.Time
@@ -1106,8 +1107,8 @@ func (p *PlayerPage) updateRightPanel(w int) {
 func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 	title, artist, album := getSongMetadata(p.flacPath)
 	availableRows := h - startRow
-	infoRow := startRow + availableRows/3
-	progressRow := startRow + 2*availableRows/3 + (h-(startRow+2*availableRows/3))/2
+	infoRow := startRow + availableRows/3 - p.layoutShift + 1
+	progressRow := startRow + 2*availableRows/3 + (h-(startRow+2*availableRows/3))/2 - p.layoutShift - 1
 	centerCol := w / 2
 
 	colorCode := p.getColorCode()
@@ -1147,8 +1148,8 @@ func (p *PlayerPage) updateSwitchNarrowMode(imageBottomRow, w, h int) {
 	offset := (w - virtualWidth) / 2
 
 	availableRows := h - imageBottomRow
-	infoRow := imageBottomRow + availableRows/3
-	progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
+	infoRow := imageBottomRow + availableRows/3 - p.layoutShift + 1
+	progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2 - p.layoutShift - 1
 
 	centerCol := offset + virtualWidth/2
 	titleWidth := runewidth.StringWidth(title)
