@@ -28,7 +28,7 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 ![](images/image2.png)
 
 - **Filesystem browsing**: Complete directory navigation functionality
-- **Fuzzy search**: Supports Chinese and English fuzzy matchinga
+- **Fuzzy search**: Supports Chinese and English fuzzy matching
 - **Playlist**: Dynamic playlist management
 - **Playback history**: Dynamic history limit (min of max_history_size and playlist length), only records in shuffle mode
 - **Corrupted file detection**: Automatically marks unplayable files
@@ -105,9 +105,9 @@ bm
 bm help
 ```
 
-### Get local music files (NetEase Cloud Music)
+### Get local music files (NetEase Cloud Music & QQ Music)
 
-You can use [FNE](https://github.com/zyoung11/FNE) another tool I made to decrypt encrypted music files from NetEase Cloud Music into the FLAC format that BM can use, but you will need a Windows computer and a NetEase Cloud Music membership.
+You can use [FNE](https://github.com/zyoung11/FNE) another tool I made to decrypt encrypted music files from NetEase Cloud Music and QQ Music into a format that BM can use, but you will need a Windows computer and a NetEase Cloud Music/QQ Music membership.
 
 ### Operation Guide
 
