@@ -17,6 +17,11 @@ max_history_size = 100
 # 切歌防抖时间（毫秒）- 防止快速连续切歌，避免误操作
 switch_debounce_ms = 50
 
+# Layout switching debounce time (milliseconds) - prevents rapid layout switching.
+#
+# 布局切换防抖时间（毫秒）- 防止快速连续切换布局。
+layout_debounce_ms = 200
+
 # Default starting page - the page displayed when the program starts.
 # 0 = Player page, 1 = PlayList page, 2 = Library page, 3 = memory (use saved page from last session).
 #

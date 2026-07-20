@@ -325,7 +325,7 @@ func (p *PlayerPage) displayEmptyState() {
 // 宽模式：切换窄屏 -> 切换纯文本 -> 切换纯封面 -> 自动
 // 窄模式：切换纯文本 -> 切换纯封面 -> 自动
 func (p *PlayerPage) cycleLayout() {
-	if time.Since(p.lastLayoutSwitchTime) < time.Duration(GlobalConfig.App.SwitchDebounceMs)*time.Millisecond {
+	if time.Since(p.lastLayoutSwitchTime) < time.Duration(GlobalConfig.App.LayoutDebounceMs)*time.Millisecond {
 		return
 	}
 	p.lastLayoutSwitchTime = time.Now()
@@ -392,6 +392,7 @@ func (p *PlayerPage) showLayoutIndicator() {
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow, msgX, layoutStr)
 
 	time.Sleep(500 * time.Millisecond)
+	p.lastLayoutSwitchTime = time.Now()
 }
 
 // Tick is called periodically by the main loop to update dynamic elements like timers and progress bars.
