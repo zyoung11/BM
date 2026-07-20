@@ -156,9 +156,34 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 		}
 
 	case LayoutWideBottomText, LayoutNarrow:
+		startRow := 2
+		imageBottomRow := startRow + imageHeight
+		availableRows := h - imageBottomRow
+		infoRow := imageBottomRow + availableRows/3
+		if infoRow-imageBottomRow > 5 {
+			startRow = infoRow - 1 - imageHeight
+			if startRow < 2 {
+				startRow = 2
+			}
+		}
+		imageBottomRow = startRow + imageHeight
+		availableRows = h - imageBottomRow
+		progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
+		topGap := startRow
+		bottomGap := h - progressRow
+		shift := (topGap - bottomGap) / 2
+		p.layoutShift = shift
+		if shift > 0 {
+			startRow -= shift
+			if startRow < 2 {
+				startRow = 2
+			}
+		} else {
+			p.layoutShift = 0
+		}
 		return LayoutPosition{
 			StartCol: (w - imageWidth) / 2,
-			StartRow: 2,
+			StartRow: startRow,
 			Width:    imageWidth,
 			Height:   imageHeight,
 		}
@@ -180,9 +205,34 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 		}
 
 	case LayoutSwitchNarrow:
+		startRow := 2
+		imageBottomRow := startRow + imageHeight
+		availableRows := h - imageBottomRow
+		infoRow := imageBottomRow + availableRows/3
+		if infoRow-imageBottomRow > 5 {
+			startRow = infoRow - 1 - imageHeight
+			if startRow < 2 {
+				startRow = 2
+			}
+		}
+		imageBottomRow = startRow + imageHeight
+		availableRows = h - imageBottomRow
+		progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
+		topGap := startRow
+		bottomGap := h - progressRow
+		shift := (topGap - bottomGap) / 2
+		p.layoutShift = shift
+		if shift > 0 {
+			startRow -= shift
+			if startRow < 2 {
+				startRow = 2
+			}
+		} else {
+			p.layoutShift = 0
+		}
 		return LayoutPosition{
 			StartCol: (w - imageWidth) / 2,
-			StartRow: 2,
+			StartRow: startRow,
 			Width:    imageWidth,
 			Height:   imageHeight,
 		}
