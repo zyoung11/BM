@@ -67,8 +67,8 @@ type PlayerPage struct {
 	useCoverColor                         bool
 	volumeDisplayTimer                    int
 	rateDisplayTimer                      int
-	textTooLongForWide                    bool // True if text is too long for wide terminal mode. / 如果文本太长不适合宽终端模式则为true。
-	showTextInWideMode                    bool // True if text can be shown below image in wide mode. / 如果可以在宽终端模式下在图片下方显示文本则为true。
+	textTooLongForWide                    bool       // True if text is too long for wide terminal mode. / 如果文本太长不适合宽终端模式则为true。
+	showTextInWideMode                    bool       // True if text can be shown below image in wide mode. / 如果可以在宽终端模式下在图片下方显示文本则为true。
 	overrideLayout                        LayoutType // Override layout (-1=none). / 覆盖布局（-1=无）。
 	lastLayoutSwitchTime                  time.Time  // Debounce for layout switching. / 布局切换防抖。
 	layoutShift                           int        // Vertical shift for layout centering. / 布局居中的垂直偏移。
@@ -80,16 +80,23 @@ type PlayerPage struct {
 // NewPlayerPage creates a new instance of the player page.
 //
 // NewPlayerPage 创建一个新的播放器页面实例。
-func NewPlayerPage(app *App, flacPath string, cellW, cellH int) *PlayerPage {
+func NewPlayerPage(app *App, flacPath string, cellW, cellH int, overrideLayout int) *PlayerPage {
 	return &PlayerPage{
 		app:            app,
 		flacPath:       flacPath,
 		useCoverColor:  true,
 		cellW:          cellW,
 		cellH:          cellH,
-		overrideLayout: -1,
+		overrideLayout: LayoutType(overrideLayout),
 		lastSwitchTime: time.Now().Add(-2 * time.Second),
 	}
+}
+
+// SetOverrideLayout sets the override layout for the player page.
+//
+// SetOverrideLayout 设置播放器页面的覆盖布局。
+func (p *PlayerPage) SetOverrideLayout(layout int) {
+	p.overrideLayout = LayoutType(layout)
 }
 
 // Init for PlayerPage is a placeholder, as setup is done in the constructor.
@@ -359,6 +366,9 @@ func (p *PlayerPage) cycleLayout() {
 	}
 
 	p.overrideLayout = nextLayout
+	if err := SaveOverrideLayout(int(nextLayout), isWideTerminal); err != nil {
+		l.Warnf("Could not save layout: %v\n\n无法保存布局: %v", err, err)
+	}
 	p.showLayoutIndicator()
 	p.View()
 }
@@ -693,7 +703,9 @@ func (p *PlayerPage) playPreviousInRandomMode() {
 // at least one candidate is always available.
 // N = 0: pure random (disabled).
 // N < 0 or N >= playlistLen: treat as the maximum possible window, meaning
-//   songs cycle through the entire playlist before any repeats.
+//
+//	songs cycle through the entire playlist before any repeats.
+//
 // N > 0: exclude last N unique songs from history.
 //
 // pickRandomIndex 使用滑动窗口从播放列表中随机选择下一首。
@@ -992,6 +1004,7 @@ func (p *PlayerPage) refreshCellSize() {
 		p.cellH = 1
 	}
 }
+
 func (p *PlayerPage) updateStatus() {
 	if p.app.currentPageIndex != 0 || p.flacPath == "" {
 		return
@@ -1107,8 +1120,14 @@ func (p *PlayerPage) updateRightPanel(w int) {
 func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 	title, artist, album := getSongMetadata(p.flacPath)
 	availableRows := h - startRow
-	infoRow := startRow + availableRows/3 - p.layoutShift + 1
-	progressRow := startRow + 2*availableRows/3 + (h-(startRow+2*availableRows/3))/2 - p.layoutShift - 1
+	var infoRow, progressRow int
+	if p.layoutShift > 0 {
+		infoRow = startRow + availableRows/3 - p.layoutShift + 1
+		progressRow = startRow + 2*availableRows/3 + (h-(startRow+2*availableRows/3))/2 - p.layoutShift - 1
+	} else {
+		infoRow = startRow + availableRows/3
+		progressRow = startRow + 2*availableRows/3 + (h-(startRow+2*availableRows/3))/2
+	}
 	centerCol := w / 2
 
 	colorCode := p.getColorCode()
@@ -1148,8 +1167,14 @@ func (p *PlayerPage) updateSwitchNarrowMode(imageBottomRow, w, h int) {
 	offset := (w - virtualWidth) / 2
 
 	availableRows := h - imageBottomRow
-	infoRow := imageBottomRow + availableRows/3 - p.layoutShift + 1
-	progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2 - p.layoutShift - 1
+	var infoRow, progressRow int
+	if p.layoutShift > 0 {
+		infoRow = imageBottomRow + availableRows/3 - p.layoutShift + 1
+		progressRow = imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2 - p.layoutShift - 1
+	} else {
+		infoRow = imageBottomRow + availableRows/3
+		progressRow = imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
+	}
 
 	centerCol := offset + virtualWidth/2
 	titleWidth := runewidth.StringWidth(title)
@@ -1619,4 +1644,3 @@ func getDefaultCoverPath() string {
 
 	return path
 }
-

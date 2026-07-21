@@ -68,12 +68,14 @@ type Config struct {
 //
 // AppConfig 保存应用程序级别的配置设置。
 type AppConfig struct {
-	MaxHistorySize       int    `toml:"max_history_size"`
-	SwitchDebounceMs     int    `toml:"switch_debounce_ms"`
-	LayoutDebounceMs     int    `toml:"layout_debounce_ms"`
-	DefaultPage          int    `toml:"default_page"`
-	DefaultPlayMode      int    `toml:"default_play_mode"`
-	RememberLibraryPath  bool   `toml:"remember_library_path"`
+	MaxHistorySize        int    `toml:"max_history_size"`
+	SwitchDebounceMs      int    `toml:"switch_debounce_ms"`
+	LayoutDebounceMs      int    `toml:"layout_debounce_ms"`
+	DefaultPage           int    `toml:"default_page"`
+	DefaultPlayMode       int    `toml:"default_play_mode"`
+	DefaultLayoutNarrow   int    `toml:"default_layout_narrow"`
+	DefaultLayoutWide     int    `toml:"default_layout_wide"`
+	RememberLibraryPath   bool   `toml:"remember_library_path"`
 	PlaylistHistory      bool   `toml:"playlist_history"`
 	AutostartLastPlayed  bool   `toml:"autostart_last_played"`
 	RememberVolume       bool   `toml:"remember_volume"`
@@ -271,6 +273,12 @@ func LoadConfig() error {
 	if GlobalConfig.App.AutostartLastPlayed && (!GlobalConfig.App.RememberLibraryPath || !GlobalConfig.App.PlaylistHistory) {
 		return fmt.Errorf("autostart_last_played can only be enabled when both remember_library_path and playlist_history are also enabled\n\nautostart_last_played 只能在 remember_library_path 和 playlist_history 同时开启时才能开启")
 	}
+	if GlobalConfig.App.DefaultLayoutNarrow < 0 || GlobalConfig.App.DefaultLayoutNarrow > 3 {
+		GlobalConfig.App.DefaultLayoutNarrow = 0
+	}
+	if GlobalConfig.App.DefaultLayoutWide < 0 || GlobalConfig.App.DefaultLayoutWide > 4 {
+		GlobalConfig.App.DefaultLayoutWide = 0
+	}
 
 	resolveIconSet(GlobalConfig)
 
@@ -320,6 +328,8 @@ func updateConfigFile(configPath string) error {
 		{"[app]", "shuffle_history_window", "shuffle_history_window = -1", "# Shuffle history window - when in random play mode, exclude the last N unique songs from play history\n# from the random selection to avoid frequent repeats.\n# 0 = disabled (pure random).\n# -1 or value >= playlist length = never repeat until all songs in the playlist have been played.\n# Positive value = exclude the last N unique songs from history.\n#\n# 随机播放历史窗口 - 在随机播放模式下，从播放历史的最近 N 首不重复歌曲中排除，\n# 避免频繁重复。设为 0 禁用此功能（纯随机）。负值或大于等于歌单长度的值表示歌单内\n# 所有歌曲都听过一遍之前不重复。"},
 		{"[app]", "max_search_dirs", "max_search_dirs = 15", "# Maximum number of directory results to show in search - limits the visible directory entries\n# in search results on the Library page. The rest of the directories are still accessible via scrolling.\n# Files below the separator are not limited.\n#\n# 搜索结果中最多显示的目录数量 - 限制媒体库页面搜索结果中可见的目录条目。\n# 其余目录仍可通过滚动访问。分割线下的文件不受此限制。"},
 		{"[app]", "layout_debounce_ms", "layout_debounce_ms = 200", "# Layout switching debounce time (milliseconds) - prevents rapid layout switching.\n#\n# 布局切换防抖时间（毫秒）- 防止快速连续切换布局。"},
+		{"[app]", "default_layout_narrow", "default_layout_narrow = 0", "# Default layout for narrow terminal - the layout displayed when the program starts in a narrow terminal.\n# 0 = auto, 1 = text only, 2 = image only, 3 = memory (use saved layout from last session).\n#\n# 窄终端默认布局 - 程序在窄终端启动时显示的布局。\n# 0 = 自动, 1 = 仅文本, 2 = 仅封面, 3 = 记忆（使用上次保存的布局）。"},
+		{"[app]", "default_layout_wide", "default_layout_wide = 0", "# Default layout for wide terminal - the layout displayed when the program starts in a wide terminal.\n# 0 = auto, 1 = narrow mode, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).\n#\n# 宽终端默认布局 - 程序在宽终端启动时显示的布局。\n# 0 = 自动, 1 = 窄终端模式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。"},
 	}
 
 	for _, missing := range missingKeys {
@@ -330,10 +340,6 @@ func updateConfigFile(configPath string) error {
 			added := false
 
 			for _, line := range lines {
-				newLines = append(newLines, line)
-				if strings.Contains(line, missing.section) {
-					inSection = true
-				}
 				if inSection && !added {
 					if strings.HasPrefix(strings.TrimSpace(line), "Reset") || (strings.HasPrefix(strings.TrimSpace(line), "[") && !strings.Contains(line, missing.section)) {
 						if missing.comment != "" {
@@ -343,6 +349,10 @@ func updateConfigFile(configPath string) error {
 						added = true
 						updated = true
 					}
+				}
+				newLines = append(newLines, line)
+				if strings.Contains(line, missing.section) {
+					inSection = true
 				}
 				if inSection && strings.HasPrefix(strings.TrimSpace(line), "[") && !strings.Contains(line, missing.section) {
 					inSection = false

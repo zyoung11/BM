@@ -846,7 +846,11 @@ func runApplication(dirPath string) error {
 		app.playMode = savedPlayMode
 	}
 
-	playerPage := NewPlayerPage(app, "", cellW, cellH)
+	termW, termH, _ := term.GetSize(int(os.Stdout.Fd()))
+	isWide := isWideTerminal(termW, termH)
+	initialLayout := resolveInitialLayout(isWide)
+
+	playerPage := NewPlayerPage(app, "", cellW, cellH, initialLayout)
 	playListPage := NewPlayList(app)
 	libraryPage := NewLibraryWithPath(app, dirPath)
 	app.pages = []Page{playerPage, playListPage, libraryPage}
@@ -932,7 +936,7 @@ func runSingleSong(songPath string) error {
 		isSingleSongMode:    true,
 	}
 
-	playerPage := NewPlayerPage(app, "", cellW, cellH)
+	playerPage := NewPlayerPage(app, "", cellW, cellH, -1)
 	app.pages = []Page{playerPage}
 
 	if err := app.PlaySongWithSwitchAndRender(absPath, true, false); err != nil {
