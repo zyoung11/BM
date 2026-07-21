@@ -12,14 +12,16 @@ import (
 //
 // StorageData 保存存储在 storage.json 文件中的数据。
 type StorageData struct {
-	LibraryPath  string   `json:"library_path"`
-	Playlist     []string `json:"playlist"`
-	PlayHistory  []string `json:"play_history"`
-	CurrentSong  *string  `json:"current_song,omitempty"`
-	Volume       *float64 `json:"volume,omitempty"`
-	PlaybackRate *float64 `json:"playback_rate,omitempty"`
-	PlayMode     *int     `json:"play_mode,omitempty"`
-	Page         *int     `json:"page,omitempty"`
+	LibraryPath        string   `json:"library_path"`
+	Playlist           []string `json:"playlist"`
+	PlayHistory        []string `json:"play_history"`
+	CurrentSong        *string  `json:"current_song,omitempty"`
+	Volume             *float64 `json:"volume,omitempty"`
+	PlaybackRate       *float64 `json:"playback_rate,omitempty"`
+	PlayMode           *int     `json:"play_mode,omitempty"`
+	Page               *int     `json:"page,omitempty"`
+	OverrideLayoutNarrow *int   `json:"override_layout_narrow,omitempty"`
+	OverrideLayoutWide   *int   `json:"override_layout_wide,omitempty"`
 }
 
 // getStoragePath returns the absolute path to the storage file.
@@ -379,4 +381,53 @@ func LoadPage() (int, error) {
 	}
 
 	return *storageData.Page, nil
+}
+
+// SaveOverrideLayout saves the current layout override to the storage.json file.
+// It saves separately for narrow and wide terminals based on the isWide parameter.
+//
+// SaveOverrideLayout 将当前布局覆盖保存到 storage.json 文件。
+// 根据 isWide 参数分别保存窄终端和宽终端的布局。
+func SaveOverrideLayout(overrideLayout int, isWide bool) error {
+	storageData, err := loadStorageData()
+	if err != nil {
+		return fmt.Errorf("could not load storage data for layout: %v\n\n无法加载布局的存储数据: %v", err, err)
+	}
+
+	if isWide {
+		storageData.OverrideLayoutWide = &overrideLayout
+	} else {
+		storageData.OverrideLayoutNarrow = &overrideLayout
+	}
+
+	if err := saveStorageData(storageData); err != nil {
+		return fmt.Errorf("could not save layout data: %v\n\n无法保存布局数据: %v", err, err)
+	}
+	return nil
+}
+
+// LoadOverrideLayout loads the layout override from the storage.json file.
+// It loads the appropriate layout based on whether the terminal is wide or narrow.
+// Returns -1 if no layout is saved.
+//
+// LoadOverrideLayout 从 storage.json 文件加载布局覆盖。
+// 根据终端是宽还是窄加载相应的布局。
+// 如果没有保存的布局则返回 -1。
+func LoadOverrideLayout(isWide bool) (int, error) {
+	storageData, err := loadStorageData()
+	if err != nil {
+		return -1, fmt.Errorf("could not load storage data for layout: %v\n\n无法加载布局的存储数据: %v", err, err)
+	}
+
+	if isWide {
+		if storageData.OverrideLayoutWide == nil {
+			return -1, nil
+		}
+		return *storageData.OverrideLayoutWide, nil
+	} else {
+		if storageData.OverrideLayoutNarrow == nil {
+			return -1, nil
+		}
+		return *storageData.OverrideLayoutNarrow, nil
+	}
 }

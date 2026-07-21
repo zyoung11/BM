@@ -36,6 +36,20 @@ default_page = 3
 # 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放, 3 = 记忆（使用上次保存的播放模式）。
 default_play_mode = 3
 
+# Default layout for narrow terminal - the layout displayed when the program starts in a narrow terminal.
+# 0 = auto, 1 = text only, 2 = image only, 3 = memory (use saved layout from last session).
+#
+# 窄终端默认布局 - 程序在窄终端启动时显示的布局。
+# 0 = 自动, 1 = 仅文本, 2 = 仅封面, 3 = 记忆（使用上次保存的布局）。
+default_layout_narrow = 0
+
+# Default layout for wide terminal - the layout displayed when the program starts in a wide terminal.
+# 0 = auto, 1 = narrow mode, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).
+#
+# 宽终端默认布局 - 程序在宽终端启动时显示的布局。
+# 0 = 自动, 1 = 窄终端模式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。
+default_layout_wide = 0
+
 # Whether to remember the music library path - if true, the program will remember the last used music library path.
 # If no path parameter is specified next time the program starts, the saved path will be used automatically.
 #

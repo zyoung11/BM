@@ -29,6 +29,72 @@ const (
 	LayoutSwitchNarrow                     // Switchable: image top, text bottom (centered)
 )
 
+// isWideTerminal checks if the current terminal is considered wide.
+// A terminal is wide if its width >= 100 and (width/height > 2.0 or height < 20).
+//
+// isWideTerminal 检查当前终端是否被认为是宽终端。
+// 宽终端的条件是宽度 >= 100 且 (宽/高 > 2.0 或 高度 < 20)。
+func isWideTerminal(w, h int) bool {
+	return w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
+}
+
+// configLayoutToOverride converts a config layout value to an overrideLayout value.
+// For narrow terminal: 0=auto(-1), 1=text(LayoutSwitchText), 2=image(LayoutSwitchImage), 3=memory(-1)
+// For wide terminal: 0=auto(-1), 1=narrow(LayoutSwitchNarrow), 2=text(LayoutSwitchText), 3=image(LayoutSwitchImage), 4=memory(-1)
+//
+// configLayoutToOverride 将配置布局值转换为 overrideLayout 值。
+// 窄终端: 0=自动(-1), 1=文本(LayoutSwitchText), 2=封面(LayoutSwitchImage), 3=记忆(-1)
+// 宽终端: 0=自动(-1), 1=窄终端模式(LayoutSwitchNarrow), 2=文本(LayoutSwitchText), 3=封面(LayoutSwitchImage), 4=记忆(-1)
+func configLayoutToOverride(configValue int, isWide bool) int {
+	if isWide {
+		switch configValue {
+		case 1:
+			return int(LayoutSwitchNarrow)
+		case 2:
+			return int(LayoutSwitchText)
+		case 3:
+			return int(LayoutSwitchImage)
+		default:
+			return -1
+		}
+	} else {
+		switch configValue {
+		case 1:
+			return int(LayoutSwitchText)
+		case 2:
+			return int(LayoutSwitchImage)
+		default:
+			return -1
+		}
+	}
+}
+
+// resolveInitialLayout resolves the initial overrideLayout value based on config and storage.
+// For "memory" mode, it loads from storage. For other modes, it converts the config value.
+//
+// resolveInitialLayout 根据配置和存储解析初始 overrideLayout 值。
+// 对于“记忆”模式，从存储加载。对于其他模式，转换配置值。
+func resolveInitialLayout(isWide bool) int {
+	var configValue int
+	if isWide {
+		configValue = GlobalConfig.App.DefaultLayoutWide
+	} else {
+		configValue = GlobalConfig.App.DefaultLayoutNarrow
+	}
+
+	// Check if memory mode (3 for narrow, 4 for wide)
+	if (isWide && configValue == 4) || (!isWide && configValue == 3) {
+		savedLayout, err := LoadOverrideLayout(isWide)
+		if err != nil {
+			l.Warnf("Could not load saved layout: %v\n\n无法加载已保存的布局: %v", err, err)
+			return -1
+		}
+		return savedLayout
+	}
+
+	return configLayoutToOverride(configValue, isWide)
+}
+
 // LayoutMetrics holds the metrics used to determine layout.
 //
 // LayoutMetrics 存储用于判断布局的指标。
@@ -165,18 +231,20 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 			if startRow < 2 {
 				startRow = 2
 			}
-		}
-		imageBottomRow = startRow + imageHeight
-		availableRows = h - imageBottomRow
-		progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
-		topGap := startRow
-		bottomGap := h - progressRow
-		shift := (topGap - bottomGap) / 2
-		p.layoutShift = shift
-		if shift > 0 {
-			startRow -= shift
-			if startRow < 2 {
-				startRow = 2
+			imageBottomRow = startRow + imageHeight
+			availableRows = h - imageBottomRow
+			progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
+			topGap := startRow
+			bottomGap := h - progressRow
+			shift := (topGap - bottomGap) / 2
+			p.layoutShift = shift
+			if shift > 0 {
+				startRow -= shift
+				if startRow < 2 {
+					startRow = 2
+				}
+			} else {
+				p.layoutShift = 0
 			}
 		} else {
 			p.layoutShift = 0
@@ -214,18 +282,20 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 			if startRow < 2 {
 				startRow = 2
 			}
-		}
-		imageBottomRow = startRow + imageHeight
-		availableRows = h - imageBottomRow
-		progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
-		topGap := startRow
-		bottomGap := h - progressRow
-		shift := (topGap - bottomGap) / 2
-		p.layoutShift = shift
-		if shift > 0 {
-			startRow -= shift
-			if startRow < 2 {
-				startRow = 2
+			imageBottomRow = startRow + imageHeight
+			availableRows = h - imageBottomRow
+			progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
+			topGap := startRow
+			bottomGap := h - progressRow
+			shift := (topGap - bottomGap) / 2
+			p.layoutShift = shift
+			if shift > 0 {
+				startRow -= shift
+				if startRow < 2 {
+					startRow = 2
+				}
+			} else {
+				p.layoutShift = 0
 			}
 		} else {
 			p.layoutShift = 0
