@@ -145,3 +145,39 @@ var errFake = &fakeError{}
 type fakeError struct{}
 
 func (*fakeError) Error() string { return "fake decoder error" }
+
+// chunkyDecoder serves at most maxChunk samples per call, so mid-stream
+// partial fills exercise the queue's in-loop retry.
+//
+// chunkyDecoder 每次调用最多提供 maxChunk 个样本，用中途部分填充来检验队列的
+// 循环重拉逻辑。
+type chunkyDecoder struct {
+	fakeDecoder
+	maxChunk int
+}
+
+func (f *chunkyDecoder) Stream(samples [][2]float64) (int, bool) {
+	if len(samples) > f.maxChunk {
+		samples = samples[:f.maxChunk]
+	}
+	return f.fakeDecoder.Stream(samples)
+}
+
+func TestGaplessQueueRetriesMidStreamPartialFills(t *testing.T) {
+	old := &chunkyDecoder{fakeDecoder{length: 10}, 2}
+	next := &chunkyDecoder{fakeDecoder{length: 10}, 3}
+	q := newGaplessQueue(old, "a")
+	q.setNext(next, "b")
+
+	buf := make([][2]float64, 16)
+	n, ok := q.Stream(buf)
+	if !ok || n != 16 {
+		t.Fatalf("expected full 16 samples across chunky partials, got n=%d ok=%v", n, ok)
+	}
+	if buf[9][0] != 9 || buf[10][0] != 0 {
+		t.Fatalf("expected boundary old[9] then new[0], got %v then %v", buf[9][0], buf[10][0])
+	}
+	if !old.closed {
+		t.Fatal("expected old decoder to be closed at handoff")
+	}
+}

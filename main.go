@@ -247,6 +247,10 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 		return fmt.Errorf("Failed to create player: %v\n\n创建播放器失败: %v", err, err)
 	}
 
+	if player.queue != nil {
+		a.armQueueExhaust(player.queue)
+	}
+
 	speaker.Lock()
 	a.player = player
 	a.currentSongPath = songPath
