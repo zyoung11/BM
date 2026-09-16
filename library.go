@@ -609,6 +609,7 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 
 		// 先停止当前播放
 		p.app.stopCurrentPlayback()
+		p.app.invalidatePendingNext()
 
 		// 清空播放列表
 		oldPlaylist := p.app.Playlist
