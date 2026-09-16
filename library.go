@@ -608,22 +608,14 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 		// 这样可以避免在移除过程中触发自动播放下一首
 
 		// 先停止当前播放
-		if p.app.player != nil {
-			speaker.Lock()
-			if p.app.player.ctrl != nil {
-				p.app.player.ctrl.Paused = true
-			}
-			speaker.Unlock()
-		}
+		p.app.stopCurrentPlayback()
 
 		// 清空播放列表
 		oldPlaylist := p.app.Playlist
 		p.app.Playlist = []string{}
 
-		// 清空选择状态
-		for _, songPath := range allSongs {
-			delete(p.selected, songPath)
-		}
+		// 清空选择状态（播放列表已清空，其他目录的选中状态一并清除）
+		p.selected = make(map[string]bool)
 
 		// 更新MPRIS
 		if p.app.mprisServer != nil {

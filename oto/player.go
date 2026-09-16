@@ -84,12 +84,13 @@ func (p *Player) Seek(offset int64, whence int) (int64, error) {
 	return p.player.Seek(offset, whence)
 }
 
-// Close implements io.Closer.
+// Close implements io.Closer. It removes the player from the mux immediately
+// and releases its buffers instead of waiting for the finalizer.
 //
-// Close does nothing and always returns nil.
-//
-// Deprecated: as of v3.4. you don't have to call Close.
+// Fork note: upstream relies on runtime.AddCleanup for cleanup. BM creates a
+// new player for every song switch, so players must be removed
+// deterministically; leaving them registered keeps two readers pulling from
+// the same source and their buffers get summed into the output.
 func (p *Player) Close() error {
-	// (*mux.Player).Close() is called by the finalizer. Let's rely on it.
-	return nil
+	return p.player.Close()
 }

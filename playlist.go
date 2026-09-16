@@ -5,13 +5,13 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"syscall"
 	"time"
 
 	"bm/search"
 
-	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 )
@@ -29,7 +29,8 @@ type PlayList struct {
 	viewPlaylist    []string // The filtered playlist to be displayed. / 要显示的已过滤播放列表。
 	originalIndices []int    // Map from viewPlaylist index to app.Playlist index. / 从viewPlaylist索引到app.Playlist索引的映射。
 
-	searchEngine *search.Engine
+	searchEngine  *search.Engine
+	indexSnapshot []string // Playlist content the search index was built from. / 搜索索引构建时所用的播放列表快照。
 
 	// Debounce mechanism to prevent accidental rapid removal of the current song.
 	// 防抖机制，防止快速连续移除当前播放歌曲。
@@ -77,7 +78,7 @@ func (p *PlayList) filterPlaylist() {
 		}
 		var scoredSongs []scoredSong
 
-		p.searchEngine.BuildFromPaths(p.app.Playlist)
+		p.ensureSearchIndex()
 
 		for i, songPath := range p.app.Playlist {
 			songName := filepath.Base(songPath)
@@ -106,6 +107,19 @@ func (p *PlayList) filterPlaylist() {
 
 	p.cursor = 0
 	p.offset = 0
+}
+
+// ensureSearchIndex rebuilds the search index only when the playlist changed
+// since the last build, so typing in search does not rebuild it every keystroke.
+//
+// ensureSearchIndex 仅在播放列表自上次构建后发生变化时重建搜索索引，
+// 避免搜索时每敲一个键都重建整个索引。
+func (p *PlayList) ensureSearchIndex() {
+	if slices.Equal(p.indexSnapshot, p.app.Playlist) {
+		return
+	}
+	p.indexSnapshot = slices.Clone(p.app.Playlist)
+	p.searchEngine.BuildFromPaths(p.app.Playlist)
 }
 
 // HandleKey handles user input for the playlist.
@@ -237,11 +251,7 @@ func (p *PlayList) removeCurrentSong() {
 //
 // stopPlaybackAndShowEmptyState 停止播放并显示播放器页面的空状态。
 func (p *PlayList) stopPlaybackAndShowEmptyState() {
-	if p.app.player != nil {
-		speaker.Lock()
-		p.app.player.ctrl.Paused = true
-		speaker.Unlock()
-	}
+	p.app.stopCurrentPlayback()
 	p.app.player = nil
 	p.app.setCurrentSong("")
 	if p.app.mprisServer != nil {
