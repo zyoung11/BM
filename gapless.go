@@ -47,6 +47,14 @@ type gaplessQueue struct {
 
 	exhausted    atomic.Bool // current drained with nothing queued. / 当前流耗尽且没有排入下一首。
 	exhaustedErr atomic.Bool // current errored instead of reaching clean EOF. / 当前流出错而非正常播放到结尾。
+
+	// onExhausted is invoked from the audio thread once when the queue exhausts;
+	// it must not block. It lets the fallback advance start immediately instead
+	// of waiting up to one UI tick.
+	//
+	// onExhausted 在队列耗尽时由音频线程调用一次；不得阻塞。它让兜底推进立即启动，
+	// 而不是等待最多一个 UI tick。
+	onExhausted func()
 }
 
 func newGaplessQueue(current beep.StreamSeekCloser, path string) *gaplessQueue {
@@ -64,17 +72,23 @@ func (q *gaplessQueue) Stream(samples [][2]float64) (int, bool) {
 		atEnd := !ok || q.current.Position() >= q.current.Len()
 		if !atEnd {
 			q.mu.Unlock()
-			return total, true
+			if n == 0 {
+				return total, true
+			}
+			samples = samples[n:]
+			continue
 		}
 		if err := q.current.Err(); err != nil {
 			q.exhaustedErr.Store(true)
 			q.exhausted.Store(true)
 			q.mu.Unlock()
+			q.fireExhausted()
 			return total, false
 		}
 		if q.next == nil {
 			q.exhausted.Store(true)
 			q.mu.Unlock()
+			q.fireExhausted()
 			return total, false
 		}
 		old := q.current
@@ -96,6 +110,17 @@ func (q *gaplessQueue) Err() error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.current.Err()
+}
+
+// fireExhausted invokes the exhaust callback from the audio thread. The chain
+// is removed by the mixer in the same Stream call, so this fires once per arm.
+//
+// fireExhausted 在音频线程触发耗尽回调。mixer 会在同一次 Stream 调用中移除链，
+// 因此每次武装只会触发一次。
+func (q *gaplessQueue) fireExhausted() {
+	if q.onExhausted != nil {
+		q.onExhausted()
+	}
 }
 
 // setNext queues a decoder to start seamlessly when the current one drains.
@@ -288,6 +313,21 @@ func (a *App) prepareNextIfNeeded() {
 	}()
 }
 
+// armQueueExhaust wires the queue's exhaust callback so the fallback advance
+// starts immediately instead of waiting up to one UI tick. The send is
+// non-blocking; the tick safety net remains as a fallback.
+//
+// armQueueExhaust 接上队列的耗尽回调，使兜底推进立即启动而非等待最多一个
+// UI tick。发送为非阻塞；tick 安全网仍作兜底。
+func (a *App) armQueueExhaust(q *gaplessQueue) {
+	q.onExhausted = func() {
+		select {
+		case a.actionQueue <- a.handleAutoAdvance:
+		default:
+		}
+	}
+}
+
 // invalidatePendingNext drops any prepared decoder (queued, held or in
 // flight); called whenever the playlist, mode or current song changes.
 //
@@ -456,6 +496,7 @@ func (a *App) rebuildChainForPlaybackMode() {
 	case wantQueue && a.player.queue == nil:
 		q := newGaplessQueue(dec, a.currentSongPath)
 		q.player = a.player
+		a.armQueueExhaust(q)
 		a.player.queue = q
 		a.player.ctrl.Streamer = q
 	case !wantQueue && a.player.queue != nil:

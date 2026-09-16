@@ -29,6 +29,8 @@ import (
 	"golang.org/x/term"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/nfnt/resize"
 )
 
 // --- Page Implementation ---
@@ -787,6 +789,10 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		return fmt.Errorf("Failed to create player: %v\n\n创建播放器失败: %v", err, err)
 	}
 
+	if player.queue != nil {
+		p.app.armQueueExhaust(player.queue)
+	}
+
 	speaker.Lock()
 	p.app.player = player
 	speaker.Unlock()
@@ -924,6 +930,8 @@ func saveCoverArt(audioPath string) string {
 	if coverImg == nil {
 		return ""
 	}
+
+	coverImg = resize.Thumbnail(256, 256, coverImg, resize.Bilinear)
 
 	tempFile, err := os.CreateTemp("", "bm-cover-*.png")
 	if err != nil {
@@ -1406,7 +1414,36 @@ func getCellSize() (width, height int, err error) {
 	return w, h, nil
 }
 
+// songMetaCache caches parsed tags per file path, so repeated draws do not
+// reopen and re-parse the audio file. Populated and read on the main thread
+// only.
+//
+// songMetaCache 按文件路径缓存解析出的标签，避免重复绘制时反复打开并解析
+// 音频文件。仅在主线程读写。
+var songMetaCache = make(map[string]songMeta)
+
+type songMeta struct {
+	title, artist, album string
+}
+
+// getSongMetadata returns the song's title, artist and album, falling back to
+// filename parsing; results are cached per path.
+//
+// getSongMetadata 返回歌曲的标题、艺术家与专辑，必要时回退到从文件名解析；
+// 结果按路径缓存。
 func getSongMetadata(flacPath string) (title, artist, album string) {
+	if m, ok := songMetaCache[flacPath]; ok {
+		return m.title, m.artist, m.album
+	}
+	title, artist, album = readSongMetadata(flacPath)
+	songMetaCache[flacPath] = songMeta{title, artist, album}
+	return title, artist, album
+}
+
+// readSongMetadata reads and parses the tags of an audio file without caching.
+//
+// readSongMetadata 读取并解析音频文件的标签，不走缓存。
+func readSongMetadata(flacPath string) (title, artist, album string) {
 	f, err := os.Open(flacPath)
 	if err != nil {
 		// Try to parse from filename as fallback
