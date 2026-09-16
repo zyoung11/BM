@@ -3,17 +3,19 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"github.com/gopxl/beep/v2"
+	"github.com/gopxl/beep/v2/speaker"
+	"golang.org/x/term"
 	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
-	"github.com/gopxl/beep/v2"
-	"github.com/gopxl/beep/v2/speaker"
-	"golang.org/x/term"
 )
 
 // songExistsInPlaylist checks if a song exists in the current playlist.
@@ -77,13 +79,13 @@ type App struct {
 	pages            []Page
 	currentPageIndex int
 	Playlist         []string
-	LibraryPath      string      // Root path of the music library. / 音乐库的根路径。
-	currentSongPath  string      // Path of the currently playing song. / 当前播放歌曲的路径。
-	playMode         int         // Play mode: 0=repeat one, 1=repeat all, 2=random. / 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放。
-	volume           float64     // Saved volume setting. / 保存的音量设置。
-	linearVolume     float64     // 0.0 to 1.0 linear volume for display. / 用于显示的线性音量（0.0到1.0）。
-	playbackRate     float64     // Saved playback rate setting. / 保存的播放速度设置。
-	actionQueue      chan func() // Action queue for thread-safe UI updates. / 用于线程安全UI更新的操作队列。
+	LibraryPath      string        // Root path of the music library. / 音乐库的根路径。
+	currentSongPath  string        // Path of the currently playing song. / 当前播放歌曲的路径。
+	playMode         int           // Play mode: 0=repeat one, 1=repeat all, 2=random. / 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放。
+	volume           float64       // Saved volume setting. / 保存的音量设置。
+	linearVolume     float64       // 0.0 to 1.0 linear volume for display. / 用于显示的线性音量（0.0到1.0）。
+	playbackRate     float64       // Saved playback rate setting. / 保存的播放速度设置。
+	actionQueue      chan func()   // Action queue for thread-safe UI updates. / 用于线程安全UI更新的操作队列。
 	quitChan         chan struct{} // Closed to request a graceful exit from Run. / 关闭以请求 Run 优雅退出。
 	sampleRate       beep.SampleRate
 
@@ -100,6 +102,20 @@ type App struct {
 
 	// Random mode transition tracking. / 随机模式切换跟踪。
 	switchedToRandom bool // True if just switched to random mode and haven't played yet. / 如果刚切换到随机模式且尚未播放。
+
+	// Auto-advance (gapless) state: background-decoded next song, either
+	// queued into the gapless queue (same rate) or held for the advance path
+	// (rate change).
+	//
+	// 自动推进（gapless）状态：后台解码的下一首，采样率相同时排入无缝队列，
+	// 需要变更采样率时暂存给推进路径。
+	pendingMu        sync.Mutex
+	pendingDecoder   beep.StreamSeekCloser
+	pendingPath      string
+	pendingFormat    beep.Format
+	pendingPreparing bool
+	pendingToken     uint64
+	advancing        atomic.Bool
 }
 
 // Page defines the interface for a TUI page.
@@ -145,9 +161,16 @@ func (a *App) stopCurrentPlayback() {
 	a.player.ctrl.Streamer = nil
 	a.player.ctrl.Paused = true
 	streamer := a.player.streamer
+	var pending *queuedSong
+	if a.player.queue != nil {
+		pending = a.player.queue.takeNext()
+	}
 	speaker.Unlock()
 	if streamer != nil {
 		streamer.Close()
+	}
+	if pending != nil {
+		pending.decoder.Close()
 	}
 }
 
@@ -195,6 +218,7 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 	// Stop current playback.
 	// 停止当前播放。
 	a.stopCurrentPlayback()
+	a.invalidatePendingNext()
 
 	streamer, format, err := decodeAudioFile(songPath)
 	if err != nil {
@@ -217,11 +241,20 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 
 	audioStream := streamer
 
-	player, err := newAudioPlayer(audioStream, format, a.volume, a.playbackRate)
+	player, err := newAudioPlayer(audioStream, format, a.volume, a.playbackRate, songPath, a.playMode == 0)
 	if err != nil {
 		streamer.Close()
 		return fmt.Errorf("Failed to create player: %v\n\n创建播放器失败: %v", err, err)
 	}
+
+	speaker.Lock()
+	a.player = player
+	a.currentSongPath = songPath
+	speaker.Unlock()
+
+	speaker.Play(a.player.volume)
+
+	a.addToPlayHistory(songPath)
 
 	if a.mprisServer != nil {
 		a.mprisServer.StopService()
@@ -234,16 +267,9 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 			mprisServer.UpdateMetadata()
 		}
 	}
-
 	speaker.Lock()
-	a.player = player
 	a.mprisServer = mprisServer
-	a.currentSongPath = songPath
 	speaker.Unlock()
-
-	a.addToPlayHistory(songPath)
-
-	speaker.Play(a.player.volume)
 
 	if switchToPlayer {
 		a.currentPageIndex = 0 // Directly set the page index
@@ -662,6 +688,7 @@ func (a *App) Run() error {
 			return nil
 
 		case <-ticker.C:
+			a.tickPlayback()
 			currentPage.Tick()
 		}
 	}

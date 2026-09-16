@@ -102,6 +102,11 @@ func (r *Resampler) Stream(samples [][2]float64) (n int, ok bool) {
 			sn, _ := r.s.Stream(r.buf1)
 			if sn < len(r.buf1) {
 				r.end = r.off + resamplerSingleBufferSize + sn
+			} else {
+				// Fork note: a full pull means the source is producing data
+				// again (e.g. a new decoder was queued after an exhausted one),
+				// so a previously shrunken end must not clamp the streamer.
+				r.end = math.MaxInt
 			}
 
 			// Swap buffers.

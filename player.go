@@ -229,6 +229,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 			if err := SavePlayMode(p.app.playMode); err != nil {
 				l.Warnf("failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
 			}
+			p.app.rebuildChainForPlaybackMode()
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleTextColor) {
 		p.useCoverColor = !p.useCoverColor
@@ -412,7 +413,6 @@ func (p *PlayerPage) Tick() {
 	}
 
 	p.updateStatus()
-	p.checkSongEndAndHandleNext()
 
 	if p.app.mprisServer != nil {
 		p.app.mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
@@ -430,30 +430,6 @@ func (p *PlayerPage) currentPositionInMicroseconds() int64 {
 	pos := p.app.player.streamer.Position()
 	speaker.Unlock()
 	return int64(float64(pos) / float64(p.app.player.sampleRate) * 1e6)
-}
-
-// checkSongEndAndHandleNext checks if the song has ended and handles the next song according to the play mode.
-//
-// checkSongEndAndHandleNext 检查歌曲是否结束，并根据播放模式处理下一首。
-func (p *PlayerPage) checkSongEndAndHandleNext() {
-	if p.app.player == nil || len(p.app.Playlist) == 0 {
-		return
-	}
-
-	speaker.Lock()
-	currentPos := p.app.player.streamer.Position()
-	totalLen := p.app.player.streamer.Len()
-	speaker.Unlock()
-
-	if totalLen > 0 && currentPos >= totalLen-p.app.player.sampleRate.N(time.Second) {
-		if p.app.playMode == 0 {
-			return
-		}
-
-		if p.app.playMode == 1 || p.app.playMode == 2 {
-			p.playNextSong()
-		}
-	}
 }
 
 // playNextSong plays the next song based on the current play mode, with debouncing.
@@ -495,7 +471,7 @@ func (p *PlayerPage) playNextSong() {
 			p.playNextInRandomMode()
 			return
 		} else {
-			nextIndex = p.pickRandomIndex(currentIndex)
+			nextIndex = p.app.pickRandomIndex(p.flacPath)
 		}
 	default: // Single repeat or manual switch / 单曲循环或手动切换
 		nextIndex = (currentIndex + 1) % len(p.app.Playlist)
@@ -692,14 +668,16 @@ func (p *PlayerPage) playPreviousInRandomMode() {
 // N = 0: 纯随机（禁用）。
 // N < 0 或 N >= 歌单长度: 使用最大窗口，歌单内所有歌曲循环一遍后才重复。
 // N > 0: 排除最近 N 首不重复歌曲。
-func (p *PlayerPage) pickRandomIndex(currentIndex int) int {
-	playlistLen := len(p.app.Playlist)
+func (a *App) pickRandomIndex(currentPath string) int {
+	playlistLen := len(a.Playlist)
 	if playlistLen == 0 {
 		return 0
 	}
 	if playlistLen == 1 {
 		return 0
 	}
+
+	currentIndex := slices.Index(a.Playlist, currentPath)
 
 	n := GlobalConfig.App.ShuffleHistoryWindow
 	if n == 0 {
@@ -721,16 +699,16 @@ func (p *PlayerPage) pickRandomIndex(currentIndex int) int {
 
 	recentlyPlayed := make(map[string]bool, n)
 	count := 0
-	for i := len(p.app.playHistory) - 1; i >= 0 && count < n; i-- {
-		song := p.app.playHistory[i]
-		if song != p.flacPath && !recentlyPlayed[song] {
+	for i := len(a.playHistory) - 1; i >= 0 && count < n; i-- {
+		song := a.playHistory[i]
+		if song != currentPath && !recentlyPlayed[song] {
 			recentlyPlayed[song] = true
 			count++
 		}
 	}
 
 	candidates := make([]int, 0, playlistLen)
-	for i, song := range p.app.Playlist {
+	for i, song := range a.Playlist {
 		if i == currentIndex {
 			continue
 		}
@@ -759,15 +737,7 @@ func (p *PlayerPage) playRandomSong() {
 		return
 	}
 
-	currentIndex := -1
-	for i, song := range p.app.Playlist {
-		if song == p.flacPath {
-			currentIndex = i
-			break
-		}
-	}
-
-	randomIndex := p.pickRandomIndex(currentIndex)
+	randomIndex := p.app.pickRandomIndex(p.flacPath)
 
 	p.app.PlaySongWithSwitchAndRender(p.app.Playlist[randomIndex], true, true)
 
@@ -793,6 +763,7 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	}
 
 	p.app.stopCurrentPlayback()
+	p.app.invalidatePendingNext()
 
 	streamer, format, err := decodeAudioFile(songPath)
 	if err != nil {
@@ -810,11 +781,19 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 
 	audioStream := streamer
 
-	player, err := newAudioPlayer(audioStream, format, p.app.volume, p.app.playbackRate)
+	player, err := newAudioPlayer(audioStream, format, p.app.volume, p.app.playbackRate, songPath, p.app.playMode == 0)
 	if err != nil {
 		streamer.Close()
 		return fmt.Errorf("Failed to create player: %v\n\n创建播放器失败: %v", err, err)
 	}
+
+	speaker.Lock()
+	p.app.player = player
+	speaker.Unlock()
+
+	speaker.Play(p.app.player.volume)
+
+	p.app.setCurrentSong(songPath)
 
 	if p.app.mprisServer != nil {
 		p.app.mprisServer.StopService()
@@ -827,15 +806,9 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 			mprisServer.UpdateMetadata()
 		}
 	}
-
 	speaker.Lock()
-	p.app.player = player
 	p.app.mprisServer = mprisServer
 	speaker.Unlock()
-
-	p.app.setCurrentSong(songPath)
-
-	speaker.Play(p.app.player.volume)
 
 	// Reset cover image position and dimensions
 	// 重置封面图片位置和尺寸
@@ -894,19 +867,38 @@ type audioPlayer struct {
 	ctrl       *beep.Ctrl
 	resampler  *beep.Resampler
 	volume     *effects.Volume
+	queue      *gaplessQueue
 }
 
-func newAudioPlayer(streamer beep.StreamSeekCloser, format beep.Format, volumeLevel float64, playbackRate float64) (*audioPlayer, error) {
-	loopStreamer, err := beep.Loop2(streamer)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to create loop streamer: %v\n\n创建循环流失败: %v", err, err)
+// newAudioPlayer builds the playback chain around the decoded song. Repeat-one
+// mode loops through Loop2; list/random modes sequence through the gapless
+// queue so the next song can be handed off without a gap.
+//
+// newAudioPlayer 围绕已解码歌曲构建播放链。单曲循环模式用 Loop2 循环；
+// 列表/随机模式通过无缝队列顺序播放，使下一首可以无间隙接续。
+func newAudioPlayer(streamer beep.StreamSeekCloser, format beep.Format, volumeLevel float64, playbackRate float64, songPath string, loop bool) (*audioPlayer, error) {
+	var inner beep.Streamer = streamer
+	var q *gaplessQueue
+	if loop {
+		loopStreamer, err := beep.Loop2(streamer)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to create loop streamer: %v\n\n创建循环流失败: %v", err, err)
+		}
+		inner = loopStreamer
+	} else {
+		q = newGaplessQueue(streamer, songPath)
+		inner = q
 	}
-	ctrl := &beep.Ctrl{Streamer: loopStreamer}
+	ctrl := &beep.Ctrl{Streamer: inner}
 	resampler := beep.ResampleRatio(4, 1, ctrl)
 	volume := &effects.Volume{Streamer: resampler, Base: 2}
 	volume.Volume = volumeLevel
 	resampler.SetRatio(playbackRate)
-	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume}, nil
+	p := &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume, q}
+	if q != nil {
+		q.player = p
+	}
+	return p, nil
 }
 
 // saveCoverArt extracts the cover art from an audio file and saves it to a temporary file.

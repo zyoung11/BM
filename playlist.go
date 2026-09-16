@@ -197,6 +197,8 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 //
 // removeCurrentSong 删除当前光标位置的歌曲。
 func (p *PlayList) removeCurrentSong() {
+	p.app.invalidatePendingNext()
+
 	if p.cursor < 0 || p.cursor >= len(p.viewPlaylist) {
 		return
 	}

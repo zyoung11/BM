@@ -811,9 +811,44 @@ func (m *MPRISServer) calculateDuration() error {
 	defer streamer.Close()
 
 	totalSamples := streamer.Len()
-	m.duration = int64(float64(totalSamples) / float64(format.SampleRate) * 1e6)
+	duration := int64(float64(totalSamples) / float64(format.SampleRate) * 1e6)
+
+	m.mu.Lock()
+	m.duration = duration
+	m.mu.Unlock()
 
 	return nil
+}
+
+// UpdateSong re-targets the server at a new track after a seamless queue
+// handoff, refreshing duration, metadata and position without a service
+// restart.
+//
+// UpdateSong 在队列无缝换源后将服务重新指向新曲目，刷新时长、元数据与位置，
+// 无需重启服务。
+func (m *MPRISServer) UpdateSong(path string) {
+	m.mu.Lock()
+	if m.stopped {
+		m.mu.Unlock()
+		return
+	}
+	m.flacPath = path
+	m.position = 0
+	m.isPlaying = true
+	m.startTime = time.Now()
+	m.lastUpdate = time.Now()
+	m.mu.Unlock()
+
+	m.calculateDuration()
+	m.updateMetadata()
+
+	m.mu.Lock()
+	metadata := m.metadata
+	m.mu.Unlock()
+	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+		"Metadata": metadata,
+		"Position": int64(0),
+	})
 }
 
 // StartUpdateLoop starts the MPRIS update loop.
