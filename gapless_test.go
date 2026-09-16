@@ -50,14 +50,14 @@ func TestGaplessQueueSeamlessHandoff(t *testing.T) {
 
 	buf := make([][2]float64, 16)
 	n, ok := q.Stream(buf)
-	if ok {
-		t.Fatalf("expected ok=false once both decoders drained, got n=%d", n)
-	}
-	if n != 15 {
-		t.Fatalf("expected 15 samples across handoff, got %d", n)
+	if !ok || n != 16 {
+		t.Fatalf("expected queue to pad silence after exhaustion, got n=%d ok=%v", n, ok)
 	}
 	if buf[9][0] != 9 || buf[10][0] != 0 {
 		t.Fatalf("expected boundary old[9] then new[0], got %v then %v", buf[9][0], buf[10][0])
+	}
+	if buf[14][0] != 4 || buf[15][0] != 0 {
+		t.Fatalf("expected new[4] then silence, got %v then %v", buf[14][0], buf[15][0])
 	}
 	if !old.closed {
 		t.Fatal("expected old decoder to be closed at handoff")
@@ -72,9 +72,15 @@ func TestGaplessQueueSeamlessHandoff(t *testing.T) {
 		t.Fatal("expected exhausted flag to be set after next drained")
 	}
 
+	for i := range buf {
+		buf[i] = [2]float64{1, 1}
+	}
 	n, ok = q.Stream(buf)
-	if ok || n != 0 {
-		t.Fatalf("expected exhausted after next drained, got n=%d ok=%v", n, ok)
+	if !ok || n != 16 {
+		t.Fatalf("expected silence padding on later pulls, got n=%d ok=%v", n, ok)
+	}
+	if buf[0][0] != 0 {
+		t.Fatalf("expected padded silence, got %v", buf[0][0])
 	}
 }
 
@@ -99,25 +105,91 @@ func TestGaplessQueueExhaustedWithoutNext(t *testing.T) {
 	q := newGaplessQueue(old, "a")
 
 	buf := make([][2]float64, 8)
-	n, ok := q.Stream(buf)
-	if ok || n != 4 {
-		t.Fatalf("expected (4, false) at clean EOF, got n=%d ok=%v", n, ok)
+	for i := range buf {
+		buf[i] = [2]float64{1, 1}
 	}
-	if !q.exhausted.Load() || q.exhaustedErr.Load() {
-		t.Fatal("expected exhausted=true, exhaustedErr=false at clean EOF")
+	n, ok := q.Stream(buf)
+	if !ok || n != 8 {
+		t.Fatalf("expected silence-padded (8, true) at clean EOF, got n=%d ok=%v", n, ok)
+	}
+	if buf[3][0] != 3 || buf[4][0] != 0 {
+		t.Fatalf("expected 4 real samples then silence, got %v then %v", buf[3][0], buf[4][0])
+	}
+	if !q.exhausted.Load() {
+		t.Fatal("expected exhausted=true at clean EOF")
+	}
+
+	n, ok = q.Stream(buf)
+	if !ok || n != 8 {
+		t.Fatalf("expected later pulls to keep padding silence, got n=%d ok=%v", n, ok)
 	}
 }
 
-func TestGaplessQueueErrorMarksExhaustedErr(t *testing.T) {
+func TestGaplessQueueErrorRecordsErroredPath(t *testing.T) {
 	old := &fakeDecoder{length: 4, err: errFake}
 	q := newGaplessQueue(old, "a")
 
 	buf := make([][2]float64, 8)
-	if _, ok := q.Stream(buf); ok {
-		t.Fatal("expected ok=false on decoder error")
+	if n, ok := q.Stream(buf); !ok || n != 8 {
+		t.Fatalf("expected silence padding on decoder error, got n=%d ok=%v", n, ok)
 	}
-	if !q.exhaustedErr.Load() {
-		t.Fatal("expected exhaustedErr=true on decoder error")
+	if got := q.takeErroredPath(); got != "a" {
+		t.Fatalf("expected errored path a, got %q", got)
+	}
+	if got := q.takeErroredPath(); got != "" {
+		t.Fatalf("expected errored path to be consumed, got %q", got)
+	}
+}
+
+func TestGaplessQueueRecoversAfterExhaustViaResetTo(t *testing.T) {
+	fired := 0
+	old := &fakeDecoder{length: 4}
+	q := newGaplessQueue(old, "a")
+	q.onExhausted = func() { fired++ }
+
+	buf := make([][2]float64, 8)
+	n, ok := q.Stream(buf)
+	if !ok || n != 8 {
+		t.Fatalf("expected silence padding at exhaust, got n=%d ok=%v", n, ok)
+	}
+	if fired != 1 {
+		t.Fatalf("expected exhaust callback to fire once, got %d", fired)
+	}
+
+	// Simulate the fallback advance arming a fresh decoder; playback must
+	// resume from it instead of staying stuck in padded silence.
+	//
+	// 模拟兜底推进武装新解码器；播放必须从中恢复，而不是卡在填充的静音里。
+	fresh := &fakeDecoder{length: 20}
+	q.resetTo(fresh, "b")
+
+	n, ok = q.Stream(buf)
+	if !ok || n != 8 {
+		t.Fatalf("expected playback to resume from the new decoder, got n=%d ok=%v", n, ok)
+	}
+	if buf[0][0] != 0 {
+		t.Fatalf("expected new decoder samples, got %v", buf[0][0])
+	}
+	if fired != 1 {
+		t.Fatalf("expected exhaust callback to fire only once per arm, got %d", fired)
+	}
+
+	if n, ok = q.Stream(buf); !ok || n != 8 {
+		t.Fatalf("expected steady playback from the new decoder, got n=%d ok=%v", n, ok)
+	}
+	if fired != 1 {
+		t.Fatalf("expected no exhaust while the new decoder plays, got %d", fired)
+	}
+
+	// Drain the fresh decoder; the callback must fire once more on re-exhaust.
+	if n, ok = q.Stream(buf); !ok || n != 8 {
+		t.Fatalf("expected final pull to pad silence, got n=%d ok=%v", n, ok)
+	}
+	if buf[3][0] != 19 || buf[4][0] != 0 {
+		t.Fatalf("expected fresh[19] then silence, got %v then %v", buf[3][0], buf[4][0])
+	}
+	if fired != 2 {
+		t.Fatalf("expected exhaust callback to fire again after re-arm, got %d", fired)
 	}
 }
 
@@ -180,4 +252,40 @@ func TestGaplessQueueRetriesMidStreamPartialFills(t *testing.T) {
 	if !old.closed {
 		t.Fatal("expected old decoder to be closed at handoff")
 	}
+}
+
+func TestSetPlaylistPublishesLength(t *testing.T) {
+	a := &App{}
+	a.setPlaylist([]string{"a", "b", "c"})
+	if a.PlaylistLen() != 3 {
+		t.Fatalf("expected len 3, got %d", a.PlaylistLen())
+	}
+	a.setPlaylist([]string{"a"})
+	if a.PlaylistLen() != 1 {
+		t.Fatalf("expected len 1, got %d", a.PlaylistLen())
+	}
+	a.setPlaylist(nil)
+	if a.PlaylistLen() != 0 {
+		t.Fatalf("expected len 0, got %d", a.PlaylistLen())
+	}
+}
+
+// TestPlaylistLenConcurrentAccess exercises the published length against a
+// concurrent reader; run under -race to verify the ownership model.
+//
+// TestPlaylistLenConcurrentAccess 在并发读取方下演练发布的长度值；
+// 在 -race 下运行以验证所有权模型。
+func TestPlaylistLenConcurrentAccess(t *testing.T) {
+	a := &App{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 5000 {
+			_ = a.PlaylistLen() > 1
+		}
+	}()
+	for i := range 5000 {
+		a.setPlaylist(make([]string, i%5))
+	}
+	<-done
 }

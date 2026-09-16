@@ -44,9 +44,9 @@ type gaplessQueue struct {
 	currentPath string
 	next        *queuedSong
 	player      *audioPlayer
+	erroredPath string // set when the current decoder errored; consumed by the main thread. / 当前解码器出错时设置；由主线程消费。
 
-	exhausted    atomic.Bool // current drained with nothing queued. / 当前流耗尽且没有排入下一首。
-	exhaustedErr atomic.Bool // current errored instead of reaching clean EOF. / 当前流出错而非正常播放到结尾。
+	exhausted atomic.Bool // current drained with nothing queued. / 当前流耗尽且没有排入下一首。
 
 	// onExhausted is invoked from the audio thread once when the queue exhausts;
 	// it must not block. It lets the fallback advance start immediately instead
@@ -78,18 +78,34 @@ func (q *gaplessQueue) Stream(samples [][2]float64) (int, bool) {
 			samples = samples[n:]
 			continue
 		}
-		if err := q.current.Err(); err != nil {
-			q.exhaustedErr.Store(true)
-			q.exhausted.Store(true)
-			q.mu.Unlock()
-			q.fireExhausted()
-			return total, false
+		errored := q.current.Err() != nil
+		if errored {
+			q.erroredPath = q.currentPath
 		}
-		if q.next == nil {
-			q.exhausted.Store(true)
+		if q.next == nil || errored {
+			// Nothing (usable) queued: pad with silence and keep the chain
+			// alive in the mixer. Returning ok == false would get the chain
+			// removed, and the resampler's source-domain counters would then
+			// desync from the decoder armed by the fallback advance, leaving
+			// playback stuck in silence. The exhaust callback fires the
+			// advance immediately; the tick safety net remains as a fallback.
+			//
+			// 没有（可用的）排入项：以静音填充并让链在混音器中保持存活。
+			// 返回 ok == false 会让链被移除，resampler 的源域计数器将与
+			// 兜底推进武装的新解码器失配，导致播放永久卡在静音。耗尽回调
+			// 立即触发推进；tick 安全网仍作兜底。
+			if q.next != nil {
+				q.next.decoder.Close()
+				q.next = nil
+			}
+			first := !q.exhausted.Swap(true)
 			q.mu.Unlock()
-			q.fireExhausted()
-			return total, false
+			if first {
+				q.fireExhausted()
+			}
+			clear(samples[n:])
+			total += len(samples) - n
+			return total, true
 		}
 		old := q.current
 		q.current = q.next.decoder
@@ -166,8 +182,8 @@ func (q *gaplessQueue) resetTo(decoder beep.StreamSeekCloser, path string) {
 	q.current = decoder
 	q.currentPath = path
 	q.next = nil
+	q.erroredPath = ""
 	q.exhausted.Store(false)
-	q.exhaustedErr.Store(false)
 }
 
 // path returns the path of the decoder currently being streamed.
@@ -177,6 +193,18 @@ func (q *gaplessQueue) path() string {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.currentPath
+}
+
+// takeErroredPath returns and clears the path of a decoder that errored, if
+// any; the caller should mark it as corrupted.
+//
+// takeErroredPath 返回并清除出错解码器的路径（如果存在）；调用方应将其标记为损坏。
+func (q *gaplessQueue) takeErroredPath() string {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	p := q.erroredPath
+	q.erroredPath = ""
+	return p
 }
 
 // tickPlayback advances the gapless machinery once per UI tick regardless of
@@ -191,6 +219,9 @@ func (a *App) tickPlayback() {
 	}
 
 	if a.player.queue != nil {
+		if ep := a.player.queue.takeErroredPath(); ep != "" {
+			a.MarkFileAsCorrupted(ep)
+		}
 		if hp := a.player.queue.path(); hp != a.currentSongPath {
 			a.finishAutoSongSwitch(hp)
 		}
@@ -374,10 +405,6 @@ func (a *App) handleAutoAdvance() {
 	}
 	defer a.advancing.Store(false)
 
-	if q.exhaustedErr.Load() {
-		a.MarkFileAsCorrupted(a.currentSongPath)
-	}
-
 	nextPath, ok := a.computeNextPath(a.currentSongPath)
 	if !ok {
 		a.stopCurrentPlayback()
@@ -444,7 +471,10 @@ func (a *App) handleAutoAdvance() {
 	speaker.Unlock()
 	old.Close()
 
-	speaker.Play(a.player.volume)
+	// The chain is still in the mixer: the queue pads silence instead of
+	// draining on exhaust, so re-adding it would duplicate the streamer.
+	//
+	// 链仍在混音器中：队列耗尽时以静音填充而非排干，重新添加会导致流重复。
 	a.finishAutoSongSwitch(nextPath)
 }
 
