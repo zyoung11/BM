@@ -219,7 +219,7 @@ func (p *PlayList) removeCurrentSong() {
 		p.lastRemoveTime = currentTime
 	}
 
-	p.app.Playlist = append(p.app.Playlist[:originalIndex], p.app.Playlist[originalIndex+1:]...)
+	p.app.setPlaylist(append(p.app.Playlist[:originalIndex], p.app.Playlist[originalIndex+1:]...))
 	if err := SavePlaylist(p.app.Playlist, p.app.LibraryPath); err != nil {
 		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}

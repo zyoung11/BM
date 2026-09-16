@@ -240,8 +240,8 @@ func (m *MPRISServer) UpdateProperties() {
 		return
 	}
 	changedProperties := map[string]any{
-		"CanGoNext":     len(m.app.Playlist) > 1,
-		"CanGoPrevious": len(m.app.Playlist) > 1,
+		"CanGoNext":     m.app.PlaylistLen() > 1,
+		"CanGoPrevious": m.app.PlaylistLen() > 1,
 	}
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", changedProperties)
 }
@@ -530,11 +530,9 @@ func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *db
 		case "MaximumRate":
 			return dbus.MakeVariant(4.0), nil
 		case "CanGoNext":
-			canGoNext := m.app != nil && len(m.app.Playlist) > 1
-			return dbus.MakeVariant(canGoNext), nil
+			return dbus.MakeVariant(m.app != nil && m.app.PlaylistLen() > 1), nil
 		case "CanGoPrevious":
-			canGoPrevious := m.app != nil && len(m.app.Playlist) > 1
-			return dbus.MakeVariant(canGoPrevious), nil
+			return dbus.MakeVariant(m.app != nil && m.app.PlaylistLen() > 1), nil
 		case "CanPlay":
 			return dbus.MakeVariant(true), nil
 		case "CanPause":
@@ -594,8 +592,8 @@ func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *db
 		props["Metadata"] = dbus.MakeVariant(metadata)
 		props["MinimumRate"] = dbus.MakeVariant(0.1)
 		props["MaximumRate"] = dbus.MakeVariant(4.0)
-		props["CanGoNext"] = dbus.MakeVariant(m.app != nil && len(m.app.Playlist) > 1)
-		props["CanGoPrevious"] = dbus.MakeVariant(m.app != nil && len(m.app.Playlist) > 1)
+		props["CanGoNext"] = dbus.MakeVariant(m.app != nil && m.app.PlaylistLen() > 1)
+		props["CanGoPrevious"] = dbus.MakeVariant(m.app != nil && m.app.PlaylistLen() > 1)
 		props["CanPlay"] = dbus.MakeVariant(true)
 		props["CanPause"] = dbus.MakeVariant(true)
 		props["CanSeek"] = dbus.MakeVariant(true)
@@ -614,27 +612,46 @@ func (m *MPRISServer) Set(interfaceName, propertyName string, value dbus.Variant
 	case "org.mpris.MediaPlayer2.Player":
 		switch propertyName {
 		case "Volume":
-			if m.player != nil && m.app != nil {
-				linearVol := value.Value().(float64)
-				speaker.Lock()
-				m.app.linearVolume = min(max(linearVol, 0.0), 1.0)
-				if m.app.linearVolume == 0 {
-					m.app.volume = -10
-				} else {
-					m.app.volume = math.Log2(m.app.linearVolume)
+			if m.app != nil {
+				v, ok := value.Value().(float64)
+				if !ok {
+					return dbus.MakeFailedError(fmt.Errorf("invalid Volume value: %v", value.Value()))
 				}
-				m.player.volume.Volume = m.app.volume
-				speaker.Unlock()
+				linearVol := min(max(v, 0.0), 1.0)
+				m.app.actionQueue <- func() {
+					if m.app.player == nil {
+						return
+					}
+					speaker.Lock()
+					m.app.linearVolume = linearVol
+					if m.app.linearVolume == 0 {
+						m.app.volume = -10
+					} else {
+						m.app.volume = math.Log2(m.app.linearVolume)
+					}
+					m.app.player.volume.Volume = m.app.volume
+					speaker.Unlock()
+				}
 				m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-					"Volume": m.app.linearVolume,
+					"Volume": linearVol,
 				})
 			}
 		case "Rate":
-			if m.player != nil {
-				rate := value.Value().(float64)
-				speaker.Lock()
-				m.player.resampler.SetRatio(rate)
-				speaker.Unlock()
+			if m.app != nil {
+				v, ok := value.Value().(float64)
+				if !ok {
+					return dbus.MakeFailedError(fmt.Errorf("invalid Rate value: %v", value.Value()))
+				}
+				rate := min(max(v, 0.1), 4.0)
+				m.app.actionQueue <- func() {
+					if m.app.player == nil {
+						return
+					}
+					speaker.Lock()
+					m.app.playbackRate = rate
+					m.app.player.resampler.SetRatio(rate)
+					speaker.Unlock()
+				}
 				m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 					"Rate": rate,
 				})
