@@ -341,69 +341,6 @@ func (p *PlayerPage) updateLayoutFlagsWithImage(metrics *LayoutMetrics, imageWid
 	}
 }
 
-// renderAlbumArt renders the album art and returns image dimensions.
-//
-// renderAlbumArt 渲染专辑封面并返回图片尺寸。
-func (p *PlayerPage) renderAlbumArt(coverImg image.Image, layout LayoutType, pos *LayoutPosition) (int, int) {
-	if coverImg == nil || layout == LayoutNothing || layout == LayoutTextOnly {
-		return 0, 0
-	}
-
-	metrics := LayoutMetrics{W: pos.Width, H: pos.Height}
-	pixelW, pixelH := p.calculatePixelSize(&metrics, layout)
-
-	if pixelW < 10 {
-		pixelW = 10
-	}
-	if pixelH < 10 {
-		pixelH = 10
-	}
-
-	normalizedImg := resize.Resize(960, 960, coverImg, resize.Lanczos3)
-	scaledImg := resize.Thumbnail(uint(pixelW), uint(pixelH), normalizedImg, resize.Lanczos3)
-
-	imageWidthInChars := scaledImg.Bounds().Dx() / p.cellW
-	if imageWidthInChars < 1 {
-		imageWidthInChars = 1
-	}
-	imageHeightInChars := scaledImg.Bounds().Dy() / p.cellH
-	if imageHeightInChars < 1 {
-		imageHeightInChars = 1
-	}
-
-	w, h, _ := term.GetSize(int(os.Stdout.Fd()))
-	if imageWidthInChars > w {
-		imageWidthInChars = w
-	}
-	if imageHeightInChars > h {
-		imageHeightInChars = h
-	}
-
-	pos.Width = imageWidthInChars
-	pos.Height = imageHeightInChars
-
-	targetPixelW := imageWidthInChars * p.cellW
-	targetPixelH := imageHeightInChars * p.cellH
-	if targetPixelW > 0 && targetPixelH > 0 {
-		sb := scaledImg.Bounds()
-		if sb.Dx() >= targetPixelW && sb.Dy() >= targetPixelH &&
-			(sb.Dx() != targetPixelW || sb.Dy() != targetPixelH) {
-			offsetX := (sb.Dx() - targetPixelW) / 2
-			offsetY := (sb.Dy() - targetPixelH) / 2
-			aligned := image.NewRGBA(image.Rect(0, 0, targetPixelW, targetPixelH))
-			draw.Draw(aligned, aligned.Bounds(), scaledImg, image.Point{X: offsetX, Y: offsetY}, draw.Src)
-			scaledImg = aligned
-		}
-	}
-
-	fmt.Printf("\x1b[%d;%dH", pos.StartRow, pos.StartCol)
-	if err := RenderImage(scaledImg, imageWidthInChars, imageHeightInChars); err != nil {
-		_ = NewEncoder(os.Stdout).Encode(scaledImg)
-	}
-
-	return imageWidthInChars, imageHeightInChars
-}
-
 // calculatePixelSize calculates the pixel size for image rendering.
 //
 // calculatePixelSize 计算图片渲染的像素尺寸。
@@ -419,23 +356,6 @@ func (p *PlayerPage) calculatePixelSize(metrics *LayoutMetrics, layout LayoutTyp
 	}
 
 	return w * p.cellW, (h - 2) * p.cellH
-}
-
-// clearImageArea clears the area around the rendered image.
-//
-// clearImageArea 清除渲染图片周围的区域。
-func (p *PlayerPage) clearImageArea(pos *LayoutPosition, imageWidth, imageHeight int) {
-	w, h, _ := term.GetSize(int(os.Stdout.Fd()))
-
-	if imageWidth > 0 && pos.StartCol+imageWidth <= w {
-		fillStartCol := pos.StartCol + imageWidth
-		for row := pos.StartRow; row < pos.StartRow+imageHeight; row++ {
-			fmt.Printf("\x1b[%d;%dH\x1b[K", row, fillStartCol)
-		}
-	}
-	if pos.StartRow+imageHeight <= h {
-		fmt.Printf("\x1b[%d;%dH\x1b[J", pos.StartRow+imageHeight, pos.StartCol)
-	}
 }
 
 // renderTextByLayout renders text content based on layout type.
@@ -496,18 +416,9 @@ func (p *PlayerPage) renderWithLayout() {
 
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 
-	coverImg := p.loadCoverImage()
+	coverImg, normImg, coverColorR, coverColorG, coverColorB := p.getCoverData()
 	metrics := p.collectMetrics(w, h)
 	layout := p.determineLayout(&metrics)
-
-	var coverColorR, coverColorG, coverColorB int
-
-	if coverImg != nil {
-		r, g, b := analyzeCoverColor(coverImg)
-		coverColorR, coverColorG, coverColorB = r, g, b
-	} else {
-		coverColorR, coverColorG, coverColorB = 255, 255, 255
-	}
 
 	var imageWidthInChars, imageHeightInChars int
 	var startCol, startRow int
@@ -521,8 +432,7 @@ func (p *PlayerPage) renderWithLayout() {
 			pixelH = 10
 		}
 
-		normalizedImg := resize.Resize(960, 960, coverImg, resize.Lanczos3)
-		scaledImg := resize.Thumbnail(uint(pixelW), uint(pixelH), normalizedImg, resize.Lanczos3)
+		scaledImg := resize.Thumbnail(uint(pixelW), uint(pixelH), normImg, resize.Lanczos3)
 		finalImgW, finalImgH := scaledImg.Bounds().Dx(), scaledImg.Bounds().Dy()
 
 		if p.cellW == 0 {
@@ -634,4 +544,34 @@ func (p *PlayerPage) loadCoverImage() image.Image {
 	}
 
 	return coverImg
+}
+
+// getCoverData returns the cover image, its 960x960 normalized version and
+// the dominant cover color. Results are cached per song path so redraws
+// (terminal resize, layout switch) do not re-decode or re-analyze the cover.
+//
+// getCoverData 返回封面图片、其 960x960 归一化版本以及封面主色调。
+// 结果按歌曲路径缓存，重绘（终端 resize、布局切换）时无需重新解码或分析封面。
+func (p *PlayerPage) getCoverData() (image.Image, image.Image, int, int, int) {
+	if p.coverCacheValid && p.coverCachePath == p.flacPath {
+		return p.coverCacheImg, p.coverCacheNorm, p.coverCacheR, p.coverCacheG, p.coverCacheB
+	}
+
+	coverImg := p.loadCoverImage()
+	var normImg image.Image
+	var r, g, b int
+	if coverImg != nil {
+		r, g, b = analyzeCoverColor(coverImg)
+		normImg = resize.Resize(960, 960, coverImg, resize.Lanczos3)
+	} else {
+		r, g, b = 255, 255, 255
+	}
+
+	p.coverCachePath = p.flacPath
+	p.coverCacheImg = coverImg
+	p.coverCacheNorm = normImg
+	p.coverCacheR, p.coverCacheG, p.coverCacheB = r, g, b
+	p.coverCacheValid = true
+
+	return coverImg, normImg, r, g, b
 }

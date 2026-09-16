@@ -87,8 +87,13 @@ func saveStorageData(data *StorageData) error {
 		return fmt.Errorf("could not encode storage data: %v\n\n无法编码存储数据: %v", err, err)
 	}
 
-	if err := os.WriteFile(storagePath, jsonData, 0644); err != nil {
-		return fmt.Errorf("could not write storage file: %v\n\n无法写入存储文件: %v", err, err)
+	tmpPath := storagePath + ".tmp"
+	if err := os.WriteFile(tmpPath, jsonData, 0644); err != nil {
+		return fmt.Errorf("could not write storage temp file: %v\n\n无法写入存储临时文件: %v", err, err)
+	}
+	if err := os.Rename(tmpPath, storagePath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("could not replace storage file: %v\n\n无法替换存储文件: %v", err, err)
 	}
 
 	return nil

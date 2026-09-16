@@ -31,26 +31,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// min returns the smaller of two values.
-//
-// min 返回两个值中较小的一个。
-func min[T ~int | ~float64](a, b T) T {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// max returns the larger of two values.
-//
-// max 返回两个值中较大的一个。
-func max[T ~int | ~float64](a, b T) T {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 // --- Page Implementation ---
 
 // PlayerPage holds the state for the music player view.
@@ -72,6 +52,16 @@ type PlayerPage struct {
 	overrideLayout                        LayoutType // Override layout (-1=none). / 覆盖布局（-1=无）。
 	lastLayoutSwitchTime                  time.Time  // Debounce for layout switching. / 布局切换防抖。
 	layoutShift                           int        // Vertical shift for layout centering. / 布局居中的垂直偏移。
+
+	// Per-song cover cache: decoded image, 960x960 normalized version and
+	// dominant color, keyed by song path to avoid re-decoding on every redraw.
+	coverCachePath  string
+	coverCacheImg   image.Image
+	coverCacheNorm  image.Image
+	coverCacheR     int
+	coverCacheG     int
+	coverCacheB     int
+	coverCacheValid bool
 
 	// Debounce mechanism for song switching. / 切歌防抖机制。
 	lastSwitchTime time.Time
@@ -436,7 +426,9 @@ func (p *PlayerPage) currentPositionInMicroseconds() int64 {
 	if p.app.player == nil {
 		return 0
 	}
+	speaker.Lock()
 	pos := p.app.player.streamer.Position()
+	speaker.Unlock()
 	return int64(float64(pos) / float64(p.app.player.sampleRate) * 1e6)
 }
 
@@ -448,8 +440,10 @@ func (p *PlayerPage) checkSongEndAndHandleNext() {
 		return
 	}
 
+	speaker.Lock()
 	currentPos := p.app.player.streamer.Position()
 	totalLen := p.app.player.streamer.Len()
+	speaker.Unlock()
 
 	if totalLen > 0 && currentPos >= totalLen-p.app.player.sampleRate.N(time.Second) {
 		if p.app.playMode == 0 {
@@ -520,11 +514,7 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 
 	for {
 		if triedIndices[nextIndex] {
-			if p.app.player != nil {
-				speaker.Lock()
-				p.app.player.ctrl.Paused = true
-				speaker.Unlock()
-			}
+			p.app.stopCurrentPlayback()
 			p.app.setCurrentSong("")
 			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
 				playerPage.UpdateSong("")
@@ -549,11 +539,7 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 		nextIndex = (nextIndex + 1) % len(p.app.Playlist)
 
 		if nextIndex == currentIndex {
-			if p.app.player != nil {
-				speaker.Lock()
-				p.app.player.ctrl.Paused = true
-				speaker.Unlock()
-			}
+			p.app.stopCurrentPlayback()
 			p.app.setCurrentSong("")
 			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
 				playerPage.UpdateSong("")
@@ -617,11 +603,7 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 
 	for {
 		if triedIndices[prevIndex] {
-			if p.app.player != nil {
-				speaker.Lock()
-				p.app.player.ctrl.Paused = true
-				speaker.Unlock()
-			}
+			p.app.stopCurrentPlayback()
 			p.app.setCurrentSong("")
 			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
 				playerPage.UpdateSong("")
@@ -650,11 +632,7 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 		}
 
 		if prevIndex == currentIndex {
-			if p.app.player != nil {
-				speaker.Lock()
-				p.app.player.ctrl.Paused = true
-				speaker.Unlock()
-			}
+			p.app.stopCurrentPlayback()
 			p.app.setCurrentSong("")
 			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
 				playerPage.UpdateSong("")
@@ -814,11 +792,7 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		return nil
 	}
 
-	speaker.Lock()
-	if p.app.player != nil {
-		p.app.player.ctrl.Paused = true
-	}
-	speaker.Unlock()
+	p.app.stopCurrentPlayback()
 
 	streamer, format, err := decodeAudioFile(songPath)
 	if err != nil {
@@ -826,9 +800,12 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 		return fmt.Errorf("Failed to decode audio: %v\n\n解码音频失败: %v", err, err)
 	}
 
-	if err := speaker.ReInit(format.SampleRate, format.SampleRate.N(time.Second/30)); err != nil {
-		streamer.Close()
-		return fmt.Errorf("Failed to reinit speaker: %v\n\n重新初始化扬声器失败: %v", err, err)
+	if p.app.sampleRate != format.SampleRate {
+		if err := speaker.ReInit(format.SampleRate, format.SampleRate.N(time.Second/30)); err != nil {
+			streamer.Close()
+			return fmt.Errorf("Failed to reinit speaker: %v\n\n重新初始化扬声器失败: %v", err, err)
+		}
+		p.app.sampleRate = format.SampleRate
 	}
 
 	audioStream := streamer
@@ -913,15 +890,13 @@ func (p *PlayerPage) playNextInRandomMode() {
 
 type audioPlayer struct {
 	sampleRate beep.SampleRate
-	streamer   beep.StreamSeeker
+	streamer   beep.StreamSeekCloser
 	ctrl       *beep.Ctrl
 	resampler  *beep.Resampler
 	volume     *effects.Volume
-	position   int
-	initialVol float64
 }
 
-func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format, volumeLevel float64, playbackRate float64) (*audioPlayer, error) {
+func newAudioPlayer(streamer beep.StreamSeekCloser, format beep.Format, volumeLevel float64, playbackRate float64) (*audioPlayer, error) {
 	loopStreamer, err := beep.Loop2(streamer)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create loop streamer: %v\n\n创建循环流失败: %v", err, err)
@@ -931,7 +906,7 @@ func newAudioPlayer(streamer beep.StreamSeeker, format beep.Format, volumeLevel 
 	volume := &effects.Volume{Streamer: resampler, Base: 2}
 	volume.Volume = volumeLevel
 	resampler.SetRatio(playbackRate)
-	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume, 0, 0}, nil
+	return &audioPlayer{format.SampleRate, streamer, ctrl, resampler, volume}, nil
 }
 
 // saveCoverArt extracts the cover art from an audio file and saves it to a temporary file.
@@ -964,12 +939,38 @@ func saveCoverArt(audioPath string) string {
 	}
 	defer tempFile.Close()
 
-	err = png.Encode(tempFile, coverImg)
-	if err != nil {
+	if err := png.Encode(tempFile, coverImg); err != nil {
+		os.Remove(tempFile.Name())
 		return ""
 	}
 
+	trackTempCoverFile(tempFile.Name())
 	return tempFile.Name()
+}
+
+// tempCoverFiles tracks temporary cover files created at runtime so they can
+// be removed on exit.
+//
+// tempCoverFiles 记录运行时创建的临时封面文件，以便退出时删除。
+var tempCoverFiles []string
+
+// trackTempCoverFile registers a temporary cover file for cleanup on exit.
+//
+// trackTempCoverFile 登记临时封面文件，在退出时统一清理。
+func trackTempCoverFile(path string) {
+	tempCoverFiles = append(tempCoverFiles, path)
+}
+
+// cleanupTempCoverFiles removes all tracked temporary cover files.
+//
+// cleanupTempCoverFiles 删除所有已登记的临时封面文件。
+func cleanupTempCoverFiles() {
+	for _, path := range tempCoverFiles {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			l.Warnf("could not remove temp cover file: %v\n\n警告: 无法删除临时封面文件: %v", err, err)
+		}
+	}
+	tempCoverFiles = nil
 }
 
 // --- TUI / Drawing ---
@@ -1280,8 +1281,12 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 		}
 	}
 
+	speaker.Lock()
 	currentPos := p.app.player.streamer.Position()
 	totalLen := p.app.player.streamer.Len()
+	paused := p.app.player.ctrl.Paused
+	speaker.Unlock()
+
 	progress := 0.0
 	if totalLen > 0 {
 		progress = float64(currentPos) / float64(totalLen)
@@ -1295,7 +1300,7 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 	icons := GlobalConfig.ActiveIcons
 
 	icon := icons.Pause
-	if p.app.player.ctrl.Paused {
+	if paused {
 		icon = icons.Play
 	}
 
@@ -1366,7 +1371,11 @@ func parseMetadataFromFilename(filePath string) (title, artist, album string) {
 }
 
 func getCellSize() (width, height int, err error) {
-	// This function remains unchanged.
+	if err := os.Stdin.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		return 0, 0, fmt.Errorf("stdin does not support read deadlines: %w", err)
+	}
+	defer os.Stdin.SetReadDeadline(time.Time{})
+
 	fmt.Print("\x1b[16t")
 	var buf []byte
 	var b [1]byte

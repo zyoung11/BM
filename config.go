@@ -285,9 +285,6 @@ func LoadConfig() error {
 	return validateKeymap(GlobalConfig.Keymap)
 }
 
-// validateKeymap checks for duplicate or invalid keybindings.
-//
-// validateKeymap 检查重复或无效的按键绑定。
 // updateConfigFile checks for missing keys in the config file and adds defaults.
 //
 // updateConfigFile 检查配置文件中是否有缺失的键，并添加默认值。
@@ -374,6 +371,9 @@ func updateConfigFile(configPath string) error {
 	return nil
 }
 
+// validateKeymap checks for duplicate or invalid keybindings.
+//
+// validateKeymap 检查重复或无效的按键绑定。
 func validateKeymap(keymap Keymap) error {
 	pages := []any{keymap.Global, keymap.Player, keymap.Library, keymap.Playlist}
 	pageNames := []string{"Global", "Player", "Library", "Playlist"}

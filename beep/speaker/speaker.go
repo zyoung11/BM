@@ -80,7 +80,9 @@ var reInitMu sync.Mutex
 // yet initialized, this is equivalent to Init. Currently only supported on
 // Linux (PulseAudio backend).
 //
-// ReInit is concurrent-safe.
+// The old player is closed only after the stream switch succeeded, so a
+// failed SetSampleRate restores the previous player and playback continues
+// at the old rate. ReInit is concurrent-safe.
 func ReInit(sampleRate beep.SampleRate, bufferSize int) error {
 	reInitMu.Lock()
 	defer reInitMu.Unlock()
@@ -95,15 +97,19 @@ func ReInit(sampleRate beep.SampleRate, bufferSize int) error {
 	player = nil
 	mu.Unlock()
 
+	playerBufferSize := bufferSize / 2
+
+	if err := context.SetSampleRate(int(sampleRate)); err != nil {
+		mu.Lock()
+		player = oldPlayer
+		mu.Unlock()
+		return errors.Wrap(err, "failed to reinitialize speaker sample rate")
+	}
+
 	if oldPlayer != nil {
 		oldPlayer.Close()
 	}
 
-	if err := context.SetSampleRate(int(sampleRate)); err != nil {
-		return errors.Wrap(err, "failed to reinitialize speaker sample rate")
-	}
-
-	playerBufferSize := bufferSize / 2
 	newPlayer := context.NewPlayer(newReaderFromStreamer(&mixer))
 	newPlayer.SetBufferSize(playerBufferSize * bytesPerSample)
 	newPlayer.Play()

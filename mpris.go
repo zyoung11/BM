@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dhowden/tag"
@@ -32,6 +33,13 @@ type MPRISServer struct {
 
 	stopChan chan struct{} // Channel to signal goroutines to stop. / 用于通知 goroutine 停止的通道。
 	stopped  bool          // Whether the server has been stopped. / 服务器是否已停止。
+
+	// Guards isPlaying, position, startTime, lastUpdate, metadata and stopped,
+	// which are accessed from D-Bus handler goroutines and the update loop.
+	//
+	// 保护 isPlaying、position、startTime、lastUpdate、metadata 和 stopped，
+	// 这些字段会被 D-Bus 处理 goroutine 和更新循环并发访问。
+	mu sync.Mutex
 }
 
 // NewMPRISServer creates a new MPRIS server instance.
@@ -107,10 +115,13 @@ func (m *MPRISServer) Start() error {
 //
 // StopService 停止 MPRIS 服务。
 func (m *MPRISServer) StopService() {
+	m.mu.Lock()
 	if m.stopped {
+		m.mu.Unlock()
 		return
 	}
 	m.stopped = true
+	m.mu.Unlock()
 
 	// Signal goroutines to stop
 	close(m.stopChan)
@@ -131,13 +142,16 @@ func (m *MPRISServer) StopService() {
 //
 // UpdatePlaybackStatus 更新播放状态。
 func (m *MPRISServer) UpdatePlaybackStatus(playing bool) {
+	m.mu.Lock()
 	if playing && !m.isPlaying {
 		m.startTime = time.Now().Add(-time.Duration(m.position) * time.Microsecond)
 	} else if !playing && m.isPlaying {
-		m.updatePositionFromTime()
+		m.updatePositionFromTimeLocked()
 	}
 	m.isPlaying = playing
 	m.lastUpdate = time.Now()
+	m.mu.Unlock()
+
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 		"PlaybackStatus": m.getPlaybackStatus(),
 	})
@@ -147,17 +161,21 @@ func (m *MPRISServer) UpdatePlaybackStatus(playing bool) {
 //
 // UpdatePosition 更新播放位置。
 func (m *MPRISServer) UpdatePosition(pos int64) {
+	m.mu.Lock()
 	m.position = pos
 	m.lastUpdate = time.Now()
+	m.mu.Unlock()
+
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-		"Position": m.position,
+		"Position": pos,
 	})
 }
 
-// updatePositionFromTime updates the position based on elapsed time.
+// updatePositionFromTimeLocked updates the position based on elapsed time.
+// The caller must hold m.mu.
 //
-// updatePositionFromTime 根据经过的时间更新位置。
-func (m *MPRISServer) updatePositionFromTime() {
+// updatePositionFromTimeLocked 根据经过的时间更新位置。调用方必须持有 m.mu。
+func (m *MPRISServer) updatePositionFromTimeLocked() {
 	if !m.isPlaying || m.startTime.IsZero() {
 		return
 	}
@@ -180,8 +198,10 @@ func (m *MPRISServer) updatePositionFromTime() {
 //
 // getCurrentPosition 获取当前位置（以微秒为单位）。
 func (m *MPRISServer) getCurrentPosition() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.isPlaying && !m.startTime.IsZero() {
-		m.updatePositionFromTime()
+		m.updatePositionFromTimeLocked()
 	}
 	return m.position
 }
@@ -200,8 +220,12 @@ func (m *MPRISServer) getLoopStatus() string {
 // UpdateMetadata 更新元数据。
 func (m *MPRISServer) UpdateMetadata() {
 	m.updateMetadata()
+	m.mu.Lock()
+	metadata := m.metadata
+	m.mu.Unlock()
+
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-		"Metadata": m.metadata,
+		"Metadata": metadata,
 	})
 }
 
@@ -209,7 +233,10 @@ func (m *MPRISServer) UpdateMetadata() {
 //
 // UpdateProperties 发送 CanGoNext 和 CanGoPrevious 的 PropertiesChanged 信号。
 func (m *MPRISServer) UpdateProperties() {
-	if m.conn == nil || m.stopped {
+	m.mu.Lock()
+	stopped := m.stopped
+	m.mu.Unlock()
+	if m.conn == nil || stopped {
 		return
 	}
 	changedProperties := map[string]any{
@@ -226,7 +253,9 @@ func (m *MPRISServer) UpdateProperties() {
 //
 // Quit 退出播放器。
 func (m *MPRISServer) Quit() *dbus.Error {
-	os.Exit(0)
+	if m.app != nil {
+		m.app.Quit()
+	}
 	return nil
 }
 
@@ -313,9 +342,14 @@ func (m *MPRISServer) Previous() *dbus.Error {
 //
 // Pause 暂停播放。
 func (m *MPRISServer) Pause() *dbus.Error {
-	if m.player != nil && !m.player.ctrl.Paused {
+	if m.player != nil {
+		speaker.Lock()
+		wasPlaying := !m.player.ctrl.Paused
 		m.player.ctrl.Paused = true
-		m.UpdatePlaybackStatus(false)
+		speaker.Unlock()
+		if wasPlaying {
+			m.UpdatePlaybackStatus(false)
+		}
 	}
 	return nil
 }
@@ -325,8 +359,11 @@ func (m *MPRISServer) Pause() *dbus.Error {
 // PlayPause 切换播放和暂停。
 func (m *MPRISServer) PlayPause() *dbus.Error {
 	if m.player != nil {
+		speaker.Lock()
 		m.player.ctrl.Paused = !m.player.ctrl.Paused
-		m.UpdatePlaybackStatus(!m.player.ctrl.Paused)
+		playing := !m.player.ctrl.Paused
+		speaker.Unlock()
+		m.UpdatePlaybackStatus(playing)
 	}
 	return nil
 }
@@ -336,7 +373,9 @@ func (m *MPRISServer) PlayPause() *dbus.Error {
 // Stop 停止播放。
 func (m *MPRISServer) Stop() *dbus.Error {
 	if m.player != nil {
+		speaker.Lock()
 		m.player.ctrl.Paused = true
+		speaker.Unlock()
 		m.UpdatePlaybackStatus(false)
 	}
 	return nil
@@ -346,9 +385,14 @@ func (m *MPRISServer) Stop() *dbus.Error {
 //
 // Play 开始或恢复播放。
 func (m *MPRISServer) Play() *dbus.Error {
-	if m.player != nil && m.player.ctrl.Paused {
+	if m.player != nil {
+		speaker.Lock()
+		wasPaused := m.player.ctrl.Paused
 		m.player.ctrl.Paused = false
-		m.UpdatePlaybackStatus(true)
+		speaker.Unlock()
+		if wasPaused {
+			m.UpdatePlaybackStatus(true)
+		}
 	}
 	return nil
 }
@@ -357,23 +401,23 @@ func (m *MPRISServer) Play() *dbus.Error {
 //
 // Seek 按给定的偏移量（微秒）在曲目中跳转。
 func (m *MPRISServer) Seek(offset int64) (int64, *dbus.Error) {
-	currentPos := m.getCurrentPosition()
-	newPos := currentPos + offset
-	if newPos < 0 {
-		newPos = 0
+	m.mu.Lock()
+	currentPos := m.position
+	if m.isPlaying && !m.startTime.IsZero() {
+		m.updatePositionFromTimeLocked()
+		currentPos = m.position
 	}
-	if newPos >= m.duration {
-		newPos = m.duration - 1
-	}
-
+	newPos := min(max(currentPos+offset, 0), m.duration-1)
 	m.position = newPos
 	if m.isPlaying {
 		m.startTime = time.Now().Add(-time.Duration(newPos) * time.Microsecond)
 	}
 	m.lastUpdate = time.Now()
+	pos := newPos
+	m.mu.Unlock()
 
 	if m.player != nil && m.player.streamer != nil {
-		samplePos := int(float64(newPos) / 1e6 * float64(m.player.sampleRate))
+		samplePos := int(float64(pos) / 1e6 * float64(m.player.sampleRate))
 		speaker.Lock()
 		if err := m.player.streamer.Seek(samplePos); err != nil {
 			// Ignore seek errors
@@ -382,30 +426,29 @@ func (m *MPRISServer) Seek(offset int64) (int64, *dbus.Error) {
 	}
 
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-		"Position": m.position,
+		"Position": pos,
 	})
-	return newPos, nil
+	return pos, nil
 }
 
 // SetPosition sets the track's position in microseconds.
 //
 // SetPosition 设置曲目的位置（微秒）。
 func (m *MPRISServer) SetPosition(trackID dbus.ObjectPath, position int64) *dbus.Error {
-	if position < 0 {
-		position = 0
-	}
-	if position >= m.duration {
-		position = m.duration - 1
-	}
+	position = max(position, 0)
 
+	m.mu.Lock()
+	position = min(position, m.duration-1)
 	m.position = position
 	if m.isPlaying {
 		m.startTime = time.Now().Add(-time.Duration(position) * time.Microsecond)
 	}
 	m.lastUpdate = time.Now()
+	pos := m.position
+	m.mu.Unlock()
 
 	if m.player != nil && m.player.streamer != nil {
-		samplePos := int(float64(position) / 1e6 * float64(m.player.sampleRate))
+		samplePos := int(float64(pos) / 1e6 * float64(m.player.sampleRate))
 		speaker.Lock()
 		if err := m.player.streamer.Seek(samplePos); err != nil {
 			// Ignore seek errors
@@ -414,7 +457,7 @@ func (m *MPRISServer) SetPosition(trackID dbus.ObjectPath, position int64) *dbus
 	}
 
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-		"Position": m.position,
+		"Position": pos,
 	})
 	return nil
 }
@@ -459,16 +502,25 @@ func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *db
 			return dbus.MakeVariant("None"), nil
 		case "Rate":
 			if m.player != nil {
-				return dbus.MakeVariant(m.player.resampler.Ratio()), nil
+				speaker.Lock()
+				ratio := m.player.resampler.Ratio()
+				speaker.Unlock()
+				return dbus.MakeVariant(ratio), nil
 			}
 			return dbus.MakeVariant(1.0), nil
 		case "Shuffle":
 			return dbus.MakeVariant(false), nil
 		case "Metadata":
-			return dbus.MakeVariant(m.metadata), nil
+			m.mu.Lock()
+			metadata := m.metadata
+			m.mu.Unlock()
+			return dbus.MakeVariant(metadata), nil
 		case "Volume":
 			if m.app != nil {
-				return dbus.MakeVariant(m.app.linearVolume), nil
+				speaker.Lock()
+				linearVolume := m.app.linearVolume
+				speaker.Unlock()
+				return dbus.MakeVariant(linearVolume), nil
 			}
 			return dbus.MakeVariant(1.0), nil
 		case "Position":
@@ -516,9 +568,15 @@ func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *db
 		props["PlaybackStatus"] = dbus.MakeVariant(m.getPlaybackStatus())
 		props["LoopStatus"] = dbus.MakeVariant(m.getLoopStatus())
 		if m.player != nil {
-			props["Rate"] = dbus.MakeVariant(m.player.resampler.Ratio())
+			speaker.Lock()
+			ratio := m.player.resampler.Ratio()
+			speaker.Unlock()
+			props["Rate"] = dbus.MakeVariant(ratio)
 			if m.app != nil {
-				props["Volume"] = dbus.MakeVariant(m.app.linearVolume)
+				speaker.Lock()
+				linearVolume := m.app.linearVolume
+				speaker.Unlock()
+				props["Volume"] = dbus.MakeVariant(linearVolume)
 			} else {
 				props["Volume"] = dbus.MakeVariant(1.0)
 			}
@@ -530,7 +588,10 @@ func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *db
 		}
 
 		props["Shuffle"] = dbus.MakeVariant(false)
-		props["Metadata"] = dbus.MakeVariant(m.metadata)
+		m.mu.Lock()
+		metadata := m.metadata
+		m.mu.Unlock()
+		props["Metadata"] = dbus.MakeVariant(metadata)
 		props["MinimumRate"] = dbus.MakeVariant(0.1)
 		props["MaximumRate"] = dbus.MakeVariant(4.0)
 		props["CanGoNext"] = dbus.MakeVariant(m.app != nil && len(m.app.Playlist) > 1)
@@ -555,6 +616,7 @@ func (m *MPRISServer) Set(interfaceName, propertyName string, value dbus.Variant
 		case "Volume":
 			if m.player != nil && m.app != nil {
 				linearVol := value.Value().(float64)
+				speaker.Lock()
 				m.app.linearVolume = min(max(linearVol, 0.0), 1.0)
 				if m.app.linearVolume == 0 {
 					m.app.volume = -10
@@ -562,6 +624,7 @@ func (m *MPRISServer) Set(interfaceName, propertyName string, value dbus.Variant
 					m.app.volume = math.Log2(m.app.linearVolume)
 				}
 				m.player.volume.Volume = m.app.volume
+				speaker.Unlock()
 				m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 					"Volume": m.app.linearVolume,
 				})
@@ -569,7 +632,9 @@ func (m *MPRISServer) Set(interfaceName, propertyName string, value dbus.Variant
 		case "Rate":
 			if m.player != nil {
 				rate := value.Value().(float64)
+				speaker.Lock()
 				m.player.resampler.SetRatio(rate)
+				speaker.Unlock()
 				m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 					"Rate": rate,
 				})
@@ -596,7 +661,10 @@ func (m *MPRISServer) getPlaybackStatus() string {
 	if m.player == nil {
 		return "Stopped"
 	}
-	if m.player.ctrl.Paused {
+	speaker.Lock()
+	paused := m.player.ctrl.Paused
+	speaker.Unlock()
+	if paused {
 		return "Paused"
 	}
 	return "Playing"
@@ -607,6 +675,9 @@ func (m *MPRISServer) getPlaybackStatus() string {
 // updateMetadata 更新曲目元数据。
 func (m *MPRISServer) updateMetadata() {
 	title, artist, album := getSongMetadata(m.flacPath)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	m.metadata = map[string]dbus.Variant{
 		"mpris:trackid": dbus.MakeVariant(dbus.ObjectPath("/org/mpris/MediaPlayer2/TrackList/NoTrack")),
@@ -705,6 +776,7 @@ func (m *MPRISServer) encodePictureToBase64(pic *tag.Picture) string {
 		return ""
 	}
 
+	trackTempCoverFile(tempFile.Name())
 	return "file://" + tempFile.Name()
 }
 
@@ -712,7 +784,10 @@ func (m *MPRISServer) encodePictureToBase64(pic *tag.Picture) string {
 //
 // sendPropertiesChanged 发送 PropertiesChanged 信号。
 func (m *MPRISServer) sendPropertiesChanged(interfaceName string, changedProperties map[string]any) {
-	if m.conn == nil || m.stopped {
+	m.mu.Lock()
+	stopped := m.stopped
+	m.mu.Unlock()
+	if m.conn == nil || stopped {
 		return
 	}
 
@@ -754,19 +829,28 @@ func (m *MPRISServer) StartUpdateLoop() {
 			case <-m.stopChan:
 				return
 			case <-ticker.C:
-				if m.stopped {
+				m.mu.Lock()
+				stopped := m.stopped
+				m.mu.Unlock()
+				if stopped {
 					return
 				}
-				if m.isPlaying && !m.startTime.IsZero() {
-					m.updatePositionFromTime()
-				} else if m.player != nil && m.player.streamer != nil {
-					samplePos := m.player.streamer.Position()
-					m.position = int64(float64(samplePos) / float64(m.player.sampleRate) * 1e6)
-				}
 
-				m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-					"Position": m.position,
-				})
+				if m.player != nil && m.player.streamer != nil {
+					speaker.Lock()
+					samplePos := m.player.streamer.Position()
+					speaker.Unlock()
+
+					m.mu.Lock()
+					m.position = int64(float64(samplePos) / float64(m.player.sampleRate) * 1e6)
+					m.lastUpdate = time.Now()
+					pos := m.position
+					m.mu.Unlock()
+
+					m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+						"Position": pos,
+					})
+				}
 			}
 		}
 	}()

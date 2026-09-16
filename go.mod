@@ -26,4 +26,3 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 )
 
-replace github.com/blacktop/go-termimg => ./kitty_test/go-termimg

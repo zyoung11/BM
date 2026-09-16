@@ -84,6 +84,7 @@ type App struct {
 	linearVolume     float64     // 0.0 to 1.0 linear volume for display. / 用于显示的线性音量（0.0到1.0）。
 	playbackRate     float64     // Saved playback rate setting. / 保存的播放速度设置。
 	actionQueue      chan func() // Action queue for thread-safe UI updates. / 用于线程安全UI更新的操作队列。
+	quitChan         chan struct{} // Closed to request a graceful exit from Run. / 关闭以请求 Run 优雅退出。
 	sampleRate       beep.SampleRate
 
 	// Play history. / 播放历史记录。
@@ -130,6 +131,40 @@ func (a *App) switchToPage(index int) {
 	}
 }
 
+// stopCurrentPlayback drains and closes the current playback chain. Setting
+// Ctrl.Streamer to nil makes the mixer drop the chain on its next pull, and
+// closing the decoder releases its file handle.
+//
+// stopCurrentPlayback 排干并关闭当前播放链。将 Ctrl.Streamer 置 nil 会让混音器
+// 在下一次拉取时移除该链，关闭解码器则释放其文件句柄。
+func (a *App) stopCurrentPlayback() {
+	if a.player == nil {
+		return
+	}
+	speaker.Lock()
+	a.player.ctrl.Streamer = nil
+	a.player.ctrl.Paused = true
+	streamer := a.player.streamer
+	speaker.Unlock()
+	if streamer != nil {
+		streamer.Close()
+	}
+}
+
+// Quit requests a graceful exit of the Run loop. Safe to call from any
+// goroutine (e.g. the D-Bus MPRIS handler).
+//
+// Quit 请求 Run 循环优雅退出。可从任意 goroutine 调用（例如 D-Bus MPRIS 处理器）。
+func (a *App) Quit() {
+	a.actionQueue <- func() {
+		select {
+		case <-a.quitChan:
+		default:
+			close(a.quitChan)
+		}
+	}
+}
+
 // PlaySong plays the specified song file.
 //
 // PlaySong 播放指定的歌曲文件。
@@ -159,11 +194,7 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 
 	// Stop current playback.
 	// 停止当前播放。
-	speaker.Lock()
-	if a.player != nil {
-		a.player.ctrl.Paused = true
-	}
-	speaker.Unlock()
+	a.stopCurrentPlayback()
 
 	streamer, format, err := decodeAudioFile(songPath)
 	if err != nil {
@@ -176,9 +207,12 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 		playerPage = page
 	}
 
-	if err := speaker.ReInit(format.SampleRate, format.SampleRate.N(time.Second/30)); err != nil {
-		streamer.Close()
-		return fmt.Errorf("Failed to reinit speaker: %v\n\n重新初始化扬声器失败: %v", err, err)
+	if a.sampleRate != format.SampleRate {
+		if err := speaker.ReInit(format.SampleRate, format.SampleRate.N(time.Second/30)); err != nil {
+			streamer.Close()
+			return fmt.Errorf("Failed to reinit speaker: %v\n\n重新初始化扬声器失败: %v", err, err)
+		}
+		a.sampleRate = format.SampleRate
 	}
 
 	audioStream := streamer
@@ -621,6 +655,12 @@ func (a *App) Run() error {
 				return err
 			}
 
+		case <-a.quitChan:
+			if a.switchedToRandom {
+				a.recordCurrentSongToHistory()
+			}
+			return nil
+
 		case <-ticker.C:
 			currentPage.Tick()
 		}
@@ -654,6 +694,8 @@ func isInSearchMode(page Page) bool {
 }
 
 func main() {
+	defer cleanupTempCoverFiles()
+
 	if os.Getenv("TMUX") != "" || os.Getenv("ZELLIJ") != "" {
 		l.Fatalf("BM does not support running inside tmux or zellij\n\nBM 不支持在tmux或zellij里运行")
 	}
@@ -769,7 +811,8 @@ func runApplication(dirPath string) error {
 
 	cellW, cellH, err := getCellSize()
 	if err != nil {
-		return fmt.Errorf("Unable to get terminal cell size: %v\n\n无法获取终端单元格尺寸: %v", err, err)
+		l.Warnf("Unable to get terminal cell size, using default: %v\n\n警告: 无法获取终端单元格尺寸，使用默认值: %v", err, err)
+		cellW, cellH = 10, 20
 	}
 
 	sampleRate := beep.SampleRate(44100)
@@ -810,6 +853,7 @@ func runApplication(dirPath string) error {
 		corruptedFiles:      make(map[string]bool),
 		isSingleSongMode:    false,
 		switchedToRandom:    false,
+		quitChan:            make(chan struct{}),
 	}
 
 	if GlobalConfig.App.DefaultPage == 3 {
@@ -854,6 +898,10 @@ func runApplication(dirPath string) error {
 	playListPage := NewPlayList(app)
 	libraryPage := NewLibraryWithPath(app, dirPath)
 	app.pages = []Page{playerPage, playListPage, libraryPage}
+
+	if app.currentPageIndex < 0 || app.currentPageIndex >= len(app.pages) {
+		app.currentPageIndex = 0
+	}
 
 	if GlobalConfig.App.AutostartLastPlayed {
 		currentSong, err := LoadCurrentSong(dirPath)
@@ -911,7 +959,8 @@ func runSingleSong(songPath string) error {
 
 	cellW, cellH, err := getCellSize()
 	if err != nil {
-		return fmt.Errorf("Unable to get terminal cell size: %v\n\n无法获取终端单元格尺寸: %v", err, err)
+		l.Warnf("Unable to get terminal cell size, using default: %v\n\n警告: 无法获取终端单元格尺寸，使用默认值: %v", err, err)
+		cellW, cellH = 10, 20
 	}
 
 	sampleRate := beep.SampleRate(44100)
@@ -934,6 +983,7 @@ func runSingleSong(songPath string) error {
 		isNavigatingHistory: false,
 		corruptedFiles:      make(map[string]bool),
 		isSingleSongMode:    true,
+		quitChan:            make(chan struct{}),
 	}
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH, -1)
