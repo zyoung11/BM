@@ -78,16 +78,25 @@ type App struct {
 	mprisServer      *MPRISServer
 	pages            []Page
 	currentPageIndex int
-	Playlist         []string
-	LibraryPath      string        // Root path of the music library. / 音乐库的根路径。
-	currentSongPath  string        // Path of the currently playing song. / 当前播放歌曲的路径。
-	playMode         int           // Play mode: 0=repeat one, 1=repeat all, 2=random. / 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放。
-	volume           float64       // Saved volume setting. / 保存的音量设置。
-	linearVolume     float64       // 0.0 to 1.0 linear volume for display. / 用于显示的线性音量（0.0到1.0）。
-	playbackRate     float64       // Saved playback rate setting. / 保存的播放速度设置。
-	actionQueue      chan func()   // Action queue for thread-safe UI updates. / 用于线程安全UI更新的操作队列。
-	quitChan         chan struct{} // Closed to request a graceful exit from Run. / 关闭以请求 Run 优雅退出。
-	sampleRate       beep.SampleRate
+
+	// Playlist is owned by the main thread; the only writer is setPlaylist,
+	// which republishes derived metadata for cross-goroutine readers (MPRIS).
+	// Other goroutines must use PlaylistLen, never this field.
+	//
+	// Playlist 由主线程独占；唯一写入方是 setPlaylist，它同时为跨 goroutine
+	// 读取方（MPRIS）重新发布派生元数据。其他 goroutine 必须使用 PlaylistLen，
+	// 不得直接读取本字段。
+	Playlist        []string
+	playlistLen     atomic.Int64
+	LibraryPath     string        // Root path of the music library. / 音乐库的根路径。
+	currentSongPath string        // Path of the currently playing song. / 当前播放歌曲的路径。
+	playMode        int           // Play mode: 0=repeat one, 1=repeat all, 2=random. / 播放模式: 0=单曲循环, 1=列表循环, 2=随机播放。
+	volume          float64       // Saved volume setting. / 保存的音量设置。
+	linearVolume    float64       // 0.0 to 1.0 linear volume for display. / 用于显示的线性音量（0.0到1.0）。
+	playbackRate    float64       // Saved playback rate setting. / 保存的播放速度设置。
+	actionQueue     chan func()   // Action queue for thread-safe UI updates. / 用于线程安全UI更新的操作队列。
+	quitChan        chan struct{} // Closed to request a graceful exit from Run. / 关闭以请求 Run 优雅退出。
+	sampleRate      beep.SampleRate
 
 	// Play history. / 播放历史记录。
 	playHistory         []string // Stores up to 100 played songs. / 存储最多100首播放过的歌曲。
@@ -172,6 +181,31 @@ func (a *App) stopCurrentPlayback() {
 	if pending != nil {
 		pending.decoder.Close()
 	}
+}
+
+// setPlaylist replaces the playlist and republishes its length for
+// cross-goroutine readers. It is the only allowed writer of App.Playlist.
+// When CanGoNext/CanGoPrevious flip, a PropertiesChanged signal is emitted.
+//
+// setPlaylist 替换播放列表并为跨 goroutine 读取方重新发布长度。它是
+// App.Playlist 唯一允许的写入方。CanGoNext/CanGoPrevious 翻转时发送
+// PropertiesChanged 信号。
+func (a *App) setPlaylist(pl []string) {
+	old := a.playlistLen.Load()
+	a.Playlist = pl
+	a.playlistLen.Store(int64(len(pl)))
+	if a.mprisServer != nil && (old > 1) != (int64(len(pl)) > 1) {
+		a.mprisServer.UpdateProperties()
+	}
+}
+
+// PlaylistLen returns the current playlist length. Safe to call from any
+// goroutine; the value is published by the main thread on every mutation.
+//
+// PlaylistLen 返回当前播放列表长度。可从任意 goroutine 安全调用；
+// 该值由主线程在每次变更时发布。
+func (a *App) PlaylistLen() int {
+	return int(a.playlistLen.Load())
 }
 
 // Quit requests a graceful exit of the Run loop. Safe to call from any
@@ -886,6 +920,7 @@ func runApplication(dirPath string) error {
 		switchedToRandom:    false,
 		quitChan:            make(chan struct{}),
 	}
+	app.setPlaylist(playlist)
 
 	if GlobalConfig.App.DefaultPage == 3 {
 		savedPage, err := LoadPage()
@@ -1016,6 +1051,7 @@ func runSingleSong(songPath string) error {
 		isSingleSongMode:    true,
 		quitChan:            make(chan struct{}),
 	}
+	app.setPlaylist([]string{absPath})
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH, -1)
 	app.pages = []Page{playerPage}

@@ -43,8 +43,8 @@ type Library struct {
 	lastEntered       string          // Store the name of the last entered directory. / 存储最后进入的目录的名称。
 	isSearching       bool
 	searchQuery       string
-	globalFileCache   []string        // Cache of all audio file paths. / 所有音频文件路径的缓存。
-	filteredSongPaths []string        // Results of the current search. / 当前搜索的结果。
+	globalFileCache   []string // Cache of all audio file paths. / 所有音频文件路径的缓存。
+	filteredSongPaths []string // Results of the current search. / 当前搜索的结果。
 	searchEngine      *search.Engine
 	searchDirCount    int             // Number of dirs in filtered results, for separator. / 筛选结果中目录数量，用于分割线。
 	dirSelectionCache map[string]bool // Cache for directory partial selection state. / 目录部分选择状态的缓存。
@@ -613,15 +613,10 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 
 		// 清空播放列表
 		oldPlaylist := p.app.Playlist
-		p.app.Playlist = []string{}
+		p.app.setPlaylist([]string{})
 
 		// 清空选择状态（播放列表已清空，其他目录的选中状态一并清除）
 		p.selected = make(map[string]bool)
-
-		// 更新MPRIS
-		if p.app.mprisServer != nil {
-			p.app.mprisServer.UpdateProperties()
-		}
 
 		// 清空当前播放状态
 		p.app.setCurrentSong("")
@@ -667,7 +662,7 @@ func (p *Library) toggleSelection(path string) {
 		p.selected[path] = true
 		found := slices.Contains(p.app.Playlist, path)
 		if !found {
-			p.app.Playlist = append(p.app.Playlist, path)
+			p.app.setPlaylist(append(p.app.Playlist, path))
 			if len(p.app.Playlist) == 1 {
 				p.app.PlaySongWithSwitchAndRender(path, false, false)
 			}
@@ -701,10 +696,7 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 				p.lastRemoveTime = currentTime
 			}
 
-			p.app.Playlist = append(p.app.Playlist[:i], p.app.Playlist[i+1:]...)
-			if p.app.mprisServer != nil {
-				p.app.mprisServer.UpdateProperties()
-			}
+			p.app.setPlaylist(append(p.app.Playlist[:i], p.app.Playlist[i+1:]...))
 
 			p.app.removeFromPlayHistory(songPath)
 
