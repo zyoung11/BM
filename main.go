@@ -874,9 +874,8 @@ func runApplication(dirPath string) error {
 		return fmt.Errorf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
 	}
 
-	cellW, cellH, err := getCellSize()
-	if err != nil {
-		l.Warnf("Unable to get terminal cell size, using default: %v\n\n警告: 无法获取终端单元格尺寸，使用默认值: %v", err, err)
+	cellW, cellH, _ := getCellSize()
+	if cellW <= 0 || cellH <= 0 {
 		cellW, cellH = 10, 20
 	}
 
@@ -1023,9 +1022,8 @@ func runSingleSong(songPath string) error {
 		return fmt.Errorf("Failed to load minimal config: %v\n\n加载最小配置失败: %v", err, err)
 	}
 
-	cellW, cellH, err := getCellSize()
-	if err != nil {
-		l.Warnf("Unable to get terminal cell size, using default: %v\n\n警告: 无法获取终端单元格尺寸，使用默认值: %v", err, err)
+	cellW, cellH, _ := getCellSize()
+	if cellW <= 0 || cellH <= 0 {
 		cellW, cellH = 10, 20
 	}
 

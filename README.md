@@ -15,6 +15,7 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 - **Volume control**: Logarithmic volume curve with fine adjustment
 - **Speed control**: 0.1x to 4.0x playback speed control
 - **Dynamic sample rate**: Automatically switches speaker sample rate per song, no resampling needed
+- **Gapless playback**: The next song is pre-decoded in the background and stitched at the decoder level
 
 ### Terminal Interface
 
@@ -147,7 +148,7 @@ You can use [FNE](https://github.com/zyoung11/FNE) another tool I made to decryp
 | `H` / `A` / `←` | Exit directory |
 | `Space` | Toggle selection of current item |
 | `E` | Toggle selection of all items |
-| `F` | Enter search mode |
+| `F` / `/` | Enter search mode |
 
 #### Playlist Page
 | Key | Function |
@@ -156,7 +157,7 @@ You can use [FNE](https://github.com/zyoung11/FNE) another tool I made to decryp
 | `J` / `S` / `↓` | Navigate down |
 | `Space` | Remove song from playlist |
 | `Enter` | Play selected song |
-| `F` | Enter search mode |
+| `F` / `/` | Enter search mode |
 
 #### Search Mode
 | Key | Function |
