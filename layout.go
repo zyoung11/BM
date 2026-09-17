@@ -114,7 +114,7 @@ type LayoutMetrics struct {
 	ImageHeightInChars int
 
 	// Layout flags / 布局标志
-	IsWideTerminal    bool
+	IsWideTerminal     bool
 	TextTooLongForWide bool
 	ShowTextInWideMode bool
 }
@@ -168,6 +168,16 @@ func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 
 	if w < 23 || h < 5 {
 		return LayoutNothing
+	}
+
+	// Terminal multiplexers cannot display images reliably; force the same
+	// text layout the O key cycles to, regardless of the saved or configured
+	// override.
+	//
+	// 终端复用器无法可靠显示图像；无论保存或配置的覆盖值如何，都强制为
+	// O 键循环到的文本布局。
+	if p.app.forcedTextMode {
+		return LayoutSwitchText
 	}
 
 	if h < 13 {
