@@ -125,6 +125,16 @@ type App struct {
 	pendingPreparing bool
 	pendingToken     uint64
 	advancing        atomic.Bool
+
+	// forcedTextMode is set at startup when running inside a terminal
+	// multiplexer (tmux, zellij, GNU screen, byobu), where image protocols
+	// cannot be relied upon; the player then renders text-only and layout
+	// switching is disabled.
+	//
+	// forcedTextMode 在终端复用器（tmux、zellij、GNU screen、byobu）内运行时
+	// 于启动时设置——这类环境里图像协议不可依赖，播放器随即只渲染纯文本，
+	// 并禁用布局切换。
+	forcedTextMode bool
 }
 
 // Page defines the interface for a TUI page.
@@ -220,6 +230,20 @@ func (a *App) Quit() {
 			close(a.quitChan)
 		}
 	}
+}
+
+// inTerminalMultiplexer reports whether the process runs inside a terminal
+// multiplexer (tmux, zellij, GNU screen, byobu), where image protocols cannot
+// be relied upon and the UI falls back to text-only display.
+//
+// inTerminalMultiplexer 报告进程是否运行在终端复用器（tmux、zellij、
+// GNU screen、byobu）内——这类环境里图像协议不可依赖，界面回退为纯文本显示。
+func inTerminalMultiplexer() bool {
+	if os.Getenv("TMUX") != "" || os.Getenv("ZELLIJ") != "" || os.Getenv("STY") != "" {
+		return true
+	}
+	term := strings.ToLower(os.Getenv("TERM"))
+	return strings.HasPrefix(term, "tmux") || strings.HasPrefix(term, "screen")
 }
 
 // PlaySong plays the specified song file.
@@ -761,10 +785,6 @@ func isInSearchMode(page Page) bool {
 func main() {
 	defer cleanupTempCoverFiles()
 
-	if os.Getenv("TMUX") != "" || os.Getenv("ZELLIJ") != "" {
-		l.Fatalf("BM does not support running inside tmux or zellij\n\nBM 不支持在tmux或zellij里运行")
-	}
-
 	if len(os.Args) >= 2 {
 		arg := os.Args[1]
 		if arg == "help" || arg == "-h" || arg == "-help" || arg == "--help" {
@@ -920,6 +940,7 @@ func runApplication(dirPath string) error {
 		quitChan:            make(chan struct{}),
 	}
 	app.setPlaylist(playlist)
+	app.forcedTextMode = inTerminalMultiplexer()
 
 	if GlobalConfig.App.DefaultPage == 3 {
 		savedPage, err := LoadPage()
@@ -1050,6 +1071,7 @@ func runSingleSong(songPath string) error {
 		quitChan:            make(chan struct{}),
 	}
 	app.setPlaylist([]string{absPath})
+	app.forcedTextMode = inTerminalMultiplexer()
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH, -1)
 	app.pages = []Page{playerPage}

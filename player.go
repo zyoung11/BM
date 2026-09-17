@@ -106,17 +106,6 @@ func (p *PlayerPage) UpdateSong(songPath string) {
 	p.imageRightEdge = 0
 }
 
-// UpdateSongWithRender updates the currently playing song path and forces a re-render.
-//
-// UpdateSongWithRender 更新当前播放的歌曲路径并强制重新渲染。
-func (p *PlayerPage) UpdateSongWithRender(songPath string) {
-	p.flacPath = songPath
-	p.imageTop = 0
-	p.imageHeight = 0
-	p.imageRightEdge = 0
-	p.View()
-}
-
 // HandleKey handles user key presses for the player page.
 //
 // HandleKey 处理播放器页面的用户按键。
@@ -254,7 +243,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 				"Rate":   rate.Value(),
 			})
 		}
-	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleLayout) {
+	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleLayout) && !p.app.forcedTextMode {
 		p.cycleLayout()
 	} else {
 		needsRedraw = false
@@ -326,6 +315,9 @@ func (p *PlayerPage) displayEmptyState() {
 // 宽模式：切换窄屏 -> 切换纯文本 -> 切换纯封面 -> 自动
 // 窄模式：切换纯文本 -> 切换纯封面 -> 自动
 func (p *PlayerPage) cycleLayout() {
+	if p.app.forcedTextMode {
+		return
+	}
 	if time.Since(p.lastLayoutSwitchTime) < time.Duration(GlobalConfig.App.LayoutDebounceMs)*time.Millisecond {
 		return
 	}
@@ -1021,6 +1013,16 @@ func (p *PlayerPage) updateStatus() {
 
 	showNothing := w < 23 || h < 5
 	if showNothing {
+		return
+	}
+
+	// Terminal multiplexers force the switch-text layout; the status redraw
+	// must match the position renderWithLayout used.
+	//
+	// 终端复用器强制 switch-text 布局；状态重绘必须与 renderWithLayout
+	// 使用的位置一致。
+	if p.app.forcedTextMode {
+		p.updateSwitchTextMode(w, h)
 		return
 	}
 
