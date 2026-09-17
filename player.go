@@ -49,6 +49,7 @@ type PlayerPage struct {
 	useCoverColor                         bool
 	volumeDisplayTimer                    int
 	rateDisplayTimer                      int
+	notifDisplayTimer                     int
 	textTooLongForWide                    bool       // True if text is too long for wide terminal mode. / 如果文本太长不适合宽终端模式则为true。
 	showTextInWideMode                    bool       // True if text can be shown below image in wide mode. / 如果可以在宽终端模式下在图片下方显示文本则为true。
 	overrideLayout                        LayoutType // Override layout (-1=none). / 覆盖布局（-1=无）。
@@ -245,6 +246,9 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleLayout) && !p.app.forcedTextMode {
 		p.cycleLayout()
+	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleNotifications) {
+		p.app.notificationsEnabled = !p.app.notificationsEnabled
+		p.notifDisplayTimer = 10
 	} else {
 		needsRedraw = false
 	}
@@ -401,6 +405,9 @@ func (p *PlayerPage) Tick() {
 	if p.rateDisplayTimer > 0 {
 		p.rateDisplayTimer--
 	}
+	if p.notifDisplayTimer > 0 {
+		p.notifDisplayTimer--
+	}
 
 	if p.flacPath == "" {
 		return
@@ -500,7 +507,7 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 			if len(p.app.Playlist) > 1 {
 				title, artist, _ := getSongMetadata(nextSong)
 				coverPath := saveCoverArt(nextSong)
-				sendNotification(artist, title, coverPath)
+				p.app.sendNotification(artist, title, coverPath)
 			}
 			return
 		}
@@ -589,7 +596,7 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 			if len(p.app.Playlist) > 1 {
 				title, artist, _ := getSongMetadata(prevSong)
 				coverPath := saveCoverArt(prevSong)
-				sendNotification(artist, title, coverPath)
+				p.app.sendNotification(artist, title, coverPath)
 			}
 			return
 		}
@@ -828,7 +835,7 @@ func (p *PlayerPage) playSongFromHistory(songPath string, switchToPlayer bool) e
 	if len(p.app.Playlist) > 1 {
 		title, artist, _ := getSongMetadata(songPath)
 		coverPath := saveCoverArt(songPath)
-		sendNotification(artist, title, coverPath)
+		p.app.sendNotification(artist, title, coverPath)
 	}
 
 	return nil
@@ -1280,6 +1287,16 @@ func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string)
 				rateStartCol = startCol + 7
 			}
 			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, rateStartCol, colorCode, rateStr)
+		}
+
+		if p.notifDisplayTimer > 0 {
+			notifIcon := GlobalConfig.ActiveIcons.NotificationOn
+			if !p.app.notificationsEnabled {
+				notifIcon = GlobalConfig.ActiveIcons.NotificationOff
+			}
+			notifWidth := runewidth.StringWidth(notifIcon)
+			notifCol := startCol + (width-notifWidth)/2
+			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", indicatorRow, notifCol, colorCode, notifIcon)
 		}
 	}
 

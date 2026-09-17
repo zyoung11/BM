@@ -45,13 +45,15 @@ func (k *Key) UnmarshalTOML(data []byte) error {
 //
 // IconsConfig 保存播放器UI中可自定义的图标。
 type IconsConfig struct {
-	Play           string `toml:"play"`
-	Pause          string `toml:"pause"`
-	ProgressFilled string `toml:"progress_filled"`
-	ProgressEmpty  string `toml:"progress_empty"`
-	RepeatOne      string `toml:"repeat_one"`
-	RepeatAll      string `toml:"repeat_all"`
-	Shuffle        string `toml:"shuffle"`
+	Play            string `toml:"play"`
+	Pause           string `toml:"pause"`
+	ProgressFilled  string `toml:"progress_filled"`
+	ProgressEmpty   string `toml:"progress_empty"`
+	RepeatOne       string `toml:"repeat_one"`
+	RepeatAll       string `toml:"repeat_all"`
+	Shuffle         string `toml:"shuffle"`
+	NotificationOn  string `toml:"notifications_on"`
+	NotificationOff string `toml:"notifications_off"`
 }
 
 // Config holds the application's configuration, loaded from a TOML file.
@@ -68,14 +70,14 @@ type Config struct {
 //
 // AppConfig 保存应用程序级别的配置设置。
 type AppConfig struct {
-	MaxHistorySize        int    `toml:"max_history_size"`
-	SwitchDebounceMs      int    `toml:"switch_debounce_ms"`
-	LayoutDebounceMs      int    `toml:"layout_debounce_ms"`
-	DefaultPage           int    `toml:"default_page"`
-	DefaultPlayMode       int    `toml:"default_play_mode"`
-	DefaultLayoutNarrow   int    `toml:"default_layout_narrow"`
-	DefaultLayoutWide     int    `toml:"default_layout_wide"`
-	RememberLibraryPath   bool   `toml:"remember_library_path"`
+	MaxHistorySize       int    `toml:"max_history_size"`
+	SwitchDebounceMs     int    `toml:"switch_debounce_ms"`
+	LayoutDebounceMs     int    `toml:"layout_debounce_ms"`
+	DefaultPage          int    `toml:"default_page"`
+	DefaultPlayMode      int    `toml:"default_play_mode"`
+	DefaultLayoutNarrow  int    `toml:"default_layout_narrow"`
+	DefaultLayoutWide    int    `toml:"default_layout_wide"`
+	RememberLibraryPath  bool   `toml:"remember_library_path"`
 	PlaylistHistory      bool   `toml:"playlist_history"`
 	AutostartLastPlayed  bool   `toml:"autostart_last_played"`
 	RememberVolume       bool   `toml:"remember_volume"`
@@ -119,19 +121,20 @@ type GlobalKeymap struct {
 //
 // PlayerKeymap 保存播放器页面特有的按键绑定。
 type PlayerKeymap struct {
-	TogglePause     Key `toml:"TogglePause"`
-	SeekForward     Key `toml:"SeekForward"`
-	SeekBackward    Key `toml:"SeekBackward"`
-	VolumeUp        Key `toml:"VolumeUp"`
-	VolumeDown      Key `toml:"VolumeDown"`
-	RateUp          Key `toml:"RateUp"`
-	RateDown        Key `toml:"RateDown"`
-	NextSong        Key `toml:"NextSong"`
-	PrevSong        Key `toml:"PrevSong"`
-	TogglePlayMode  Key `toml:"TogglePlayMode"`
-	ToggleTextColor Key `toml:"ToggleTextColor"`
-	Reset           Key `toml:"Reset"`
-	ToggleLayout    Key `toml:"ToggleLayout"`
+	TogglePause         Key `toml:"TogglePause"`
+	SeekForward         Key `toml:"SeekForward"`
+	SeekBackward        Key `toml:"SeekBackward"`
+	VolumeUp            Key `toml:"VolumeUp"`
+	VolumeDown          Key `toml:"VolumeDown"`
+	RateUp              Key `toml:"RateUp"`
+	RateDown            Key `toml:"RateDown"`
+	NextSong            Key `toml:"NextSong"`
+	PrevSong            Key `toml:"PrevSong"`
+	TogglePlayMode      Key `toml:"TogglePlayMode"`
+	ToggleTextColor     Key `toml:"ToggleTextColor"`
+	Reset               Key `toml:"Reset"`
+	ToggleLayout        Key `toml:"ToggleLayout"`
+	ToggleNotifications Key `toml:"ToggleNotifications"`
 }
 
 // LibraryKeymap holds keybindings for the Library page.
@@ -285,6 +288,31 @@ func LoadConfig() error {
 	return validateKeymap(GlobalConfig.Keymap)
 }
 
+// sectionHasKey reports whether key appears as a line inside the given TOML
+// section, so the same key can be patched into several sections independently.
+//
+// sectionHasKey 报告 key 是否作为配置行出现在指定的 TOML 节内，使同一个键
+// 可以独立地补写进多个节。
+func sectionHasKey(content, section, key string) bool {
+	inSection := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			if strings.Contains(line, section) {
+				inSection = true
+				continue
+			}
+			if inSection {
+				break
+			}
+		}
+		if inSection && strings.HasPrefix(trimmed, key) {
+			return true
+		}
+	}
+	return false
+}
+
 // updateConfigFile checks for missing keys in the config file and adds defaults.
 //
 // updateConfigFile 检查配置文件中是否有缺失的键，并添加默认值。
@@ -304,6 +332,11 @@ func updateConfigFile(configPath string) error {
 		comment string
 	}{
 		{"[keymap.player]", "ToggleLayout", "    ToggleLayout = [\"o\"]", "    # Toggle layout mode (only works in wide/narrow mode).\n    #\n    # 切换布局模式（仅在宽/窄模式下有效）。"},
+		{"[keymap.player]", "ToggleNotifications", "    ToggleNotifications = [\"n\"]", "    # Toggle desktop notifications for song changes (runtime only, the\n    # startup state comes from enable_notifications).\n    #\n    # 切换歌曲变更的桌面通知（仅运行时生效，启动状态来自 enable_notifications）。"},
+		{"[icons.default]", "notifications_on", "notifications_on = \"🕭\"", "# Song change notifications enabled icon.\n#\n# 歌曲变更通知开启图标。"},
+		{"[icons.default]", "notifications_off", "notifications_off = \"✗\"", "# Song change notifications disabled icon.\n#\n# 歌曲变更通知关闭图标。"},
+		{"[icons.xterm-ghostty]", "notifications_on", "notifications_on = \"🕭\"", ""},
+		{"[icons.xterm-ghostty]", "notifications_off", "notifications_off = \"✗\"", ""},
 		{"[app]", "max_history_size", "max_history_size = 100", "# Maximum number of history entries - limits the maximum number of playback history records.\n#\n# 最大历史记录数量 - 限制播放历史记录的最大条数"},
 		{"[app]", "switch_debounce_ms", "switch_debounce_ms = 50", "# Song switching debounce time (milliseconds) - prevents rapid continuous song switching, avoiding misoperation.\n#\n# 切歌防抖时间（毫秒）- 防止快速连续切歌，避免误操作"},
 		{"[app]", "default_page", "default_page = 3", "# Default starting page - the page displayed when the program starts.\n# 0 = Player page, 1 = PlayList page, 2 = Library page, 3 = memory (use saved page from last session).\n#\n# 默认启动页面 - 程序启动时显示的页面。\n# 0 = 播放器页面, 1 = 播放列表页面, 2 = 媒体库页面, 3 = 记忆（使用上次保存的页面）。"},
@@ -330,7 +363,7 @@ func updateConfigFile(configPath string) error {
 	}
 
 	for _, missing := range missingKeys {
-		if strings.Contains(content, missing.section) && !strings.Contains(content, missing.key) {
+		if strings.Contains(content, missing.section) && !sectionHasKey(content, missing.section, missing.key) {
 			lines := strings.Split(content, "\n")
 			var newLines []string
 			inSection := false
@@ -354,6 +387,18 @@ func updateConfigFile(configPath string) error {
 				if inSection && strings.HasPrefix(strings.TrimSpace(line), "[") && !strings.Contains(line, missing.section) {
 					inSection = false
 				}
+			}
+
+			if inSection && !added {
+				// The target section ends the file; append after its last line.
+				//
+				// 目标节一直延续到文件末尾；在其最后一行之后追加。
+				if missing.comment != "" {
+					newLines = append(newLines, "\n"+missing.comment)
+				}
+				newLines = append(newLines, missing.value)
+				added = true
+				updated = true
 			}
 
 			if added {
@@ -445,6 +490,44 @@ func resolveIconSet(config *Config) {
 		RepeatOne:      "🗘",
 		RepeatAll:      "⇆",
 		Shuffle:        "⤮",
+
+		NotificationOn:  "🕭",
+		NotificationOff: "✗"}
+
+	// fillDefaults replaces unset icon fields with the hardcoded defaults, so
+	// icon sets written before new icons existed keep working.
+	//
+	// fillDefaults 用硬编码默认值替换未设置的图标字段，使新增图标出现之前
+	// 编写的图标集依然可用。
+	fillDefaults := func(set IconsConfig) *IconsConfig {
+		if set.Play == "" {
+			set.Play = defaultIcons.Play
+		}
+		if set.Pause == "" {
+			set.Pause = defaultIcons.Pause
+		}
+		if set.ProgressFilled == "" {
+			set.ProgressFilled = defaultIcons.ProgressFilled
+		}
+		if set.ProgressEmpty == "" {
+			set.ProgressEmpty = defaultIcons.ProgressEmpty
+		}
+		if set.RepeatOne == "" {
+			set.RepeatOne = defaultIcons.RepeatOne
+		}
+		if set.RepeatAll == "" {
+			set.RepeatAll = defaultIcons.RepeatAll
+		}
+		if set.Shuffle == "" {
+			set.Shuffle = defaultIcons.Shuffle
+		}
+		if set.NotificationOn == "" {
+			set.NotificationOn = defaultIcons.NotificationOn
+		}
+		if set.NotificationOff == "" {
+			set.NotificationOff = defaultIcons.NotificationOff
+		}
+		return &set
 	}
 
 	iconSetName := config.App.Icons
@@ -457,13 +540,13 @@ func resolveIconSet(config *Config) {
 			if term := os.Getenv(env); term != "" {
 				term = strings.ToLower(term)
 				if icons, ok := config.Icons[term]; ok {
-					config.ActiveIcons = &icons
+					config.ActiveIcons = fillDefaults(icons)
 					return
 				}
 			}
 		}
 		if icons, ok := config.Icons["default"]; ok {
-			config.ActiveIcons = &icons
+			config.ActiveIcons = fillDefaults(icons)
 			return
 		}
 		config.ActiveIcons = &defaultIcons
@@ -471,7 +554,7 @@ func resolveIconSet(config *Config) {
 	}
 
 	if icons, ok := config.Icons[iconSetName]; ok {
-		config.ActiveIcons = &icons
+		config.ActiveIcons = fillDefaults(icons)
 		return
 	}
 

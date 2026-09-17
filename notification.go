@@ -14,12 +14,18 @@ func init() {
 	}
 }
 
-func sendNotification(artist, title, coverPath string) {
+// sendNotification sends a desktop notification when song-change
+// notifications are enabled at runtime. The runtime toggle lives on App and
+// is never persisted.
+//
+// sendNotification 在运行时通知开关开启时发送歌曲变更的桌面通知。运行时
+// 开关保存在 App 上，不会持久化。
+func (a *App) sendNotification(artist, title, coverPath string) {
 	if !notifySendAvailable {
 		return
 	}
 
-	if GlobalConfig != nil && !GlobalConfig.App.EnableNotifications {
+	if a == nil || !a.notificationsEnabled {
 		return
 	}
 
