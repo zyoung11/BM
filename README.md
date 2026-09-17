@@ -23,6 +23,7 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 - **Album cover display**: Supports Kitty, Sixel, iTerm2 image protocols
 - **Smart color scheme**: Extracts colors from album covers for UI
 - **Multi-page system**: Player, Playlist, and Library main pages
+- **Multiplexer support**: Runs inside tmux, zellij and GNU screen with an automatic text-only layout
 
 ### Media Management
 
