@@ -270,6 +270,12 @@ max_search_dirs = 15
     # 切换布局模式（仅在宽/窄模式下有效）。
     ToggleLayout = ["o"]
 
+    # Toggle desktop notifications for song changes (runtime only, the
+    # startup state comes from enable_notifications).
+    #
+    # 切换歌曲变更的桌面通知（仅运行时生效，启动状态来自 enable_notifications）。
+    ToggleNotifications = ["n"]
+
   # Library page keybindings.
   #
   # 媒体库页面快捷键。
@@ -417,6 +423,14 @@ repeat_all = "⇆"
 # 随机播放模式图标。
 shuffle = "⤮"
 
+# Song change notifications enabled icon.
+# 歌曲变更通知开启图标。
+notifications_on = "🕭"
+
+# Song change notifications disabled icon.
+# 歌曲变更通知关闭图标。
+notifications_off = "✗"
+
 [icons.xterm-ghostty]
 play = "▶"
 pause = "𐽕"
@@ -425,3 +439,5 @@ progress_empty = "░"
 repeat_one = "🗘"
 repeat_all = "⇆"
 shuffle = "⤮"
+notifications_on = "🕭"
+notifications_off = "✗"

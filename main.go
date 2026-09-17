@@ -126,6 +126,14 @@ type App struct {
 	pendingToken     uint64
 	advancing        atomic.Bool
 
+	// notificationsEnabled mirrors enable_notifications at startup and can be
+	// toggled at runtime with the player key; it is never written back to
+	// the config.
+	//
+	// notificationsEnabled 启动时镜像 enable_notifications，可在运行时用
+	// 播放器按键切换；不会写回配置文件。
+	notificationsEnabled bool
+
 	// forcedTextMode is set at startup when running inside a terminal
 	// multiplexer (tmux, zellij, GNU screen, byobu), where image protocols
 	// cannot be relied upon; the player then renders text-only and layout
@@ -920,24 +928,25 @@ func runApplication(dirPath string) error {
 	}
 
 	app := &App{
-		player:              nil,
-		mprisServer:         nil,
-		currentPageIndex:    0,
-		Playlist:            playlist,
-		LibraryPath:         dirPath,
-		playMode:            GlobalConfig.App.DefaultPlayMode,
-		volume:              0,
-		linearVolume:        1.0,
-		playbackRate:        1.0,
-		actionQueue:         make(chan func(), 10),
-		sampleRate:          sampleRate,
-		playHistory:         playHistory,
-		historyIndex:        len(playHistory) - 1,
-		isNavigatingHistory: false,
-		corruptedFiles:      make(map[string]bool),
-		isSingleSongMode:    false,
-		switchedToRandom:    false,
-		quitChan:            make(chan struct{}),
+		player:               nil,
+		mprisServer:          nil,
+		currentPageIndex:     0,
+		Playlist:             playlist,
+		LibraryPath:          dirPath,
+		playMode:             GlobalConfig.App.DefaultPlayMode,
+		volume:               0,
+		linearVolume:         1.0,
+		playbackRate:         1.0,
+		actionQueue:          make(chan func(), 10),
+		sampleRate:           sampleRate,
+		playHistory:          playHistory,
+		historyIndex:         len(playHistory) - 1,
+		isNavigatingHistory:  false,
+		corruptedFiles:       make(map[string]bool),
+		isSingleSongMode:     false,
+		switchedToRandom:     false,
+		quitChan:             make(chan struct{}),
+		notificationsEnabled: GlobalConfig.App.EnableNotifications,
 	}
 	app.setPlaylist(playlist)
 	app.forcedTextMode = inTerminalMultiplexer()
@@ -1052,23 +1061,24 @@ func runSingleSong(songPath string) error {
 	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
 
 	app := &App{
-		player:              nil,
-		mprisServer:         nil,
-		currentPageIndex:    0,
-		Playlist:            []string{absPath},
-		LibraryPath:         filepath.Dir(absPath),
-		playMode:            0,
-		volume:              0,
-		linearVolume:        1.0,
-		playbackRate:        1.0,
-		actionQueue:         make(chan func(), 10),
-		sampleRate:          sampleRate,
-		playHistory:         make([]string, 0),
-		historyIndex:        -1,
-		isNavigatingHistory: false,
-		corruptedFiles:      make(map[string]bool),
-		isSingleSongMode:    true,
-		quitChan:            make(chan struct{}),
+		player:               nil,
+		mprisServer:          nil,
+		currentPageIndex:     0,
+		Playlist:             []string{absPath},
+		LibraryPath:          filepath.Dir(absPath),
+		playMode:             0,
+		volume:               0,
+		linearVolume:         1.0,
+		playbackRate:         1.0,
+		actionQueue:          make(chan func(), 10),
+		sampleRate:           sampleRate,
+		playHistory:          make([]string, 0),
+		historyIndex:         -1,
+		isNavigatingHistory:  false,
+		corruptedFiles:       make(map[string]bool),
+		isSingleSongMode:     true,
+		quitChan:             make(chan struct{}),
+		notificationsEnabled: GlobalConfig.App.EnableNotifications,
 	}
 	app.setPlaylist([]string{absPath})
 	app.forcedTextMode = inTerminalMultiplexer()

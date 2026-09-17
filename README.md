@@ -138,6 +138,7 @@ You can use [FNE](https://github.com/zyoung11/FNE) another tool I made to decryp
 | `R` | Toggle playback mode |
 | `C` | Toggle text color (cover color/white) |
 | `O` | Toggle layout mode (wide: narrow/text/image/auto, narrow: text/image/auto) |
+| `N` | Toggle desktop notifications |
 | `Backspace` | Reset volume and playback speed |
 
 #### Library Page
@@ -177,7 +178,7 @@ The configuration file supports complete key mapping customization, supporting s
 
 ### Icon Configuration
 
-Player UI icons (play, pause, progress bar, repeat modes) are fully customizable via `[icons]` sections. Named icon sets can be defined for specific terminals (e.g. `[icons.xterm-ghostty]`), with `icons = "auto"` auto-detecting the best match from `$TERM` and `$TERM_PROGRAM`.
+Player UI icons (play, pause, progress bar, repeat modes, notification state) are fully customizable via `[icons]` sections. Named icon sets can be defined for specific terminals (e.g. `[icons.xterm-ghostty]`), with `icons = "auto"` auto-detecting the best match from `$TERM` and `$TERM_PROGRAM`.
 
 ## Cover Support
 

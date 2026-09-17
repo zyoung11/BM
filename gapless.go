@@ -505,7 +505,7 @@ func (a *App) finishAutoSongSwitch(path string) {
 	if len(a.Playlist) > 1 {
 		title, artist, _ := getSongMetadata(path)
 		coverPath := saveCoverArt(path)
-		sendNotification(artist, title, coverPath)
+		a.sendNotification(artist, title, coverPath)
 	}
 }
 
