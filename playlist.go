@@ -301,10 +301,7 @@ func (p *PlayList) View() {
 	if len(footer) > w {
 		footer = "..." + footer[len(footer)-w+3:]
 	}
-	footerX := (w - len(footer)) / 2
-	if footerX < 1 {
-		footerX = 1
-	}
+	footerX := max((w-len(footer))/2, 1)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
@@ -372,10 +369,7 @@ func (p *PlayList) View() {
 
 	totalItems := len(p.viewPlaylist)
 	if totalItems > listHeight {
-		thumbSize := listHeight * listHeight / totalItems
-		if thumbSize < 1 {
-			thumbSize = 1
-		}
+		thumbSize := max(listHeight*listHeight/totalItems, 1)
 		scrollRange := totalItems - listHeight
 		thumbRange := listHeight - thumbSize
 		thumbStart := 0

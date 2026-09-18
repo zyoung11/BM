@@ -432,10 +432,7 @@ func (a *App) removeFromPlayHistory(songPath string) {
 	}
 
 	if removedBefore > 0 {
-		newIndex = a.historyIndex - removedBefore
-		if newIndex < 0 {
-			newIndex = 0
-		}
+		newIndex = max(a.historyIndex-removedBefore, 0)
 	}
 	if newIndex >= len(newHistory) {
 		newIndex = len(newHistory) - 1

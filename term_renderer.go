@@ -163,10 +163,7 @@ func renderKittyImage(img image.Image, widthChars, heightChars int) error {
 	first := true
 
 	for i := 0; i < encLen; i += chunkSize {
-		end := i + chunkSize
-		if end > encLen {
-			end = encLen
-		}
+		end := min(i+chunkSize, encLen)
 
 		chunk := base64Buf[i:end]
 		var chunkSequence string

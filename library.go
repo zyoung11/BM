@@ -805,10 +805,7 @@ func (p *Library) drawSearchFooter(w, h int, footerText string) {
 	if len(footerText) > w {
 		footerText = "..." + footerText[len(footerText)-w+3:]
 	}
-	footerX := (w - len(footerText)) / 2
-	if footerX < 1 {
-		footerX = 1
-	}
+	footerX := max((w-len(footerText))/2, 1)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
@@ -825,10 +822,7 @@ func (p *Library) drawPathFooter(w, h int, footerText string) {
 	if len(footerText) > w {
 		footerText = "..." + footerText[len(footerText)-w+3:]
 	}
-	footerX := (w - len(footerText)) / 2
-	if footerX < 1 {
-		footerX = 1
-	}
+	footerX := max((w-len(footerText))/2, 1)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
 }
 
@@ -853,10 +847,7 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 		visualRow := visualOffset + i
 
 		if hasSep && visualRow == dirCount {
-			sepWidth := w - 1
-			if sepWidth < 1 {
-				sepWidth = 1
-			}
+			sepWidth := max(w-1, 1)
 			sepText := strings.Repeat("─", sepWidth)
 			fmt.Printf("\x1b[%d;1H\x1b[K\x1b[90m%s\x1b[0m", i+3, sepText)
 			continue
@@ -1073,10 +1064,7 @@ func (p *Library) drawScrollbar(h, listHeight, totalItems, currentOffset int) {
 	}
 
 	w, _, _ := term.GetSize(int(os.Stdout.Fd()))
-	thumbSize := listHeight * listHeight / totalItems
-	if thumbSize < 1 {
-		thumbSize = 1
-	}
+	thumbSize := max(listHeight*listHeight/totalItems, 1)
 
 	scrollRange := totalItems - listHeight
 	thumbRange := listHeight - thumbSize
