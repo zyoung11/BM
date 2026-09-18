@@ -237,10 +237,7 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 		availableRows := h - imageBottomRow
 		infoRow := imageBottomRow + availableRows/3
 		if infoRow-imageBottomRow > 5 {
-			startRow = infoRow - 1 - imageHeight
-			if startRow < 2 {
-				startRow = 2
-			}
+			startRow = max(infoRow-1-imageHeight, 2)
 			imageBottomRow = startRow + imageHeight
 			availableRows = h - imageBottomRow
 			progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
@@ -288,10 +285,7 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 		availableRows := h - imageBottomRow
 		infoRow := imageBottomRow + availableRows/3
 		if infoRow-imageBottomRow > 5 {
-			startRow = infoRow - 1 - imageHeight
-			if startRow < 2 {
-				startRow = 2
-			}
+			startRow = max(infoRow-1-imageHeight, 2)
 			imageBottomRow = startRow + imageHeight
 			availableRows = h - imageBottomRow
 			progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
@@ -452,14 +446,8 @@ func (p *PlayerPage) renderWithLayout() {
 			p.cellH = 1
 		}
 
-		imageWidthInChars = finalImgW / p.cellW
-		if imageWidthInChars < 1 {
-			imageWidthInChars = 1
-		}
-		imageHeightInChars = finalImgH / p.cellH
-		if imageHeightInChars < 1 {
-			imageHeightInChars = 1
-		}
+		imageWidthInChars = max(finalImgW/p.cellW, 1)
+		imageHeightInChars = max(finalImgH/p.cellH, 1)
 
 		if imageWidthInChars > w {
 			imageWidthInChars = w

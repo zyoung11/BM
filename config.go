@@ -295,7 +295,7 @@ func LoadConfig() error {
 // 可以独立地补写进多个节。
 func sectionHasKey(content, section, key string) bool {
 	inSection := false
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			if strings.Contains(line, section) {

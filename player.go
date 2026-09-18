@@ -128,10 +128,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.SeekBackward) {
 		speaker.Lock()
-		newPos := player.streamer.Position() - player.sampleRate.N(time.Second*5)
-		if newPos < 0 {
-			newPos = 0
-		}
+		newPos := max(player.streamer.Position()-player.sampleRate.N(time.Second*5), 0)
 		if err := player.streamer.Seek(newPos); err != nil {
 			// ignore seek errors
 		}
@@ -1150,10 +1147,7 @@ func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
 
 	progressBarStartCol := 5
-	progressBarWidth := w - 10
-	if progressBarWidth < 10 {
-		progressBarWidth = 10
-	}
+	progressBarWidth := max(w-10, 10)
 
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
@@ -1170,10 +1164,7 @@ func (p *PlayerPage) updateSwitchNarrowMode(imageBottomRow, w, h int) {
 
 	colorCode := p.getColorCode()
 
-	virtualWidth := 80
-	if virtualWidth > w {
-		virtualWidth = w
-	}
+	virtualWidth := min(80, w)
 	offset := (w - virtualWidth) / 2
 
 	availableRows := h - imageBottomRow
@@ -1196,10 +1187,7 @@ func (p *PlayerPage) updateSwitchNarrowMode(imageBottomRow, w, h int) {
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
 
 	progressBarStartCol := offset + 5
-	progressBarWidth := virtualWidth - 10
-	if progressBarWidth < 10 {
-		progressBarWidth = 10
-	}
+	progressBarWidth := max(virtualWidth-10, 10)
 
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
@@ -1218,10 +1206,7 @@ func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", centerRow+1, centerCol-albumWidth/2, colorCode, album)
 
 	progressBarStartCol := 5
-	progressBarWidth := w - 10
-	if progressBarWidth < 10 {
-		progressBarWidth = 10
-	}
+	progressBarWidth := max(w-10, 10)
 	progressRow := centerRow + 3
 
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)

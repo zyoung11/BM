@@ -68,10 +68,7 @@ func buildAdaptivePalette(img image.Image) *sixelPalette {
 
 	q := median.Quantizer(1023)
 	paletted := q.Paletted(sample)
-	nc := len(paletted.Palette)
-	if nc > 1024 {
-		nc = 1024
-	}
+	nc := min(len(paletted.Palette), 1024)
 
 	p := &sixelPalette{
 		nc:     nc,
@@ -160,10 +157,7 @@ func (e *Encoder) Encode(img image.Image) error {
 		return nil
 	}
 
-	estSize := width * height / 2
-	if estSize < 65536 {
-		estSize = 65536
-	}
+	estSize := max(width*height/2, 65536)
 	outBuf := bytes.NewBuffer(make([]byte, 0, estSize))
 
 	outBuf.Write([]byte{0x1b, 0x50, 0x30, 0x3b, 0x30, 0x3b, 0x38, 0x71, 0x22, 0x31, 0x3b, 0x31})
@@ -203,10 +197,7 @@ func (e *Encoder) Encode(img image.Image) error {
 
 	makeJob := func(sixelRow int) stripJob {
 		yStart := sixelRow * 6
-		yEnd := yStart + 6
-		if yEnd > height {
-			yEnd = height
-		}
+		yEnd := min(yStart+6, height)
 		return stripJob{sixelRow: sixelRow, yStart: yStart, yEnd: yEnd, data: data, width: width, pal: pal}
 	}
 
