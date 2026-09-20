@@ -400,7 +400,9 @@ func (p *PlayerPage) renderTextByLayout(layout LayoutType, metrics *LayoutMetric
 
 	case LayoutSwitchNarrow:
 		imageBottomRow := p.imageTop + p.imageHeight
-		p.updateSwitchNarrowMode(imageBottomRow, w, h)
+		if h-imageBottomRow >= 5 {
+			p.updateSwitchNarrowMode(imageBottomRow, w, h)
+		}
 	}
 }
 
