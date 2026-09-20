@@ -1048,7 +1048,9 @@ func (p *PlayerPage) updateStatus() {
 		case LayoutSwitchImage:
 		case LayoutSwitchNarrow:
 			imageBottomRow := p.imageTop + p.imageHeight
-			p.updateSwitchNarrowMode(imageBottomRow, w, h)
+			if h-imageBottomRow >= 5 {
+				p.updateSwitchNarrowMode(imageBottomRow, w, h)
+			}
 		}
 		return
 	}
