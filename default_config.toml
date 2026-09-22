@@ -73,6 +73,32 @@ playlist_history = true
 # 注意：这需要 'remember_library_path' 和 'playlist_history' 同时启用。
 autostart_last_played = true
 
+# Whether to show a quit confirmation prompt on the Player page.
+# Press enter to quit and esc to close the prompt.
+#
+# 是否在播放器页面退出时显示确认提示。
+# 按 enter 退出程序，按 esc 关闭提示。
+confirm_quit_player = true
+
+# Whether to show a quit confirmation prompt on the PlayList page.
+# Press enter to quit and esc to close the prompt.
+#
+# 是否在播放列表页面退出时显示确认提示。
+# 按 enter 退出程序，按 esc 关闭提示。
+confirm_quit_playlist = true
+
+# Whether to show a quit confirmation prompt on the Library page.
+# Press enter to quit and esc to close the prompt.
+#
+# 是否在媒体库页面退出时显示确认提示。
+# 按 enter 退出程序，按 esc 关闭提示。
+confirm_quit_library = true
+
+# Language of the keyboard shortcuts help page - "en" for English, "zh" for Chinese.
+#
+# 快捷键帮助页的语言 - "en" 为英文，"zh" 为中文。
+help_language = "en"
+
 # Whether to remember the volume of the last playback
 #
 # 是否记住上次播放的音量
@@ -179,6 +205,11 @@ max_search_dirs = 15
     #
     # 退出程序。
     Quit = ["esc"]
+
+    # Show the keyboard shortcuts help page.
+    #
+    # 显示快捷键帮助页面。
+    ShowHelp = ["?"]
 
     # Cycle through pages.
     #

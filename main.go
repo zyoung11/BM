@@ -79,6 +79,15 @@ type App struct {
 	pages            []Page
 	currentPageIndex int
 
+	// helpOpen marks that the full-screen keyboard shortcuts help is shown.
+	//
+	// helpOpen 表示全屏快捷键帮助页正在显示。
+	helpOpen bool
+	// confirmQuitOpen marks that the quit confirmation prompt is shown.
+	//
+	// confirmQuitOpen 表示退出确认提示正在显示。
+	confirmQuitOpen bool
+
 	// Playlist is owned by the main thread; the only writer is setPlaylist,
 	// which republishes derived metadata for cross-goroutine readers (MPRIS).
 	// Other goroutines must use PlaylistLen, never this field.
@@ -694,6 +703,15 @@ func (a *App) Run() error {
 			action()
 
 		case key := <-keyCh:
+			if a.overlayOpen() {
+				if a.handleOverlayKey(key) {
+					if a.switchedToRandom {
+						a.recordCurrentSongToHistory()
+					}
+					return nil
+				}
+				continue
+			}
 			if IsKey(key, GlobalConfig.Keymap.Global.Quit) {
 				if isInSearchMode(currentPage) {
 					_, needsRedraw, err := currentPage.HandleKey(key)
@@ -704,10 +722,15 @@ func (a *App) Run() error {
 						currentPage.View()
 					}
 				} else {
-					if a.switchedToRandom {
-						a.recordCurrentSongToHistory()
+					if wantsQuitConfirm(currentPage) {
+						a.confirmQuitOpen = true
+						a.drawQuitPrompt()
+					} else {
+						if a.switchedToRandom {
+							a.recordCurrentSongToHistory()
+						}
+						return nil
 					}
-					return nil
 				}
 			} else if isActivelySearching(currentPage) {
 				// In search mode, pass all keys to the page's handler first.
@@ -719,6 +742,9 @@ func (a *App) Run() error {
 				if needsRedraw {
 					currentPage.View()
 				}
+			} else if IsKey(key, GlobalConfig.Keymap.Global.ShowHelp) {
+				a.helpOpen = true
+				a.drawHelpPage()
 			} else if IsKey(key, GlobalConfig.Keymap.Global.CyclePages) {
 				a.switchToPage((a.currentPageIndex + 1) % len(a.pages))
 			} else if IsKey(key, GlobalConfig.Keymap.Global.SwitchToPlayer) {
@@ -756,7 +782,16 @@ func (a *App) Run() error {
 
 		case <-ticker.C:
 			a.tickPlayback()
-			currentPage.Tick()
+			if !a.helpOpen {
+				currentPage.Tick()
+			}
+		}
+
+		if a.helpOpen {
+			a.drawHelpPage()
+		} else if a.confirmQuitOpen {
+			currentPage.View()
+			a.drawQuitPrompt()
 		}
 	}
 }
