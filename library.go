@@ -963,6 +963,24 @@ func truncateToWidth(text string, w int) string {
 	return "..." + string(runes)
 }
 
+// truncateToWidthFromStart shortens text with a trailing ellipsis so that its
+// display width fits within the given width.
+//
+// truncateToWidthFromStart 以结尾省略号对文本进行截断，使其显示宽度不超过给定宽度。
+func truncateToWidthFromStart(text string, w int) string {
+	if w <= 3 {
+		return ""
+	}
+	if runewidth.StringWidth(text) <= w {
+		return text
+	}
+	runes := []rune(text)
+	for len(runes) > 0 && runewidth.StringWidth(string(runes)+"...") > w {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes) + "..."
+}
+
 // renderFilteredListContent renders the search results with directories on top,
 // files on bottom, separated by a gray dashed line.
 //

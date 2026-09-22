@@ -80,6 +80,10 @@ type AppConfig struct {
 	RememberLibraryPath  bool   `toml:"remember_library_path"`
 	PlaylistHistory      bool   `toml:"playlist_history"`
 	AutostartLastPlayed  bool   `toml:"autostart_last_played"`
+	ConfirmQuitPlayer    bool   `toml:"confirm_quit_player"`
+	ConfirmQuitPlaylist  bool   `toml:"confirm_quit_playlist"`
+	ConfirmQuitLibrary   bool   `toml:"confirm_quit_library"`
+	HelpLanguage         string `toml:"help_language"`
 	RememberVolume       bool   `toml:"remember_volume"`
 	RememberPlaybackRate bool   `toml:"remember_playback_rate"`
 	DefaultColorR        int    `toml:"default_color_r"`
@@ -111,6 +115,7 @@ type Keymap struct {
 // GlobalKeymap 保存适用于所有页面的全局按键绑定。
 type GlobalKeymap struct {
 	Quit             Key `toml:"Quit"`
+	ShowHelp         Key `toml:"ShowHelp"`
 	CyclePages       Key `toml:"CyclePages"`
 	SwitchToPlayer   Key `toml:"SwitchToPlayer"`
 	SwitchToPlayList Key `toml:"SwitchToPlayList"`
@@ -313,6 +318,40 @@ func sectionHasKey(content, section, key string) bool {
 	return false
 }
 
+// stripDeprecatedKey removes a deprecated configuration key together with the
+// contiguous comment block directly above it, so retired options do not linger
+// in configuration files written by older versions.
+//
+// stripDeprecatedKey 移除废弃的配置项及其正上方连续的注释块，
+// 使旧版本写入的已废弃选项不再残留于配置文件中。
+func stripDeprecatedKey(content, key string) (string, bool) {
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	pending := make([]string, 0)
+	changed := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			pending = append(pending, line)
+			continue
+		}
+		rest := ""
+		if strings.HasPrefix(trimmed, key) {
+			rest = strings.TrimSpace(trimmed[len(key):])
+		}
+		if rest != "" && rest[0] == '=' {
+			pending = pending[:0]
+			changed = true
+			continue
+		}
+		out = append(out, pending...)
+		pending = pending[:0]
+		out = append(out, line)
+	}
+	out = append(out, pending...)
+	return strings.Join(out, "\n"), changed
+}
+
 // updateConfigFile checks for missing keys in the config file and adds defaults.
 //
 // updateConfigFile 检查配置文件中是否有缺失的键，并添加默认值。
@@ -325,12 +364,21 @@ func updateConfigFile(configPath string) error {
 	content := string(data)
 	updated := false
 
+	for _, deprecated := range []string{"confirm_quit"} {
+		var stripped bool
+		content, stripped = stripDeprecatedKey(content, deprecated)
+		if stripped {
+			updated = true
+		}
+	}
+
 	missingKeys := []struct {
 		section string
 		key     string
 		value   string
 		comment string
 	}{
+		{"[keymap.global]", "ShowHelp", "    ShowHelp = [\"?\"]", "    # Show the keyboard shortcuts help page.\n    #\n    # 显示快捷键帮助页面。"},
 		{"[keymap.player]", "ToggleLayout", "    ToggleLayout = [\"o\"]", "    # Toggle layout mode (only works in wide/narrow mode).\n    #\n    # 切换布局模式（仅在宽/窄模式下有效）。"},
 		{"[keymap.player]", "ToggleNotifications", "    ToggleNotifications = [\"n\"]", "    # Toggle desktop notifications for song changes (runtime only, the\n    # startup state comes from enable_notifications).\n    #\n    # 切换歌曲变更的桌面通知（仅运行时生效，启动状态来自 enable_notifications）。"},
 		{"[icons.default]", "notifications_on", "notifications_on = \"🕭\"", "# Song change notifications enabled icon.\n#\n# 歌曲变更通知开启图标。"},
@@ -344,6 +392,10 @@ func updateConfigFile(configPath string) error {
 		{"[app]", "remember_library_path", "remember_library_path = true", "# Whether to remember the music library path - if true, the program will remember the last used music library path.\n# If no path parameter is specified next time the program starts, the saved path will be used automatically.\n#\n# 是否记录音乐库路径 - 如果为true，程序会记住上次使用的音乐库路径。\n# 下次启动时如果不指定路径参数，会自动使用保存的路径。"},
 		{"[app]", "playlist_history", "playlist_history = true", "# Whether to record the playlist - if true, the program will record the playlist and load it next time it starts.\n# Note: 'remember_library_path' must also be true for this to take effect.\n#\n# 是否记录播放列表 - 如果为true，程序会记录播放列表并在下次启动时加载。\n# 注意: 'remember_library_path' 也必须为 true 才能生效。"},
 		{"[app]", "autostart_last_played", "autostart_last_played = true", "# Autostart last played song\n# When enabled, the program will automatically play the last played song when starting.\n# Note: This requires both 'remember_library_path' and 'playlist_history' to be enabled.\n#\n# 自动播放上次播放的歌曲\n# 启用后，程序启动时会自动播放上次播放的歌曲。\n# 注意：这需要 'remember_library_path' 和 'playlist_history' 同时启用。"},
+		{"[app]", "confirm_quit_player", "confirm_quit_player = true", "# Whether to show a quit confirmation prompt on the Player page.\n# Press enter to quit and esc to close the prompt.\n#\n# 是否在播放器页面退出时显示确认提示。\n# 按 enter 退出程序，按 esc 关闭提示。"},
+		{"[app]", "confirm_quit_playlist", "confirm_quit_playlist = true", "# Whether to show a quit confirmation prompt on the PlayList page.\n# Press enter to quit and esc to close the prompt.\n#\n# 是否在播放列表页面退出时显示确认提示。\n# 按 enter 退出程序，按 esc 关闭提示。"},
+		{"[app]", "confirm_quit_library", "confirm_quit_library = true", "# Whether to show a quit confirmation prompt on the Library page.\n# Press enter to quit and esc to close the prompt.\n#\n# 是否在媒体库页面退出时显示确认提示。\n# 按 enter 退出程序，按 esc 关闭提示。"},
+		{"[app]", "help_language", "help_language = \"en\"", "# Language of the keyboard shortcuts help page - \"en\" for English, \"zh\" for Chinese.\n#\n# 快捷键帮助页的语言 - \"en\" 为英文，\"zh\" 为中文。"},
 		{"[app]", "remember_volume", "remember_volume = true", "# Whether to remember the volume of the last playback\n#\n# 是否记住上次播放的音量"},
 		{"[app]", "remember_playback_rate", "remember_playback_rate = true", "# Whether to remember the playback rate\n#\n# 是否记录播放速度"},
 		{"[app]", "default_color_r", "default_color_r = 100", "# Default text color - the color used for text display when no suitable color is found from album art.\n# RGB values range from 0 to 255.\n#\n# 默认文字颜色 - 当从专辑封面中找不到合适的颜色时，用于文字显示的颜色。\n# RGB 值的范围是 0 到 255。"},
