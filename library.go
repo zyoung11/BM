@@ -373,11 +373,15 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 		p.isSearching = true
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavUp) {
 		if len(p.entries) > 0 {
+			oldCursor := p.cursor
 			p.cursor = (p.cursor - 1 + len(p.entries)) % len(p.entries)
+			return nil, p.tryFastCursorMove(oldCursor), nil
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavDown) {
 		if len(p.entries) > 0 {
+			oldCursor := p.cursor
 			p.cursor = (p.cursor + 1) % len(p.entries)
+			return nil, p.tryFastCursorMove(oldCursor), nil
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavEnterDir) {
 		if p.cursor < len(p.entries) && p.entries[p.cursor].isDir {
@@ -386,24 +390,7 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 			p.scanDirectory(newPath)
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavExitDir) {
-		if p.exitToSearchResults() {
-			return nil, false, nil
-		}
-		currentAbs, _ := filepath.Abs(p.currentPath)
-		initialAbs, _ := filepath.Abs(p.initialPath)
-		if currentAbs != initialAbs {
-			newPath := filepath.Dir(p.currentPath)
-			p.scanDirectory(newPath)
-			if p.lastEntered != "" {
-				for i, libEntry := range p.entries {
-					if libEntry.entry.Name() == p.lastEntered && libEntry.isDir {
-						p.cursor = i
-						break
-					}
-				}
-				p.lastEntered = ""
-			}
-		}
+		p.exitDir()
 	} else if IsKey(key, GlobalConfig.Keymap.Library.ToggleSelect) {
 		if p.cursor < len(p.entries) {
 			p.toggleSelectionForEntry(p.entries[p.cursor])
@@ -428,11 +415,15 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 		p.isSearching = true
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavUp) {
 		if len(p.filteredSongPaths) > 0 {
+			oldCursor := p.searchCursor
 			p.searchCursor = (p.searchCursor - 1 + len(p.filteredSongPaths)) % len(p.filteredSongPaths)
+			return nil, p.tryFastCursorMove(oldCursor), nil
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavDown) {
 		if len(p.filteredSongPaths) > 0 {
+			oldCursor := p.searchCursor
 			p.searchCursor = (p.searchCursor + 1) % len(p.filteredSongPaths)
+			return nil, p.tryFastCursorMove(oldCursor), nil
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavEnterDir) {
 		p.enterDirFromSearchResults()
@@ -533,6 +524,56 @@ func (p *Library) enterDirFromSearchResults() {
 	p.scanDirectory(path)
 }
 
+// exitDir steps out of the current directory, or leaves a directory that was
+// entered from the search results and returns to the results. It reports whether
+// the view moved.
+//
+// exitDir 退出当前目录一层，或退出从搜索结果进入的目录并回到搜索结果。
+// 返回值表示视图是否发生了移动。
+func (p *Library) exitDir() bool {
+	if p.exitToSearchResults() {
+		return true
+	}
+	currentAbs, _ := filepath.Abs(p.currentPath)
+	initialAbs, _ := filepath.Abs(p.initialPath)
+	if currentAbs == initialAbs {
+		return false
+	}
+	newPath := filepath.Dir(p.currentPath)
+	p.scanDirectory(newPath)
+	if p.lastEntered != "" {
+		for i, libEntry := range p.entries {
+			if libEntry.entry.Name() == p.lastEntered && libEntry.isDir {
+				p.cursor = i
+				break
+			}
+		}
+		p.lastEntered = ""
+	}
+	return true
+}
+
+// escapeBack performs one outward step: leave the search input, clear the
+// search results or step out of a directory. It reports whether anything was
+// still left to back out of.
+//
+// escapeBack 执行一步向外操作：退出搜索输入、清除搜索结果或退出一层目录。
+// 返回值表示是否还有可后退的空间。
+func (p *Library) escapeBack() bool {
+	if p.isSearching {
+		p.isSearching = false
+		p.searchQuery = ""
+		p.filterSongs()
+		return true
+	}
+	if p.searchQuery != "" {
+		p.searchQuery = ""
+		p.filterSongs()
+		return true
+	}
+	return p.exitDir()
+}
+
 // exitToSearchResults leaves a directory that was entered from the search results
 // and restores the search view state saved on entry. It reports whether the
 // switch happened.
@@ -562,17 +603,91 @@ func (p *Library) exitToSearchResults() bool {
 func (p *Library) HandleKey(key rune) (Page, bool, error) {
 	var err error
 	var page Page
+	redrawn := false
 
 	if p.isSearching {
 		p.handleSearchInput(key)
 	} else if p.searchQuery != "" {
-		page, _, err = p.handleSearchViewInput(key)
+		page, redrawn, err = p.handleSearchViewInput(key)
 	} else {
-		page, _, err = p.handleDirViewInput(key)
+		page, redrawn, err = p.handleDirViewInput(key)
 	}
 
-	p.View()
-	return page, true, err
+	if !redrawn {
+		p.View()
+	}
+	return page, false, err
+}
+
+// tryFastCursorMove redraws only the old and new cursor rows after a cursor move
+// that keeps the view window in place. It reports whether the redraw already
+// happened and only runs in differential rendering mode.
+//
+// tryFastCursorMove 在光标移动不改变视图窗口时只重绘新旧光标行。
+// 返回值表示是否已完成重绘，仅在差分渲染模式下生效。
+func (p *Library) tryFastCursorMove(oldCursor int) bool {
+	if !p.app.diffRender {
+		return false
+	}
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		w, h = 80, 24
+	}
+	listHeight := h - 4
+
+	if p.searchQuery != "" {
+		return p.tryFastSearchMove(w, listHeight, oldCursor)
+	}
+
+	newOffset := min(p.cursor, p.offset)
+	if p.cursor >= newOffset+listHeight {
+		newOffset = p.cursor - listHeight + 1
+	}
+	if newOffset != p.offset {
+		return false
+	}
+
+	p.drawDirListRow(w, oldCursor-p.offset, oldCursor)
+	p.drawDirListRow(w, p.cursor-p.offset, p.cursor)
+	return true
+}
+
+// tryFastSearchMove redraws only the old and new search cursor rows after a move
+// that keeps the results window in place. It reports whether the redraw already
+// happened.
+//
+// tryFastSearchMove 在光标移动不改变结果窗口时只重绘新旧光标行。
+// 返回值表示是否已完成重绘。
+func (p *Library) tryFastSearchMove(w, listHeight, oldCursor int) bool {
+	dirCount := p.searchDirCount
+	hasSep := dirCount > 0 && dirCount < len(p.filteredSongPaths)
+	effectiveHeight := listHeight
+	if hasSep {
+		effectiveHeight--
+	}
+
+	newOffset := min(p.searchCursor, p.searchOffset)
+	if p.searchCursor >= newOffset+effectiveHeight {
+		newOffset = p.searchCursor - effectiveHeight + 1
+	}
+	if newOffset != p.searchOffset {
+		return false
+	}
+
+	visualOffset := newOffset
+	if hasSep && newOffset >= dirCount {
+		visualOffset = newOffset + 1
+	}
+	visualRowOf := func(itemIdx int) int {
+		if hasSep && itemIdx >= dirCount {
+			return itemIdx + 1
+		}
+		return itemIdx
+	}
+
+	p.drawFilteredItemRow(w, visualRowOf(oldCursor)-visualOffset, oldCursor)
+	p.drawFilteredItemRow(w, visualRowOf(p.searchCursor)-visualOffset, p.searchCursor)
+	return true
 }
 
 // toggleSelectionForEntry handles selection logic for a LibraryEntry (which can be a file or directory).
@@ -840,16 +955,21 @@ func (p *Library) HandleSignal(sig os.Signal) error {
 //
 // View 根据当前模式渲染媒体库页面。
 func (p *Library) View() {
+	p.app.beginFrame()
+	defer p.app.endFrame()
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		w, h = 80, 24
 	}
 
-	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
+	if !p.app.diffRender {
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
+	}
 
 	title := "Library"
 	titleX := (w - len(title)) / 2
-	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+	fmt.Printf("\x1b[1;1H\x1b[K\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+	fmt.Printf("\x1b[2;1H\x1b[K")
 
 	listHeight := h - 4
 
@@ -901,6 +1021,8 @@ func (p *Library) View() {
 		p.renderDirectoryListContent(w, listHeight, currentOffset)
 	}
 
+	fmt.Printf("\x1b[%d;1H\x1b[K", h-1)
+
 	p.drawScrollbar(listHeight, currentListLength, currentOffset)
 }
 
@@ -925,6 +1047,7 @@ func (p *Library) rootDisplayPath() string {
 //
 // drawSearchFooter 是一个用于绘制带有光标定位的搜索页脚的辅助函数。
 func (p *Library) drawSearchFooter(w, h int, footerText string) {
+	fmt.Printf("\x1b[%d;1H\x1b[K", h)
 	footerText = truncateToWidth(footerText, w)
 	footerX := max((w-len(footerText))/2, 1)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
@@ -940,6 +1063,7 @@ func (p *Library) drawSearchFooter(w, h int, footerText string) {
 //
 // drawPathFooter 是一个用于绘制路径页脚的辅助函数。
 func (p *Library) drawPathFooter(w, h int, footerText string) {
+	fmt.Printf("\x1b[%d;1H\x1b[K", h)
 	footerText = truncateToWidth(footerText, w)
 	footerX := max((w-len(footerText))/2, 1)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
@@ -987,131 +1111,142 @@ func truncateToWidthFromStart(text string, w int) string {
 // renderFilteredListContent 渲染搜索结果，目录在上，歌曲在下，中间用灰色虚线分隔。
 func (p *Library) renderFilteredListContent(w, listHeight, currentOffset int) {
 	dirCount := p.searchDirCount
-	totalCount := len(p.filteredSongPaths)
-	hasSep := dirCount > 0 && dirCount < totalCount
+	hasSep := dirCount > 0 && dirCount < len(p.filteredSongPaths)
 
-	itemOffset := currentOffset
-	visualOffset := itemOffset
-	if hasSep && itemOffset >= dirCount {
-		visualOffset = itemOffset + 1
+	visualOffset := currentOffset
+	if hasSep && currentOffset >= dirCount {
+		visualOffset = currentOffset + 1
 	}
-
-	cleanInitial := filepath.Clean(p.initialPath)
 
 	for i := range listHeight {
 		visualRow := visualOffset + i
 
 		if hasSep && visualRow == dirCount {
-			sepWidth := max(w-1, 1)
-			sepText := strings.Repeat("─", sepWidth)
-			fmt.Printf("\x1b[%d;1H\x1b[K\x1b[90m%s\x1b[0m", i+3, sepText)
+			p.drawFilteredSepRow(w, i)
 			continue
 		}
 
-		var itemIdx int
+		itemIdx := visualRow
 		if hasSep && visualRow > dirCount {
 			itemIdx = visualRow - 1
+		}
+		p.drawFilteredItemRow(w, i, itemIdx)
+	}
+}
+
+// drawFilteredSepRow renders the dashed separator between directories and songs
+// in the search results.
+//
+// drawFilteredSepRow 渲染搜索结果中目录与歌曲之间的虚线分割线。
+func (p *Library) drawFilteredSepRow(w, screenRow int) {
+	sepWidth := max(w-1, 1)
+	sepText := strings.Repeat("─", sepWidth)
+	fmt.Printf("\x1b[%d;1H\x1b[K\x1b[90m%s\x1b[0m", screenRow+3, sepText)
+}
+
+// drawFilteredItemRow renders one search result row, erasing the row first.
+//
+// drawFilteredItemRow 先擦除整行再渲染一条搜索结果。
+func (p *Library) drawFilteredItemRow(w, screenRow, itemIdx int) {
+	y := screenRow + 3
+	if itemIdx < 0 || itemIdx >= len(p.filteredSongPaths) {
+		fmt.Printf("\x1b[%d;1H\x1b[K", y)
+		return
+	}
+
+	fullPath := p.filteredSongPaths[itemIdx]
+	cleanInitial := filepath.Clean(p.initialPath)
+
+	info, err := os.Stat(fullPath)
+	isDir := err == nil && info.IsDir()
+
+	var displayPath string
+	if isDir {
+		cleanPath := filepath.Clean(fullPath)
+		if rel, relErr := filepath.Rel(cleanInitial, cleanPath); relErr == nil && !strings.HasPrefix(rel, "..") {
+			displayPath = rel
 		} else {
-			itemIdx = visualRow
+			displayPath = cleanPath
 		}
-
-		if itemIdx >= totalCount {
-			break
-		}
-
-		fullPath := p.filteredSongPaths[itemIdx]
-
-		info, err := os.Stat(fullPath)
-		isDir := err == nil && info.IsDir()
-
-		var displayPath string
-		if isDir {
-			cleanPath := filepath.Clean(fullPath)
-			if rel, relErr := filepath.Rel(cleanInitial, cleanPath); relErr == nil && !strings.HasPrefix(rel, "..") {
-				displayPath = rel
-			} else {
-				displayPath = cleanPath
-			}
+		if displayPath == "." {
+			displayPath = filepath.Base(cleanInitial)
 			if displayPath == "." {
-				displayPath = filepath.Base(cleanInitial)
-				if displayPath == "." {
-					displayPath = "(root)"
-				}
+				displayPath = "(root)"
 			}
-		} else {
-			displayPath = filepath.Base(fullPath)
 		}
+	} else {
+		displayPath = filepath.Base(fullPath)
+	}
 
-		isSelected := p.selected[fullPath]
-		if isDir && !isSelected {
-			if cached, ok := p.dirSelectionCache[fullPath]; ok {
-				isSelected = cached
-			} else {
-				var checkSelected func(string) bool
-				checkSelected = func(dirPath string) bool {
-					files, err := os.ReadDir(dirPath)
-					if err != nil {
-						return false
-					}
-					for _, file := range files {
-						entryPath := filepath.Join(dirPath, file.Name())
-						info, err := file.Info()
-						if err != nil {
-							continue
-						}
-
-						isDir := info.IsDir()
-						if info.Mode()&os.ModeSymlink != 0 {
-							statInfo, statErr := os.Stat(entryPath)
-							if statErr == nil {
-								isDir = statInfo.IsDir()
-							} else {
-								continue
-							}
-						}
-
-						if isDir {
-							if checkSelected(entryPath) {
-								return true
-							}
-						} else if p.selected[entryPath] {
-							return true
-						}
-					}
+	isSelected := p.selected[fullPath]
+	if isDir && !isSelected {
+		if cached, ok := p.dirSelectionCache[fullPath]; ok {
+			isSelected = cached
+		} else {
+			var checkSelected func(string) bool
+			checkSelected = func(dirPath string) bool {
+				files, err := os.ReadDir(dirPath)
+				if err != nil {
 					return false
 				}
-				isSelected = checkSelected(fullPath)
-				p.dirSelectionCache[fullPath] = isSelected
-			}
-		}
+				for _, file := range files {
+					entryPath := filepath.Join(dirPath, file.Name())
+					info, err := file.Info()
+					if err != nil {
+						continue
+					}
 
-		line := ""
-		style := "\x1b[0m"
-		if isSelected {
-			style += "\x1b[32m"
-			if isDir {
-				line = "✓ " + displayPath + "/"
-			} else {
-				line = "✓ " + displayPath
-			}
-		} else {
-			if isDir {
-				line = "▸ " + displayPath + "/"
-			} else {
-				line = "  " + displayPath
-			}
-		}
+					isDir := info.IsDir()
+					if info.Mode()&os.ModeSymlink != 0 {
+						statInfo, statErr := os.Stat(entryPath)
+						if statErr == nil {
+							isDir = statInfo.IsDir()
+						} else {
+							continue
+						}
+					}
 
-		if itemIdx == p.searchCursor {
-			style += "\x1b[7m"
-		}
-		if runewidth.StringWidth(line) > w-1 {
-			for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
-				line = line[:len(line)-1]
+					if isDir {
+						if checkSelected(entryPath) {
+							return true
+						}
+					} else if p.selected[entryPath] {
+						return true
+					}
+				}
+				return false
 			}
+			isSelected = checkSelected(fullPath)
+			p.dirSelectionCache[fullPath] = isSelected
 		}
-		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
 	}
+
+	line := ""
+	style := "\x1b[0m"
+	if isSelected {
+		style += "\x1b[32m"
+		if isDir {
+			line = "✓ " + displayPath + "/"
+		} else {
+			line = "✓ " + displayPath
+		}
+	} else {
+		if isDir {
+			line = "▸ " + displayPath + "/"
+		} else {
+			line = "  " + displayPath
+		}
+	}
+
+	if itemIdx == p.searchCursor {
+		style += "\x1b[7m"
+	}
+	if runewidth.StringWidth(line) > w-1 {
+		for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
+			line = line[:len(line)-1]
+		}
+	}
+	fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", y, style, line)
 }
 
 // renderDirectoryListContent is a helper for rendering the directory list content.
@@ -1119,21 +1254,29 @@ func (p *Library) renderFilteredListContent(w, listHeight, currentOffset int) {
 // renderDirectoryListContent 是一个用于渲染目录列表内容的辅助函数。
 func (p *Library) renderDirectoryListContent(w, listHeight, currentOffset int) {
 	for i := range listHeight {
-		entryIndex := currentOffset + i
-		if entryIndex >= len(p.entries) {
-			break
-		}
-
-		libEntry := p.entries[entryIndex]
-		fullPath := filepath.Join(p.currentPath, libEntry.entry.Name())
-		line, style := p.getDirEntryLine(libEntry, fullPath, entryIndex == p.cursor)
-		if runewidth.StringWidth(line) > w-1 {
-			for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
-				line = line[:len(line)-1]
-			}
-		}
-		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
+		p.drawDirListRow(w, i, currentOffset+i)
 	}
+}
+
+// drawDirListRow renders one directory browsing row, erasing the row first.
+//
+// drawDirListRow 先擦除整行再渲染一行目录浏览内容。
+func (p *Library) drawDirListRow(w, screenRow, entryIndex int) {
+	y := screenRow + 3
+	if entryIndex < 0 || entryIndex >= len(p.entries) {
+		fmt.Printf("\x1b[%d;1H\x1b[K", y)
+		return
+	}
+
+	libEntry := p.entries[entryIndex]
+	fullPath := filepath.Join(p.currentPath, libEntry.entry.Name())
+	line, style := p.getDirEntryLine(libEntry, fullPath, entryIndex == p.cursor)
+	if runewidth.StringWidth(line) > w-1 {
+		for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
+			line = line[:len(line)-1]
+		}
+	}
+	fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", y, style, line)
 }
 
 // getDirEntryLine generates the display line and style for a directory entry.
@@ -1214,27 +1357,27 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCurs
 //
 // drawScrollbar 在屏幕右侧绘制一个滚动条。
 func (p *Library) drawScrollbar(listHeight, totalItems, currentOffset int) {
-	if totalItems <= listHeight {
-		return
-	}
-
 	w, _, _ := term.GetSize(int(os.Stdout.Fd()))
-	thumbSize := max(listHeight*listHeight/totalItems, 1)
 
-	scrollRange := totalItems - listHeight
-	thumbRange := listHeight - thumbSize
-
+	thumbSize := 0
 	thumbStart := 0
-	if scrollRange > 0 {
-		thumbStart = currentOffset * thumbRange / scrollRange
+	if totalItems > listHeight {
+		thumbSize = max(listHeight*listHeight/totalItems, 1)
+		scrollRange := totalItems - listHeight
+		thumbRange := listHeight - thumbSize
+		if scrollRange > 0 {
+			thumbStart = currentOffset * thumbRange / scrollRange
+		}
 	}
 
 	for i := range listHeight {
-		if i >= thumbStart && i < thumbStart+thumbSize {
-			fmt.Printf("\x1b[%d;%dH┃", i+3, w)
-		} else {
-			fmt.Printf("\x1b[%d;%dH│", i+3, w)
+		cell := "│"
+		if totalItems <= listHeight {
+			cell = " "
+		} else if i >= thumbStart && i < thumbStart+thumbSize {
+			cell = "┃"
 		}
+		fmt.Printf("\x1b[%d;%dH%s", i+3, w, cell)
 	}
 }
 

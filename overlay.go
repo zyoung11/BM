@@ -361,20 +361,51 @@ func (a *App) overlayOpen() bool {
 	return a.helpOpen || a.confirmQuitOpen
 }
 
+// redrawOverlay redraws the topmost overlay on top of whatever the page just
+// rendered inside the same atomic frame, so modal overlays are never wiped by
+// page updates and never blink.
+//
+// redrawOverlay 在同一原子帧内、于页面刚渲染完的内容之上重绘最上层浮层，
+// 使模态浮层不会被页面更新冲掉，也不会闪烁。
+func (a *App) redrawOverlay() {
+	if a.helpOpen {
+		a.drawHelpPage()
+	} else if a.confirmQuitOpen {
+		a.drawQuitPrompt()
+	}
+}
+
+// quitPromptFits reports whether the terminal is large enough to display the
+// quit confirmation prompt readably; below that the prompt is skipped entirely.
+//
+// quitPromptFits 判断终端是否大到可以清晰显示退出确认提示；
+// 不满足时直接跳过提示。
+func quitPromptFits(w, h int) bool {
+	return w >= 40 && h >= 7
+}
+
 // wantsQuitConfirm reports whether the given page shows the quit confirmation
 // prompt instead of quitting immediately.
 //
 // wantsQuitConfirm 判断给定页面是否应显示退出确认提示而非直接退出。
 func wantsQuitConfirm(page Page) bool {
+	enabled := false
 	switch page.(type) {
 	case *PlayerPage:
-		return GlobalConfig.App.ConfirmQuitPlayer
+		enabled = GlobalConfig.App.ConfirmQuitPlayer
 	case *PlayList:
-		return GlobalConfig.App.ConfirmQuitPlaylist
+		enabled = GlobalConfig.App.ConfirmQuitPlaylist
 	case *Library:
-		return GlobalConfig.App.ConfirmQuitLibrary
+		enabled = GlobalConfig.App.ConfirmQuitLibrary
 	}
-	return false
+	if !enabled {
+		return false
+	}
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		w, h = 80, 24
+	}
+	return quitPromptFits(w, h)
 }
 
 // handleOverlayKey processes a key while the keyboard shortcuts help page or the
@@ -389,14 +420,14 @@ func (a *App) handleOverlayKey(key rune) bool {
 			return true
 		}
 		if key == '\x1b' || IsKey(key, GlobalConfig.Keymap.Global.Quit) {
-			a.confirmQuitOpen = false
 			a.pages[a.currentPageIndex].View()
+			a.confirmQuitOpen = false
 		}
 		return false
 	}
 	if key == '\x1b' || IsKey(key, GlobalConfig.Keymap.Global.Quit) || IsKey(key, GlobalConfig.Keymap.Global.ShowHelp) {
-		a.helpOpen = false
 		a.pages[a.currentPageIndex].View()
+		a.helpOpen = false
 	}
 	return false
 }
@@ -406,6 +437,8 @@ func (a *App) handleOverlayKey(key rune) bool {
 //
 // drawHelpPage 根据用户配置的按键绑定渲染全屏快捷键帮助页。
 func (a *App) drawHelpPage() {
+	a.beginFrame()
+	defer a.endFrame()
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		w, h = 80, 24
@@ -446,10 +479,10 @@ func (a *App) drawHelpPage() {
 		fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", max(h/2, 1), x, msg)
 	}
 
-	legend := "* only active while typing a search"
+	legend := "* Only active"
 	hint := "Press " + strings.Join(GlobalConfig.Keymap.Global.Quit, ", ") + " to go back"
 	if zh {
-		legend = "* 仅在输入搜索时有效"
+		legend = "* 仅输入时有效"
 		hint = "按 " + strings.Join(GlobalConfig.Keymap.Global.Quit, ", ") + " 返回"
 	}
 	hintX := max((w-runewidth.StringWidth(hint))/2, 0) + 1
@@ -465,9 +498,13 @@ func (a *App) drawHelpPage() {
 //
 // buildQuitKeysLine 在给定宽度内渲染退出提示的按键行，
 // 空间不足时省略动作词。
-func buildQuitKeysLine(width int, confirmKey, cancelKey string) string {
+func buildQuitKeysLine(width int, confirmKey, cancelKey string, zh bool) string {
 	suffixConfirm := " Quit"
 	suffixCancel := " Cancel"
+	if zh {
+		suffixConfirm = " 退出"
+		suffixCancel = " 取消"
+	}
 	gap := 6
 	total := runewidth.StringWidth(confirmKey+suffixConfirm) + gap + runewidth.StringWidth(cancelKey+suffixCancel)
 	if total > width {
@@ -489,19 +526,21 @@ func buildQuitKeysLine(width int, confirmKey, cancelKey string) string {
 // drawQuitPrompt 在当前页面之上居中渲染模态的退出确认提示，
 // 只覆写方框占用的列。
 func (a *App) drawQuitPrompt() {
+	a.beginFrame()
+	defer a.endFrame()
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		w, h = 80, 24
 	}
 
+	zh := GlobalConfig.App.HelpLanguage == "zh"
 	confirmKey := "enter"
 	cancelKey := "esc"
 	if keys := GlobalConfig.Keymap.Global.Quit; len(keys) > 0 {
 		cancelKey = keys[0]
 	}
 
-	if h < 5 {
-		fmt.Printf("\x1b[%d;1H\x1b[K%s", h, buildQuitKeysLine(w, confirmKey, cancelKey))
+	if !quitPromptFits(w, h) {
 		return
 	}
 
@@ -514,7 +553,11 @@ func (a *App) drawQuitPrompt() {
 
 	fmt.Printf("\x1b[%d;%dH\x1b[90m┌%s┐\x1b[0m", top, left, strings.Repeat("─", inner))
 
-	msg := truncateToWidthFromStart("Are you sure you want to quit?", inner)
+	msg := "Are you sure you want to quit?"
+	if zh {
+		msg = "确定要退出吗？"
+	}
+	msg = truncateToWidthFromStart(msg, inner)
 	msgWidth := runewidth.StringWidth(msg)
 	msgPad := max((inner-msgWidth)/2, 0)
 	msgLine := strings.Repeat(" ", msgPad) + msg + strings.Repeat(" ", max(inner-msgWidth-msgPad, 0))
@@ -522,7 +565,7 @@ func (a *App) drawQuitPrompt() {
 
 	fmt.Printf("\x1b[%d;%dH\x1b[90m│%s│\x1b[0m", top+2, left, strings.Repeat(" ", inner))
 
-	keysLine := buildQuitKeysLine(inner, confirmKey, cancelKey)
+	keysLine := buildQuitKeysLine(inner, confirmKey, cancelKey, zh)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m│\x1b[0m%s\x1b[90m│\x1b[0m", top+3, left, keysLine)
 
 	fmt.Printf("\x1b[%d;%dH\x1b[90m└%s┘\x1b[0m", top+4, left, strings.Repeat("─", inner))
