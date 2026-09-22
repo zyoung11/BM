@@ -27,22 +27,47 @@ type LibraryEntry struct {
 	isDir bool // True if it's a directory or a symlink to a directory. / 如果是目录或指向目录的符号链接，则为true。
 }
 
+// searchReturnState stores the search view state to restore when the user exits
+// a directory that was entered from the search results.
+//
+// searchReturnState 保存从搜索结果进入目录后退出该目录时需要恢复的搜索视图状态。
+type searchReturnState struct {
+	browsePath  string
+	enteredPath string
+	query       string
+	cursor      int
+	offset      int
+}
+
 // Library browses the music directory and adds songs to the playlist.
 //
 // Library 浏览音乐目录并将歌曲添加到播放列表。
 type Library struct {
 	app *App
 
-	entries           []LibraryEntry // All entries in the current directory. / 当前目录中的所有条目。
-	currentPath       string
-	initialPath       string // The starting path provided to the application. / 提供给应用程序的起始路径。
-	cursor            int
-	selected          map[string]bool // Use file path as key for persistent selection. / 使用文件路径作为持久选择的键。
-	offset            int             // For scrolling the view. / 用于滚动视图。
-	pathHistory       map[string]int  // Store cursor position for each path. / 存储每个路径的光标位置。
-	lastEntered       string          // Store the name of the last entered directory. / 存储最后进入的目录的名称。
-	isSearching       bool
-	searchQuery       string
+	entries     []LibraryEntry // All entries in the current directory. / 当前目录中的所有条目。
+	currentPath string
+	initialPath string // The starting path provided to the application. / 提供给应用程序的起始路径。
+	cursor      int
+	selected    map[string]bool // Use file path as key for persistent selection. / 使用文件路径作为持久选择的键。
+	offset      int             // For scrolling the view. / 用于滚动视图。
+	pathHistory map[string]int  // Store cursor position for each path. / 存储每个路径的光标位置。
+	lastEntered string          // Store the name of the last entered directory. / 存储最后进入的目录的名称。
+	isSearching bool
+	searchQuery string
+	// searchCursor is the UI cursor on the search results.
+	//
+	// searchCursor 是搜索结果上的UI光标。
+	searchCursor int
+	// searchOffset is the scroll offset of the search results.
+	//
+	// searchOffset 是搜索结果的滚动偏移。
+	searchOffset int
+	// searchReturns stacks the saved search states of directories entered from
+	// the search results.
+	//
+	// searchReturns 堆叠保存从搜索结果进入目录时暂存的搜索状态。
+	searchReturns     []searchReturnState
 	globalFileCache   []string // Cache of all audio file paths. / 所有音频文件路径的缓存。
 	filteredSongPaths []string // Results of the current search. / 当前搜索的结果。
 	searchEngine      *search.Engine
@@ -288,8 +313,19 @@ func (p *Library) filterSongs() {
 			p.searchDirCount++
 		}
 	}
-	p.cursor = 0
-	p.offset = 0
+	p.clampSearchCursor()
+}
+
+// clampSearchCursor keeps the search cursor within the bounds of the filtered results.
+//
+// clampSearchCursor 将搜索光标保持在过滤结果的范围内。
+func (p *Library) clampSearchCursor() {
+	if p.searchCursor >= len(p.filteredSongPaths) {
+		p.searchCursor = max(len(p.filteredSongPaths)-1, 0)
+	}
+	if p.searchCursor < 0 {
+		p.searchCursor = 0
+	}
 }
 
 // Init initializes the library by scanning the starting directory.
@@ -313,6 +349,8 @@ func (p *Library) handleSearchInput(key rune) {
 		if len(p.searchQuery) > 0 {
 			runes := []rune(p.searchQuery)
 			p.searchQuery = string(runes[:len(runes)-1])
+			p.searchCursor = 0
+			p.searchOffset = 0
 			p.filterSongs()
 		}
 	} else if key == KeyArrowUp || key == KeyArrowDown || key == KeyArrowLeft || key == KeyArrowRight {
@@ -320,6 +358,8 @@ func (p *Library) handleSearchInput(key rune) {
 	} else {
 		if key >= 32 {
 			p.searchQuery += string(key)
+			p.searchCursor = 0
+			p.searchOffset = 0
 			p.filterSongs()
 		}
 	}
@@ -346,6 +386,9 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 			p.scanDirectory(newPath)
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavExitDir) {
+		if p.exitToSearchResults() {
+			return nil, false, nil
+		}
 		currentAbs, _ := filepath.Abs(p.currentPath)
 		initialAbs, _ := filepath.Abs(p.initialPath)
 		if currentAbs != initialAbs {
@@ -385,15 +428,17 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 		p.isSearching = true
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavUp) {
 		if len(p.filteredSongPaths) > 0 {
-			p.cursor = (p.cursor - 1 + len(p.filteredSongPaths)) % len(p.filteredSongPaths)
+			p.searchCursor = (p.searchCursor - 1 + len(p.filteredSongPaths)) % len(p.filteredSongPaths)
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavDown) {
 		if len(p.filteredSongPaths) > 0 {
-			p.cursor = (p.cursor + 1) % len(p.filteredSongPaths)
+			p.searchCursor = (p.searchCursor + 1) % len(p.filteredSongPaths)
 		}
+	} else if IsKey(key, GlobalConfig.Keymap.Library.NavEnterDir) {
+		p.enterDirFromSearchResults()
 	} else if IsKey(key, GlobalConfig.Keymap.Library.ToggleSelect) {
-		if p.cursor < len(p.filteredSongPaths) {
-			path := p.filteredSongPaths[p.cursor]
+		if p.searchCursor < len(p.filteredSongPaths) {
+			path := p.filteredSongPaths[p.searchCursor]
 			info, err := os.Stat(path)
 			if err == nil && info.IsDir() {
 				var songsInDir []string
@@ -451,14 +496,64 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 			} else {
 				p.toggleSelection(path)
 			}
-			if p.cursor < len(p.filteredSongPaths)-1 {
-				p.cursor++
+			if p.searchCursor < len(p.filteredSongPaths)-1 {
+				p.searchCursor++
 			}
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.ToggleSelectAll) {
 		p.toggleSelectAll(true)
 	}
 	return nil, false, nil
+}
+
+// enterDirFromSearchResults enters the directory under the cursor in the search
+// results and saves the search view state to restore when the user exits it.
+//
+// enterDirFromSearchResults 进入搜索结果中光标所在的目录，并保存退出该目录时
+// 需要恢复的搜索视图状态。
+func (p *Library) enterDirFromSearchResults() {
+	if p.searchCursor < 0 || p.searchCursor >= len(p.filteredSongPaths) {
+		return
+	}
+	path := p.filteredSongPaths[p.searchCursor]
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return
+	}
+	p.searchReturns = append(p.searchReturns, searchReturnState{
+		browsePath:  p.currentPath,
+		enteredPath: path,
+		query:       p.searchQuery,
+		cursor:      p.searchCursor,
+		offset:      p.searchOffset,
+	})
+	p.searchQuery = ""
+	p.searchCursor = 0
+	p.searchOffset = 0
+	p.scanDirectory(path)
+}
+
+// exitToSearchResults leaves a directory that was entered from the search results
+// and restores the search view state saved on entry. It reports whether the
+// switch happened.
+//
+// exitToSearchResults 退出从搜索结果进入的目录，并恢复进入时保存的搜索视图状态。
+// 返回值表示是否完成了该切换。
+func (p *Library) exitToSearchResults() bool {
+	if len(p.searchReturns) == 0 {
+		return false
+	}
+	top := p.searchReturns[len(p.searchReturns)-1]
+	if filepath.Clean(top.enteredPath) != filepath.Clean(p.currentPath) {
+		return false
+	}
+	p.searchReturns = p.searchReturns[:len(p.searchReturns)-1]
+	p.searchQuery = top.query
+	p.searchCursor = top.cursor
+	p.searchOffset = top.offset
+	p.filterSongs()
+	p.scanDirectory(top.browsePath)
+	return true
 }
 
 // HandleKey routes user input based on the current mode (directory view, search results, or search input).
@@ -758,20 +853,27 @@ func (p *Library) View() {
 
 	listHeight := h - 4
 
-	var currentListLength int
-	var currentCursor int
-	var currentOffset int
+	isSearchView := p.searchQuery != ""
 
-	if p.searchQuery != "" {
+	var currentListLength int
+	if isSearchView {
 		currentListLength = len(p.filteredSongPaths)
 	} else {
 		currentListLength = len(p.entries)
 	}
-	currentCursor = p.cursor
-	currentOffset = p.offset
+
+	var currentCursor int
+	var currentOffset int
+	if isSearchView {
+		currentCursor = p.searchCursor
+		currentOffset = p.searchOffset
+	} else {
+		currentCursor = p.cursor
+		currentOffset = p.offset
+	}
 
 	effectiveHeight := listHeight
-	if p.searchQuery != "" && p.searchDirCount > 0 && p.searchDirCount < len(p.filteredSongPaths) {
+	if isSearchView && p.searchDirCount > 0 && p.searchDirCount < len(p.filteredSongPaths) {
 		effectiveHeight--
 	}
 	if currentCursor < currentOffset {
@@ -781,30 +883,49 @@ func (p *Library) View() {
 		currentOffset = currentCursor - effectiveHeight + 1
 	}
 
-	p.offset = currentOffset
+	if isSearchView {
+		p.searchOffset = currentOffset
+	} else {
+		p.offset = currentOffset
+	}
 
 	if p.isSearching || p.searchQuery != "" {
 		p.drawSearchFooter(w, h, fmt.Sprintf("Search: %s", p.searchQuery))
 	} else {
-		p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", filepath.Base(p.currentPath)))
+		p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", p.rootDisplayPath()))
 	}
 
-	if p.searchQuery != "" {
-		p.renderFilteredListContent(w, h, listHeight, currentOffset)
+	if isSearchView {
+		p.renderFilteredListContent(w, listHeight, currentOffset)
 	} else {
-		p.renderDirectoryListContent(w, h, listHeight, currentOffset)
+		p.renderDirectoryListContent(w, listHeight, currentOffset)
 	}
 
-	p.drawScrollbar(h, listHeight, currentListLength, currentOffset)
+	p.drawScrollbar(listHeight, currentListLength, currentOffset)
+}
+
+// rootDisplayPath returns the current path shown relative to the music library
+// root, using the user's music folder name as the root node, e.g. "music/JENNIE".
+//
+// rootDisplayPath 返回以用户音乐文件夹名作为根节点的当前路径显示文本，
+// 例如 "music/JENNIE"。
+func (p *Library) rootDisplayPath() string {
+	root := filepath.Base(filepath.Clean(p.initialPath))
+	if root == "." || root == string(filepath.Separator) {
+		root = filepath.Clean(p.initialPath)
+	}
+	rel, err := filepath.Rel(p.initialPath, p.currentPath)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return root
+	}
+	return filepath.Join(root, rel)
 }
 
 // drawSearchFooter is a helper for drawing the search footer with cursor positioning.
 //
 // drawSearchFooter 是一个用于绘制带有光标定位的搜索页脚的辅助函数。
 func (p *Library) drawSearchFooter(w, h int, footerText string) {
-	if len(footerText) > w {
-		footerText = "..." + footerText[len(footerText)-w+3:]
-	}
+	footerText = truncateToWidth(footerText, w)
 	footerX := max((w-len(footerText))/2, 1)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
 	if p.isSearching {
@@ -819,18 +940,34 @@ func (p *Library) drawSearchFooter(w, h int, footerText string) {
 //
 // drawPathFooter 是一个用于绘制路径页脚的辅助函数。
 func (p *Library) drawPathFooter(w, h int, footerText string) {
-	if len(footerText) > w {
-		footerText = "..." + footerText[len(footerText)-w+3:]
-	}
+	footerText = truncateToWidth(footerText, w)
 	footerX := max((w-len(footerText))/2, 1)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
+}
+
+// truncateToWidth shortens text with a leading ellipsis so that its display
+// width fits within the given width.
+//
+// truncateToWidth 以省略号开头对文本进行截断，使其显示宽度不超过给定宽度。
+func truncateToWidth(text string, w int) string {
+	if w <= 3 {
+		return ""
+	}
+	if runewidth.StringWidth(text) <= w {
+		return text
+	}
+	runes := []rune(text)
+	for len(runes) > 0 && runewidth.StringWidth("..."+string(runes)) > w {
+		runes = runes[1:]
+	}
+	return "..." + string(runes)
 }
 
 // renderFilteredListContent renders the search results with directories on top,
 // files on bottom, separated by a gray dashed line.
 //
 // renderFilteredListContent 渲染搜索结果，目录在上，歌曲在下，中间用灰色虚线分隔。
-func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int) {
+func (p *Library) renderFilteredListContent(w, listHeight, currentOffset int) {
 	dirCount := p.searchDirCount
 	totalCount := len(p.filteredSongPaths)
 	hasSep := dirCount > 0 && dirCount < totalCount
@@ -947,7 +1084,7 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 			}
 		}
 
-		if itemIdx == p.cursor {
+		if itemIdx == p.searchCursor {
 			style += "\x1b[7m"
 		}
 		if runewidth.StringWidth(line) > w-1 {
@@ -962,7 +1099,7 @@ func (p *Library) renderFilteredListContent(w, h, listHeight, currentOffset int)
 // renderDirectoryListContent is a helper for rendering the directory list content.
 //
 // renderDirectoryListContent 是一个用于渲染目录列表内容的辅助函数。
-func (p *Library) renderDirectoryListContent(w, h, listHeight, currentOffset int) {
+func (p *Library) renderDirectoryListContent(w, listHeight, currentOffset int) {
 	for i := range listHeight {
 		entryIndex := currentOffset + i
 		if entryIndex >= len(p.entries) {
@@ -1058,7 +1195,7 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCurs
 // drawScrollbar draws a scrollbar on the right side of the screen.
 //
 // drawScrollbar 在屏幕右侧绘制一个滚动条。
-func (p *Library) drawScrollbar(h, listHeight, totalItems, currentOffset int) {
+func (p *Library) drawScrollbar(listHeight, totalItems, currentOffset int) {
 	if totalItems <= listHeight {
 		return
 	}

@@ -105,8 +105,31 @@ func (p *PlayList) filterPlaylist() {
 		}
 	}
 
-	p.cursor = 0
-	p.offset = 0
+	p.clampCursor()
+}
+
+// clampCursor keeps the cursor within the bounds of the current playlist view.
+//
+// clampCursor 将光标保持在当前播放列表视图的范围内。
+func (p *PlayList) clampCursor() {
+	if p.cursor >= len(p.viewPlaylist) {
+		p.cursor = max(len(p.viewPlaylist)-1, 0)
+	}
+	if p.cursor < 0 {
+		p.cursor = 0
+	}
+}
+
+// mapCursorToFullList maps the cursor position from the filtered view back to the
+// corresponding index of the full playlist, so clearing the search keeps the
+// pointer where the user was.
+//
+// mapCursorToFullList 将过滤视图中的光标位置映射回完整播放列表的对应索引，
+// 使清除搜索后指针仍停留在用户原先的位置。
+func (p *PlayList) mapCursorToFullList() {
+	if p.cursor >= 0 && p.cursor < len(p.originalIndices) {
+		p.cursor = p.originalIndices[p.cursor]
+	}
 }
 
 // ensureSearchIndex rebuilds the search index only when the playlist changed
@@ -131,12 +154,15 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 			p.isSearching = false
 		} else if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
 			p.isSearching = false
+			p.mapCursorToFullList()
 			p.searchQuery = ""
 			p.filterPlaylist()
 		} else if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.SearchBackspace) {
 			if len(p.searchQuery) > 0 {
 				runes := []rune(p.searchQuery)
 				p.searchQuery = string(runes[:len(runes)-1])
+				p.cursor = 0
+				p.offset = 0
 				p.filterPlaylist()
 			}
 		} else if key == KeyArrowUp || key == KeyArrowDown || key == KeyArrowLeft || key == KeyArrowRight {
@@ -144,6 +170,8 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 		} else {
 			if key >= 32 {
 				p.searchQuery += string(key)
+				p.cursor = 0
+				p.offset = 0
 				p.filterPlaylist()
 			}
 		}
@@ -154,6 +182,7 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 	needRedraw := true
 	if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
 		if p.searchQuery != "" {
+			p.mapCursorToFullList()
 			p.searchQuery = ""
 			p.filterPlaylist()
 		}
