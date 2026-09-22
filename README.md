@@ -23,14 +23,17 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 - **Album cover display**: Supports Kitty, Sixel, iTerm2 image protocols
 - **Smart color scheme**: Extracts colors from album covers for UI
 - **Multi-page system**: Player, Playlist, and Library main pages
-- **Multiplexer support**: Runs inside tmux, zellij and GNU screen with an automatic text-only layout
+- **Multiplexer support**: Runs inside tmux, zellij and GNU screen with an automatic text-only layout and flicker-free incremental list updates
+- **Shortcut help**: Press `?` for a full-screen cheat sheet of every configured key, in English or Chinese
+- **Quit confirmation**: Quitting asks for confirmation first, with a separate toggle per page
 
 ### Media Management
 
 ![](images/image2.png)
 
-- **Filesystem browsing**: Complete directory navigation functionality
-- **Fuzzy search**: Supports Chinese and English fuzzy matching
+- **Filesystem browsing**: Complete directory navigation, with the status line showing the path from your music folder root
+- **Fuzzy search**: Supports Chinese and English fuzzy matching, and directories in the results open like ordinary folders
+- **Position memory**: Cursors and search state survive page switches, and leaving a folder entered from search drops you back into the results
 - **Playlist**: Dynamic playlist management
 - **Playback history**: Dynamic history limit (min of max_history_size and playlist length), only records in shuffle mode
 - **Corrupted file detection**: Automatically marks unplayable files
@@ -45,6 +48,7 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 ### Highly Configurable
 
 - **Key mappings**: Fully customizable all shortcuts
+- **Quit behavior**: Confirmation prompts toggle per page, prompts and help text come in English or Chinese
 - **Playback modes**: Single repeat, list repeat, shuffle with sliding window (avoid frequent repeats)
 - **Startup behavior**: Configurable default page with memory mode, auto-play
 - **Image protocol**: Auto-detection or manual specification of terminal image protocol
@@ -117,11 +121,12 @@ You can use [FNE](https://github.com/zyoung11/FNE) another tool I made to decryp
 
 | Key | Function |
 |------|------|
-| `ESC` | Exit program |
+| `ESC` | Step back one level, or exit the program when nothing is left to step out of |
 | `TAB` | Cycle through pages |
 | `1` | Switch to player page |
 | `2` | Switch to playlist page |
 | `3` | Switch to library page |
+| `?` | Show the keyboard shortcut help |
 
 #### Player Page
 | Key | Function |
@@ -168,13 +173,23 @@ You can use [FNE](https://github.com/zyoung11/FNE) another tool I made to decryp
 | `ESC` | Exit search |
 | `Backspace` | Delete search character |
 
+`ESC` backs out one layer at a time. Search input closes first, then search results clear, then each directory level steps up. Only at the top level of the library or playlist with no search active does `ESC` quit, and by default it asks for confirmation first.
+
 ## Configuration
 
 Configuration file is located at `~/.config/BM/config.toml` and will be automatically created on first run.
 
 ### Key Mapping Configuration
 
-The configuration file supports complete key mapping customization, supporting single keys or key lists. Refer to the generated default configuration file for detailed settings.
+The configuration file supports complete key mapping customization, supporting single keys or key lists. Refer to the generated default configuration file for detailed settings. The shortcut help key lives in `[keymap.global]` as `ShowHelp`, bound to `?` out of the box.
+
+### Quit Confirmation
+
+Quitting asks for confirmation on the player, playlist and library pages, each controlled by `confirm_quit_player`, `confirm_quit_playlist` and `confirm_quit_library`. All three default to `true`, and setting one to `false` quits immediately from that page. Terminals too small to fit the prompt skip it and quit right away.
+
+### Interface Language
+
+`help_language = "en"` or `"zh"` picks the language of the shortcut help page and the quit confirmation. English is the default.
 
 ### Icon Configuration
 
