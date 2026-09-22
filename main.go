@@ -87,6 +87,15 @@ type App struct {
 	//
 	// confirmQuitOpen 表示退出确认提示正在显示。
 	confirmQuitOpen bool
+	// frameDepth tracks nested atomic screen updates.
+	//
+	// frameDepth 跟踪原子屏幕更新的嵌套深度。
+	frameDepth int
+	// diffRender enables differential list rendering without full-screen clears
+	// inside terminal multiplexers.
+	//
+	// diffRender 在终端复用器内启用无全屏清除的差分列表渲染。
+	diffRender bool
 
 	// Playlist is owned by the main thread; the only writer is setPlaylist,
 	// which republishes derived metadata for cross-goroutine readers (MPRIS).
@@ -177,9 +186,11 @@ func (a *App) switchToPage(index int) {
 			}
 		}
 		newPage := a.pages[a.currentPageIndex]
+		a.beginFrame()
 		fmt.Print("\x1b[2J\x1b[3J\x1b[H") // Clear screen completely
 		newPage.Init()
 		newPage.View()
+		a.endFrame()
 	}
 }
 
@@ -357,9 +368,11 @@ func (a *App) PlaySongWithSwitchAndRender(songPath string, switchToPlayer bool, 
 		if forceRender {
 			// This is for song changes during runtime.
 			// Clear the screen and redraw the page.
+			a.beginFrame()
 			fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 			playerPage.Init()
 			playerPage.View()
+			a.endFrame()
 		}
 		// If forceRender is false (autostart), do nothing more.
 		// The initial render is handled by app.Run().
@@ -700,7 +713,10 @@ func (a *App) Run() error {
 		currentPage := a.pages[a.currentPageIndex]
 		select {
 		case action := <-a.actionQueue:
+			a.beginFrame()
 			action()
+			a.redrawOverlay()
+			a.endFrame()
 
 		case key := <-keyCh:
 			if a.overlayOpen() {
@@ -713,24 +729,16 @@ func (a *App) Run() error {
 				continue
 			}
 			if IsKey(key, GlobalConfig.Keymap.Global.Quit) {
-				if isInSearchMode(currentPage) {
-					_, needsRedraw, err := currentPage.HandleKey(key)
-					if err != nil {
-						return nil
-					}
-					if needsRedraw {
-						currentPage.View()
-					}
+				if tryPageBack(currentPage) {
+					currentPage.View()
+				} else if wantsQuitConfirm(currentPage) {
+					a.confirmQuitOpen = true
+					a.drawQuitPrompt()
 				} else {
-					if wantsQuitConfirm(currentPage) {
-						a.confirmQuitOpen = true
-						a.drawQuitPrompt()
-					} else {
-						if a.switchedToRandom {
-							a.recordCurrentSongToHistory()
-						}
-						return nil
+					if a.switchedToRandom {
+						a.recordCurrentSongToHistory()
 					}
+					return nil
 				}
 			} else if isActivelySearching(currentPage) {
 				// In search mode, pass all keys to the page's handler first.
@@ -770,9 +778,15 @@ func (a *App) Run() error {
 				}
 				return nil
 			}
-			if err := currentPage.HandleSignal(sig); err != nil {
-				return err
+			a.beginFrame()
+			if !a.helpOpen {
+				if err := currentPage.HandleSignal(sig); err != nil {
+					a.endFrame()
+					return err
+				}
 			}
+			a.redrawOverlay()
+			a.endFrame()
 
 		case <-a.quitChan:
 			if a.switchedToRandom {
@@ -781,17 +795,13 @@ func (a *App) Run() error {
 			return nil
 
 		case <-ticker.C:
+			a.beginFrame()
 			a.tickPlayback()
 			if !a.helpOpen {
 				currentPage.Tick()
 			}
-		}
-
-		if a.helpOpen {
-			a.drawHelpPage()
-		} else if a.confirmQuitOpen {
-			currentPage.View()
-			a.drawQuitPrompt()
+			a.redrawOverlay()
+			a.endFrame()
 		}
 	}
 }
@@ -809,15 +819,18 @@ func isActivelySearching(page Page) bool {
 	return false
 }
 
-// isInSearchMode checks if the current page is in search mode.
+// tryPageBack performs one outward step on the given page: leave the search
+// input, clear the search results or step out of a directory. It reports
+// whether the page still had somewhere to go; when false the quit flow runs.
 //
-// isInSearchMode 检查当前页面是否处于搜索模式。
-func isInSearchMode(page Page) bool {
-	if lib, ok := page.(*Library); ok {
-		return lib.isSearching || lib.searchQuery != ""
-	}
-	if pl, ok := page.(*PlayList); ok {
-		return pl.isSearching || pl.searchQuery != ""
+// tryPageBack 在给定页面上执行一步向外操作：退出搜索输入、清除搜索结果或退出一层目录。
+// 返回值表示页面是否还有可后退的空间；为 false 时转而执行退出流程。
+func tryPageBack(page Page) bool {
+	switch p := page.(type) {
+	case *Library:
+		return p.escapeBack()
+	case *PlayList:
+		return p.escapeBack()
 	}
 	return false
 }
@@ -981,7 +994,9 @@ func runApplication(dirPath string) error {
 		notificationsEnabled: GlobalConfig.App.EnableNotifications,
 	}
 	app.setPlaylist(playlist)
-	app.forcedTextMode = inTerminalMultiplexer()
+	inMultiplexer := inTerminalMultiplexer()
+	app.forcedTextMode = inMultiplexer
+	app.diffRender = inMultiplexer
 
 	if GlobalConfig.App.DefaultPage == 3 {
 		savedPage, err := LoadPage()

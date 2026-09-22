@@ -198,11 +198,19 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 		needRedraw = false
 	} else if IsKey(key, GlobalConfig.Keymap.Playlist.NavUp) {
 		if len(p.viewPlaylist) > 0 {
+			oldCursor := p.cursor
 			p.cursor = (p.cursor - 1 + len(p.viewPlaylist)) % len(p.viewPlaylist)
+			if p.tryFastCursorMove(oldCursor) {
+				needRedraw = false
+			}
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Playlist.NavDown) {
 		if len(p.viewPlaylist) > 0 {
+			oldCursor := p.cursor
 			p.cursor = (p.cursor + 1) % len(p.viewPlaylist)
+			if p.tryFastCursorMove(oldCursor) {
+				needRedraw = false
+			}
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Playlist.RemoveSong) {
 		oldCursor := p.cursor
@@ -220,6 +228,28 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 		p.View()
 	}
 	return nil, false, nil
+}
+
+// escapeBack performs one outward step: leave the search input or clear the
+// search results. It reports whether anything was still left to back out of.
+//
+// escapeBack 执行一步向外操作：退出搜索输入或清除搜索结果。
+// 返回值表示是否还有可后退的空间。
+func (p *PlayList) escapeBack() bool {
+	if p.isSearching {
+		p.isSearching = false
+		p.mapCursorToFullList()
+		p.searchQuery = ""
+		p.filterPlaylist()
+		return true
+	}
+	if p.searchQuery != "" {
+		p.mapCursorToFullList()
+		p.searchQuery = ""
+		p.filterPlaylist()
+		return true
+	}
+	return false
 }
 
 // removeCurrentSong removes the song at the current cursor position.
@@ -308,16 +338,21 @@ func (p *PlayList) HandleSignal(sig os.Signal) error {
 //
 // View 渲染播放列表。
 func (p *PlayList) View() {
+	p.app.beginFrame()
+	defer p.app.endFrame()
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		w, h = 80, 24
 	}
 
-	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
+	if !p.app.diffRender {
+		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
+	}
 
 	title := "PlayList"
 	titleX := (w - len(title)) / 2
-	fmt.Printf("\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+	fmt.Printf("\x1b[1;1H\x1b[K\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+	fmt.Printf("\x1b[2;1H\x1b[K")
 
 	listHeight := h - 4
 
@@ -331,6 +366,7 @@ func (p *PlayList) View() {
 		footer = "..." + footer[len(footer)-w+3:]
 	}
 	footerX := max((w-len(footer))/2, 1)
+	fmt.Printf("\x1b[%d;1H\x1b[K", h)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
@@ -340,6 +376,9 @@ func (p *PlayList) View() {
 	}
 
 	if len(p.viewPlaylist) == 0 {
+		for i := range listHeight {
+			fmt.Printf("\x1b[%d;1H\x1b[K", i+3)
+		}
 		msg := "PlayList is empty"
 		if p.searchQuery != "" {
 			msg = "No songs match your search"
@@ -364,55 +403,97 @@ func (p *PlayList) View() {
 	}
 
 	for i := range listHeight {
-		trackIndex := p.offset + i
-		if trackIndex >= len(p.viewPlaylist) {
-			break
-		}
-
-		trackPath := p.viewPlaylist[trackIndex]
-		trackName := filepath.Base(trackPath)
-
-		style := "\x1b[32m"
-		if trackPath == p.app.currentSongPath {
-			style = "\x1b[31m"
-		}
-		if p.app.IsFileCorrupted(trackPath) {
-			style = "\x1b[33m"
-		}
-		if trackIndex == p.cursor {
-			style += "\x1b[7m"
-		}
-
-		prefix := "✓"
-		if p.app.IsFileCorrupted(trackPath) {
-			prefix = "⚠"
-		}
-		line := fmt.Sprintf("%s %s", prefix, trackName)
-		if runewidth.StringWidth(line) > w-1 {
-			for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
-				line = line[:len(line)-1]
-			}
-		}
-		fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", i+3, style, line)
+		p.drawTrackListRow(w, i, p.offset+i)
 	}
 
+	fmt.Printf("\x1b[%d;1H\x1b[K", h-1)
+
 	totalItems := len(p.viewPlaylist)
+	thumbSize := 0
+	thumbStart := 0
 	if totalItems > listHeight {
-		thumbSize := max(listHeight*listHeight/totalItems, 1)
+		thumbSize = max(listHeight*listHeight/totalItems, 1)
 		scrollRange := totalItems - listHeight
 		thumbRange := listHeight - thumbSize
-		thumbStart := 0
 		if scrollRange > 0 {
 			thumbStart = p.offset * thumbRange / scrollRange
 		}
-		for i := range listHeight {
-			if i >= thumbStart && i < thumbStart+thumbSize {
-				fmt.Printf("\x1b[%d;%dH┃", i+3, w)
-			} else {
-				fmt.Printf("\x1b[%d;%dH│", i+3, w)
-			}
+	}
+	for i := range listHeight {
+		cell := "│"
+		if totalItems <= listHeight {
+			cell = " "
+		} else if i >= thumbStart && i < thumbStart+thumbSize {
+			cell = "┃"
+		}
+		fmt.Printf("\x1b[%d;%dH%s", i+3, w, cell)
+	}
+}
+
+// drawTrackListRow renders one playlist row, erasing the row first.
+//
+// drawTrackListRow 先擦除整行再渲染一行播放列表内容。
+func (p *PlayList) drawTrackListRow(w, screenRow, trackIndex int) {
+	y := screenRow + 3
+	if trackIndex < 0 || trackIndex >= len(p.viewPlaylist) {
+		fmt.Printf("\x1b[%d;1H\x1b[K", y)
+		return
+	}
+
+	trackPath := p.viewPlaylist[trackIndex]
+	trackName := filepath.Base(trackPath)
+
+	style := "\x1b[32m"
+	if trackPath == p.app.currentSongPath {
+		style = "\x1b[31m"
+	}
+	if p.app.IsFileCorrupted(trackPath) {
+		style = "\x1b[33m"
+	}
+	if trackIndex == p.cursor {
+		style += "\x1b[7m"
+	}
+
+	prefix := "✓"
+	if p.app.IsFileCorrupted(trackPath) {
+		prefix = "⚠"
+	}
+	line := fmt.Sprintf("%s %s", prefix, trackName)
+	if runewidth.StringWidth(line) > w-1 {
+		for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
+			line = line[:len(line)-1]
 		}
 	}
+	fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", y, style, line)
+}
+
+// tryFastCursorMove redraws only the old and new cursor rows after a cursor move
+// that keeps the view window in place. It reports whether the redraw already
+// happened and only runs in differential rendering mode.
+//
+// tryFastCursorMove 在光标移动不改变视图窗口时只重绘新旧光标行。
+// 返回值表示是否已完成重绘，仅在差分渲染模式下生效。
+func (p *PlayList) tryFastCursorMove(oldCursor int) bool {
+	if !p.app.diffRender {
+		return false
+	}
+	w, h, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		w, h = 80, 24
+	}
+	listHeight := h - 4
+
+	newOffset := min(p.cursor, p.offset)
+	if p.cursor >= newOffset+listHeight {
+		newOffset = p.cursor - listHeight + 1
+	}
+	if newOffset != p.offset {
+		return false
+	}
+
+	p.drawTrackListRow(w, oldCursor-p.offset, oldCursor)
+	p.drawTrackListRow(w, p.cursor-p.offset, p.cursor)
+	return true
 }
 
 // Tick for PlayList does nothing, as it's event-driven.

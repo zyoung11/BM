@@ -271,6 +271,8 @@ func (p *PlayerPage) HandleSignal(sig os.Signal) error {
 //
 // View 将播放器UI渲染到屏幕上。
 func (p *PlayerPage) View() {
+	p.app.beginFrame()
+	defer p.app.endFrame()
 	if p.flacPath == "" {
 		p.displayEmptyState()
 		return
@@ -368,6 +370,7 @@ func (p *PlayerPage) showLayoutIndicator() {
 		w, h = 80, 24
 	}
 
+	p.app.beginFrame()
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 
 	var layoutStr string
@@ -387,6 +390,7 @@ func (p *PlayerPage) showLayoutIndicator() {
 	msgX := (w - len(layoutStr)) / 2
 	centerRow := h / 2
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow, msgX, layoutStr)
+	p.app.endFrame()
 
 	time.Sleep(500 * time.Millisecond)
 	p.lastLayoutSwitchTime = time.Now()

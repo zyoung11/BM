@@ -25,6 +25,37 @@ const (
 	ProtocolITerm2
 )
 
+// beginFrame starts an atomic screen update using the synchronized output mode
+// while a modal overlay is open, so overlay-adjacent redraws appear on screen in
+// one step. Nested calls are transparent. Outside overlays it does nothing, so
+// ordinary rendering stays incremental and keeps its previous feel.
+//
+// beginFrame 在模态浮层打开期间使用同步输出模式开始一次原子屏幕更新，
+// 使浮层相关的重绘一次性上屏。嵌套调用是透明的；浮层之外它不做任何事，
+// 使普通渲染保持渐进式和原有的手感。
+func (a *App) beginFrame() {
+	if !a.helpOpen && !a.confirmQuitOpen {
+		return
+	}
+	if a.frameDepth == 0 {
+		fmt.Print("\x1b[?2026h")
+	}
+	a.frameDepth++
+}
+
+// endFrame finishes an atomic screen update and flushes it at the outermost level.
+//
+// endFrame 结束一次原子屏幕更新，在最外层时上屏。
+func (a *App) endFrame() {
+	if a.frameDepth == 0 {
+		return
+	}
+	a.frameDepth--
+	if a.frameDepth == 0 {
+		fmt.Print("\x1b[?2026l")
+	}
+}
+
 var kittyImageID uint32 = uint32(os.Getpid()<<16) + uint32(time.Now().UnixMicro()&0xFFFF)
 
 var kittyZlibPool = sync.Pool{
