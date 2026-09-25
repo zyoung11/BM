@@ -835,11 +835,21 @@ func tryPageBack(page Page) bool {
 	return false
 }
 
+// version is the release version, kept in sync with the GitHub release tag
+// and the AUR pkgver.
+//
+// version 是发布版本号，与 GitHub release tag 和 AUR pkgver 保持一致。
+const version = "v0.5.1"
+
 func main() {
 	defer cleanupTempCoverFiles()
 
 	if len(os.Args) >= 2 {
 		arg := os.Args[1]
+		if arg == "--version" || arg == "-v" || arg == "-V" {
+			fmt.Printf("bm %s\n", version)
+			return
+		}
 		if arg == "help" || arg == "-h" || arg == "-help" || arg == "--help" {
 			displayHelp()
 			return
@@ -1257,6 +1267,7 @@ func displayHelp() {
 	fmt.Println("  " + green + "bm <directory>" + reset + "              Start player with specified music library")
 	fmt.Println("  " + green + "bm <audio-file>" + reset + "             Play single audio file")
 	fmt.Println("  " + green + "bm help, -h, -help, --help" + reset + "  Show this help message")
+	fmt.Println("  " + green + "bm --version, -v, -V" + reset + "        Show version")
 	fmt.Println()
 	fmt.Println(bold + "SUPPORTED FORMATS:" + reset)
 	fmt.Println("  " + yellow + "FLAC, MP3, WAV, OGG" + reset)
