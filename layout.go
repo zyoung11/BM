@@ -17,25 +17,25 @@ import (
 type LayoutType int
 
 const (
-	LayoutNothing        LayoutType = iota // No content displayed
-	LayoutTextOnly                         // Only text (title/artist/album)
-	LayoutInfoOnly                         // Centered image without text
-	LayoutWideRightText                    // Wide terminal: image left, text right
-	LayoutWideBottomText                   // Wide terminal: image top, text bottom
-	LayoutWideImageOnly                    // Wide terminal: centered image only
-	LayoutNarrow                           // Normal narrow terminal: image top, text bottom
-	LayoutSwitchText                       // Switchable: centered text + progress
-	LayoutSwitchImage                      // Switchable: centered image only
-	LayoutSwitchNarrow                     // Switchable: image top, text bottom (centered)
+	LayoutNothing       LayoutType = iota // No content displayed
+	LayoutTextOnly                        // Only text (title/artist/album)
+	LayoutInfoOnly                        // Centered image without text
+	LayoutWideRightText                   // Wide terminal: image left, text right
+	_
+	LayoutWideImageOnly // Wide terminal: centered image only
+	LayoutNarrow        // Normal narrow terminal: image top, text bottom
+	LayoutSwitchText    // Switchable: centered text + progress
+	LayoutSwitchImage   // Switchable: centered image only
+	LayoutSwitchNarrow  // Switchable: image top, text bottom (centered)
 )
 
 // isWideTerminal checks if the current terminal is considered wide.
-// A terminal is wide if its width >= 100 and (width/height > 2.0 or height < 20).
+// A terminal is wide if its width >= 100 and (width/height > 2.2 or height < 20).
 //
 // isWideTerminal 检查当前终端是否被认为是宽终端。
-// 宽终端的条件是宽度 >= 100 且 (宽/高 > 2.0 或 高度 < 20)。
+// 宽终端的条件是宽度 >= 100 且 (宽/高 > 2.2 或 高度 < 20)。
 func isWideTerminal(w, h int) bool {
-	return w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
+	return w >= 100 && (float64(w)/float64(h) > 2.2 || h < 20)
 }
 
 // configLayoutToOverride converts a config layout value to an overrideLayout value.
@@ -116,7 +116,6 @@ type LayoutMetrics struct {
 	// Layout flags / 布局标志
 	IsWideTerminal     bool
 	TextTooLongForWide bool
-	ShowTextInWideMode bool
 }
 
 // LayoutPosition holds the calculated position for image rendering.
@@ -138,7 +137,7 @@ func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 
 	showNothing := w < 23 || h < 5
 	showTextOnly := h < 13
-	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20) && !showNothing && !showTextOnly
+	wide := isWideTerminal(w, h) && !showNothing && !showTextOnly
 
 	metrics := LayoutMetrics{
 		W:              w,
@@ -147,10 +146,10 @@ func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 		Artist:         artist,
 		Album:          album,
 		MaxTextLength:  maxTextLength,
-		IsWideTerminal: isWideTerminal,
+		IsWideTerminal: wide,
 	}
 
-	if isWideTerminal {
+	if wide {
 		availableWidth := w - 30
 		if availableWidth < maxTextLength+10 {
 			metrics.TextTooLongForWide = true
@@ -196,9 +195,6 @@ func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 		if !metrics.TextTooLongForWide {
 			return LayoutWideRightText
 		}
-		if metrics.ShowTextInWideMode {
-			return LayoutWideBottomText
-		}
 		return LayoutWideImageOnly
 	}
 
@@ -231,7 +227,7 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 			Height:   imageHeight,
 		}
 
-	case LayoutWideBottomText, LayoutNarrow:
+	case LayoutNarrow:
 		startRow := 2
 		imageBottomRow := startRow + imageHeight
 		availableRows := h - imageBottomRow
@@ -334,15 +330,6 @@ func (p *PlayerPage) updateLayoutFlagsWithImage(metrics *LayoutMetrics, imageWid
 			metrics.TextTooLongForWide = true
 		}
 	}
-
-	p.textTooLongForWide = metrics.TextTooLongForWide
-	p.showTextInWideMode = false
-
-	if metrics.IsWideTerminal && metrics.TextTooLongForWide {
-		if metrics.H-imageHeight >= 5 {
-			p.showTextInWideMode = true
-		}
-	}
 }
 
 // calculatePixelSize calculates the pixel size for image rendering.
@@ -384,7 +371,7 @@ func (p *PlayerPage) renderTextByLayout(layout LayoutType, metrics *LayoutMetric
 			p.updateRightPanel(w)
 		}
 
-	case LayoutWideBottomText, LayoutNarrow:
+	case LayoutNarrow:
 		imageBottomRow := p.imageTop + p.imageHeight
 		if h-imageBottomRow >= 5 {
 			p.updateBottomStatus(imageBottomRow, w, h)
@@ -517,6 +504,7 @@ func (p *PlayerPage) renderWithLayout() {
 
 	metrics.ImageWidthInChars = imageWidthInChars
 	metrics.ImageHeightInChars = imageHeightInChars
+	p.currentLayout = layout
 	p.renderTextByLayout(layout, &metrics)
 
 	p.coverColorR = coverColorR

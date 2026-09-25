@@ -50,11 +50,10 @@ type PlayerPage struct {
 	volumeDisplayTimer                    int
 	rateDisplayTimer                      int
 	notifDisplayTimer                     int
-	textTooLongForWide                    bool       // True if text is too long for wide terminal mode. / 如果文本太长不适合宽终端模式则为true。
-	showTextInWideMode                    bool       // True if text can be shown below image in wide mode. / 如果可以在宽终端模式下在图片下方显示文本则为true。
 	overrideLayout                        LayoutType // Override layout (-1=none). / 覆盖布局（-1=无）。
-	lastLayoutSwitchTime                  time.Time  // Debounce for layout switching. / 布局切换防抖。
-	layoutShift                           int        // Vertical shift for layout centering. / 布局居中的垂直偏移。
+	currentLayout                         LayoutType
+	lastLayoutSwitchTime                  time.Time // Debounce for layout switching. / 布局切换防抖。
+	layoutShift                           int       // Vertical shift for layout centering. / 布局居中的垂直偏移。
 
 	// Per-song cover cache: decoded image, 960x960 normalized version and
 	// dominant color, keyed by song path to avoid re-decoding on every redraw.
@@ -327,11 +326,11 @@ func (p *PlayerPage) cycleLayout() {
 	p.lastLayoutSwitchTime = time.Now()
 
 	w, h, _ := term.GetSize(int(os.Stdout.Fd()))
-	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
+	wide := isWideTerminal(w, h)
 
 	var nextLayout LayoutType
 
-	if isWideTerminal {
+	if wide {
 		switch p.overrideLayout {
 		case -1:
 			nextLayout = LayoutSwitchNarrow
@@ -354,7 +353,7 @@ func (p *PlayerPage) cycleLayout() {
 	}
 
 	p.overrideLayout = nextLayout
-	if err := SaveOverrideLayout(int(nextLayout), isWideTerminal); err != nil {
+	if err := SaveOverrideLayout(int(nextLayout), wide); err != nil {
 		l.Warnf("Could not save layout: %v\n\n无法保存布局: %v", err, err)
 	}
 	p.showLayoutIndicator()
@@ -1006,6 +1005,11 @@ func (p *PlayerPage) refreshCellSize() {
 	}
 }
 
+// updateStatus redraws the dynamic text and progress elements with the layout
+// chosen by renderWithLayout so periodic ticks match the first draw exactly.
+//
+// updateStatus 使用 renderWithLayout 选定的布局重绘动态文本与进度条，
+// 保证周期性刷新与首次绘制的位置完全一致。
 func (p *PlayerPage) updateStatus() {
 	if p.app.currentPageIndex != 0 || p.flacPath == "" {
 		return
@@ -1016,74 +1020,12 @@ func (p *PlayerPage) updateStatus() {
 		return
 	}
 
-	title, artist, album := getSongMetadata(p.flacPath)
-	maxTextLength := max(max(len(title), len(artist)), len(album))
-
-	showNothing := w < 23 || h < 5
-	if showNothing {
+	if w < 23 || h < 5 {
 		return
 	}
 
-	// Terminal multiplexers force the switch-text layout; the status redraw
-	// must match the position renderWithLayout used.
-	//
-	// 终端复用器强制 switch-text 布局；状态重绘必须与 renderWithLayout
-	// 使用的位置一致。
-	if p.app.forcedTextMode {
-		p.updateSwitchTextMode(w, h)
-		return
-	}
-
-	showTextOnly := h < 13 && !showNothing
-	if showTextOnly {
-		p.updateTextOnlyMode(w, h)
-		return
-	}
-
-	showInfoOnly := (w < maxTextLength || h < 10) && !showNothing && !showTextOnly
-	if showInfoOnly {
-		return
-	}
-
-	if p.overrideLayout >= LayoutSwitchText {
-		switch p.overrideLayout {
-		case LayoutSwitchText:
-			p.updateSwitchTextMode(w, h)
-		case LayoutSwitchImage:
-		case LayoutSwitchNarrow:
-			imageBottomRow := p.imageTop + p.imageHeight
-			if h-imageBottomRow >= 5 {
-				p.updateSwitchNarrowMode(imageBottomRow, w, h)
-			}
-		}
-		return
-	}
-
-	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
-
-	if isWideTerminal {
-		availableWidth := w - p.imageRightEdge
-		if availableWidth < maxTextLength+10 {
-			isWideTerminal = false
-		}
-	}
-
-	if isWideTerminal && !p.textTooLongForWide {
-		if p.imageRightEdge > 0 && w-p.imageRightEdge >= 30 {
-			p.updateRightPanel(w)
-		}
-	} else if isWideTerminal && p.textTooLongForWide && p.showTextInWideMode {
-		imageBottomRow := p.imageTop + p.imageHeight
-		if h-imageBottomRow >= 5 {
-			p.updateBottomStatus(imageBottomRow, w, h)
-		}
-	} else if isWideTerminal && p.textTooLongForWide && !p.showTextInWideMode {
-	} else {
-		imageBottomRow := p.imageTop + p.imageHeight
-		if h-imageBottomRow >= 5 {
-			p.updateBottomStatus(imageBottomRow, w, h)
-		}
-	}
+	metrics := LayoutMetrics{W: w, H: h}
+	p.renderTextByLayout(p.currentLayout, &metrics)
 }
 
 func (p *PlayerPage) updateRightPanel(w int) {
@@ -1130,6 +1072,13 @@ func (p *PlayerPage) updateRightPanel(w int) {
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
 
+// updateBottomStatus renders text and progress for the auto narrow layout.
+// Matches updateSwitchNarrowMode: content is centered inside a virtual
+// column band so both layouts place elements identically.
+//
+// updateBottomStatus 为自动窄屏布局渲染文本和进度条。
+// 与 updateSwitchNarrowMode 保持一致：内容在虚拟列宽内居中，
+// 两种布局的元素位置完全相同。
 func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 	title, artist, album := getSongMetadata(p.flacPath)
 	availableRows := h - startRow
@@ -1141,7 +1090,9 @@ func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 		infoRow = startRow + availableRows/3
 		progressRow = startRow + 2*availableRows/3 + (h-(startRow+2*availableRows/3))/2
 	}
-	centerCol := w / 2
+	virtualWidth := min(80, w)
+	offset := (w - virtualWidth) / 2
+	centerCol := offset + virtualWidth/2
 
 	colorCode := p.getColorCode()
 	titleWidth := runewidth.StringWidth(title)
@@ -1152,8 +1103,8 @@ func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
 
-	progressBarStartCol := 5
-	progressBarWidth := max(w-10, 10)
+	progressBarStartCol := offset + 5
+	progressBarWidth := max(virtualWidth-10, 10)
 
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
@@ -1235,9 +1186,9 @@ func (p *PlayerPage) updateSwitchTextMode(w, h int) {
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
 
-	isWideTerminal := w >= 100 && (float64(w)/float64(h) > 2.0 || h < 20)
+	wide := isWideTerminal(w, h)
 	var progressBarStartCol, progressBarWidth int
-	if isWideTerminal {
+	if wide {
 		progressBarStartCol = w / 4
 		progressBarWidth = w / 2
 	} else {
