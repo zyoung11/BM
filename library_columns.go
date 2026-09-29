@@ -205,17 +205,23 @@ func truncateWithEllipsis(text string, width int) string {
 }
 
 // columnContentWidth measures the display width a column needs to show all of
-// its entry names without cutting any of them. The cursor padding is carved
-// out of the column at draw time so the width never depends on where the
-// cursor sits and the next column slot stays put.
+// its entry names without cutting any of them. Search results size on the
+// folder entries only, so long song names below the separator are shortened
+// instead of pushing the preview column to the far right. The cursor padding
+// is carved out of the column at draw time so the width never depends on where
+// the cursor sits and the next column slot stays put.
 //
 // columnContentWidth 测量列完整显示所有条目名所需的显示宽度，不截断任何名字。
-// 光标行的对称填充在绘制时从列宽内扣除，保证列宽与光标位置无关，
-// 下一列的位置保持不动。
+// 搜索列仅按文件夹条目计算宽度，分隔线下的长歌名在列内省略，
+// 避免把预览列推到最右侧。光标行的对称填充在绘制时从列宽内扣除，
+// 保证列宽与光标位置无关，下一列的位置保持不动。
 func (p *Library) columnContentWidth(col libraryColumn) int {
 	width := 1
 	if col.isSearch {
 		for i, item := range col.items {
+			if col.dirCount > 0 && i >= col.dirCount {
+				continue
+			}
 			line, _ := p.getSearchEntryLine(item, i == col.cursor)
 			width = max(width, runewidth.StringWidth(line))
 		}
@@ -266,6 +272,9 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	onlyCurrent := false
 	if last > 0 {
 		reserve := min(full[last-1], minWidth) + 1
+		if cols[last-1].isSearch {
+			reserve = full[last-1] + 1
+		}
 		if full[last]+reserve > avail {
 			curWidth = avail - reserve
 		}
@@ -284,13 +293,23 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	if !onlyCurrent && last > 0 {
 		i := last - 1
 		availRemain := avail - widths[last]
-		widths[i] = min(full[i], availRemain)
+		if cols[i].isSearch {
+			widths[i] = full[i]
+		} else {
+			widths[i] = min(full[i], availRemain)
+		}
 		placed = append(placed, i)
 		remain = mid - widths[last] - widths[i] - 1
 	}
 
 	if !onlyCurrent {
 		for i := last - 2; i >= 0; i-- {
+			if cols[i].isSearch {
+				widths[i] = full[i]
+				placed = append(placed, i)
+				remain -= full[i] + 1
+				continue
+			}
 			if full[i] <= remain {
 				widths[i] = full[i]
 				placed = append(placed, i)
@@ -383,6 +402,25 @@ func ancestorOffset(col libraryColumn, listHeight int) int {
 	return min(max(col.cursor-listHeight/2, 0), count-listHeight)
 }
 
+// searchSepRow returns the screen row of the separator inside a search column,
+// or -1 when it is not visible.
+//
+// searchSepRow 返回搜索列分隔线所在的屏幕行，不可见时返回 -1。
+func searchSepRow(col libraryColumn, listHeight int) int {
+	if !col.isSearch || col.dirCount <= 0 || col.dirCount >= len(col.items) {
+		return -1
+	}
+	visualOffset := col.offset
+	if col.offset >= col.dirCount {
+		visualOffset = col.offset + 1
+	}
+	row := col.dirCount - visualOffset
+	if row < 0 || row >= listHeight {
+		return -1
+	}
+	return row
+}
+
 // renderColumns draws the multi-column browser: the current column sits at the
 // right end of the navigation columns, ancestors to its left and are dimmed,
 // and a dimmed preview of the directory under the cursor may sit further
@@ -400,14 +438,36 @@ func (p *Library) renderColumns(w, listHeight int) string {
 			geom.col.offset = ancestorOffset(geom.col, listHeight)
 		}
 	}
+	sepRow := -1
+	for _, geom := range geoms {
+		if geom.col.isSearch {
+			sepRow = searchSepRow(geom.col, listHeight)
+		}
+	}
+
 	var buf strings.Builder
 	for row := range listHeight {
 		y := row + 3
 		fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K", y)
+		if row == sepRow {
+			sepX := 1
+			lineEnd := w - 1
+			for _, geom := range geoms {
+				if geom.col.isSearch {
+					sepX = geom.x
+				} else if geom.x > sepX {
+					lineEnd = min(lineEnd, geom.x-1)
+				}
+			}
+			fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[90m%s\x1b[0m", y, sepX, strings.Repeat("─", max(lineEnd-sepX+1, 1)))
+		}
 		for i, geom := range geoms {
+			if row == sepRow && geom.col.isSearch {
+				continue
+			}
 			buf.WriteString(p.drawColumnRow(geom, row, i != last))
 		}
-		if preview != nil {
+		if preview != nil && (sepRow < 0 || row < sepRow) {
 			buf.WriteString(p.drawColumnRow(*preview, row, true))
 		}
 	}
@@ -464,12 +524,24 @@ func (p *Library) redrawPreviewArea(w, listHeight int) string {
 	}
 	lastGeom := geoms[len(geoms)-1]
 	startX := lastGeom.x + lastGeom.width + 1
+	sepRow := -1
+	for _, geom := range geoms {
+		if geom.col.isSearch {
+			sepRow = searchSepRow(geom.col, listHeight)
+		}
+	}
 	var buf strings.Builder
 	for row := range listHeight {
+		if row == sepRow {
+			continue
+		}
 		fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[K", row+3, startX)
 	}
 	if preview != nil {
 		for row := range listHeight {
+			if sepRow >= 0 && row >= sepRow {
+				continue
+			}
 			buf.WriteString(p.drawColumnRow(*preview, row, true))
 		}
 	}
