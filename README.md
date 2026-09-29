@@ -14,8 +14,8 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 - **Playback control**: Play/Pause, Fast forward/Rewind (5-second intervals)
 - **Volume control**: Logarithmic volume curve with fine adjustment
 - **Speed control**: 0.1x to 4.0x playback speed control
-- **Dynamic sample rate**: Automatically switches speaker sample rate per song, no resampling needed
-- **Gapless playback**: The next song is pre-decoded in the background and stitched at the decoder level
+- **Dynamic sample rate**: Automatically switches speaker sample rate per song
+- **Gapless playback**: Tracks play seamlessly back to back
 
 ### Terminal Interface
 
@@ -23,19 +23,18 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 - **Album cover display**: Supports Kitty, Sixel, iTerm2 image protocols
 - **Smart color scheme**: Extracts colors from album covers for UI
 - **Multi-page system**: Player, Playlist, and Library main pages
-- **Multiplexer support**: Runs inside tmux, zellij and GNU screen with an automatic text-only layout and flicker-free incremental list updates
-- **Shortcut help**: Press `?` for a full-screen cheat sheet of every configured key, in English or Chinese
-- **Quit confirmation**: Quitting asks for confirmation first, with a separate toggle per page
+- **File browsing**: [yazi](https://github.com/sxyazi/yazi)-like file browser
+- **Multiplexer support**: Runs inside tmux, zellij and GNU screen with a text-only layout
+- **Shortcut help**: Press `?` for a full-screen cheat sheet of every configured key
+- **Quit confirmation**: Quitting asks for confirmation first
 
 ### Media Management
 
 ![](images/image2.png)
 
-- **Filesystem browsing**: Complete directory navigation, with the status line showing the path from your music folder root
+- **Filesystem browsing**: Multi-column directory navigation, with the status line showing the path from your music folder root
 - **Fuzzy search**: Supports Chinese and English fuzzy matching, and directories in the results open like ordinary folders
-- **Position memory**: Cursors and search state survive page switches, and leaving a folder entered from search drops you back into the results
 - **Playlist**: Dynamic playlist management
-- **Playback history**: Dynamic history limit (min of max_history_size and playlist length), only records in shuffle mode
 - **Corrupted file detection**: Automatically marks unplayable files
 
 ### System Integration
@@ -109,6 +108,9 @@ bm
 
 # Show help information
 bm help
+
+# Show version
+bm --version
 ```
 
 ### Get local music files (NetEase Cloud Music & QQ Music)
@@ -181,15 +183,7 @@ Configuration file is located at `~/.config/BM/config.toml` and will be automati
 
 ### Key Mapping Configuration
 
-The configuration file supports complete key mapping customization, supporting single keys or key lists. Refer to the generated default configuration file for detailed settings. The shortcut help key lives in `[keymap.global]` as `ShowHelp`, bound to `?` out of the box.
-
-### Quit Confirmation
-
-Quitting asks for confirmation on the player, playlist and library pages, each controlled by `confirm_quit_player`, `confirm_quit_playlist` and `confirm_quit_library`. All three default to `true`, and setting one to `false` quits immediately from that page. Terminals too small to fit the prompt skip it and quit right away.
-
-### Interface Language
-
-`help_language = "en"` or `"zh"` picks the language of the shortcut help page and the quit confirmation. English is the default.
+The configuration file supports complete key mapping customization, supporting single keys or key lists. Refer to the generated default configuration file for detailed settings.
 
 ### Icon Configuration
 
