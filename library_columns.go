@@ -283,20 +283,20 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	widths := make(map[int]int)
 	widths[last] = max(curWidth, 1)
 	placed = append(placed, last)
-	remain := avail - widths[last]
 
+	midRemain := mid - widths[last]
 	if !onlyCurrent && last > 0 {
 		i := last - 1
 		widths[i] = full[i]
 		placed = append(placed, i)
-		remain -= full[i] + 1
+		midRemain -= full[i] + 1
 	}
 
 	for i := last - 2; i >= 0 && !onlyCurrent; i-- {
-		if full[i] <= remain {
+		if full[i] <= midRemain {
 			widths[i] = full[i]
 			placed = append(placed, i)
-			remain -= full[i] + 1
+			midRemain -= full[i] + 1
 		} else {
 			break
 		}
