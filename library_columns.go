@@ -267,61 +267,38 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	mid := w / 2
 	last := len(cols) - 1
 
-	curWidth := min(full[last], avail)
+	parentBudget := 0
+	if last > 0 {
+		parentBudget = full[last-1] + 1
+	}
+	curWidth := min(full[last], avail-parentBudget)
 	floor := min(full[last], minWidth)
 	onlyCurrent := false
-	if last > 0 {
-		reserve := min(full[last-1], minWidth) + 1
-		if cols[last-1].isSearch {
-			reserve = full[last-1] + 1
-		}
-		if full[last]+reserve > avail {
-			curWidth = avail - reserve
-		}
-		if curWidth < floor {
-			onlyCurrent = true
-			curWidth = min(full[last], avail)
-		}
+	if curWidth < floor {
+		onlyCurrent = true
+		curWidth = min(full[last], avail)
 	}
 
 	placed := make([]int, 0, len(cols))
 	widths := make(map[int]int)
 	widths[last] = max(curWidth, 1)
 	placed = append(placed, last)
-	remain := mid - widths[last]
+	remain := avail - widths[last]
 
 	if !onlyCurrent && last > 0 {
 		i := last - 1
-		availRemain := avail - widths[last]
-		if cols[i].isSearch {
-			widths[i] = full[i]
-		} else {
-			widths[i] = min(full[i], availRemain)
-		}
+		widths[i] = full[i]
 		placed = append(placed, i)
-		remain = mid - widths[last] - widths[i] - 1
+		remain -= full[i] + 1
 	}
 
-	if !onlyCurrent {
-		for i := last - 2; i >= 0; i-- {
-			if cols[i].isSearch {
-				widths[i] = full[i]
-				placed = append(placed, i)
-				remain -= full[i] + 1
-				continue
-			}
-			if full[i] <= remain {
-				widths[i] = full[i]
-				placed = append(placed, i)
-				remain -= full[i] + 1
-			} else if remain >= minWidth {
-				widths[i] = remain
-				placed = append(placed, i)
-				remain = 0
-			}
-			if remain <= 0 {
-				break
-			}
+	for i := last - 2; i >= 0 && !onlyCurrent; i-- {
+		if full[i] <= remain {
+			widths[i] = full[i]
+			placed = append(placed, i)
+			remain -= full[i] + 1
+		} else {
+			break
 		}
 	}
 
