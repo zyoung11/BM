@@ -47,6 +47,8 @@ type searchReturnState struct {
 	query       string
 	cursor      int
 	offset      int
+	results     []string
+	dirCount    int
 }
 
 // Library browses the music directory and adds songs to the playlist.
@@ -486,6 +488,8 @@ func (p *Library) enterDirFromSearchResults() {
 		query:       p.searchQuery,
 		cursor:      p.searchCursor,
 		offset:      p.searchOffset,
+		results:     p.filteredSongPaths,
+		dirCount:    p.searchDirCount,
 	})
 	p.pushColumn()
 	p.searchQuery = ""
@@ -555,8 +559,10 @@ func (p *Library) exitToSearchResults() bool {
 	p.searchQuery = top.query
 	p.searchCursor = top.cursor
 	p.searchOffset = top.offset
+	p.filteredSongPaths = top.results
+	p.searchDirCount = top.dirCount
 	p.popColumn()
-	p.filterSongs()
+	p.clampSearchCursor()
 	return true
 }
 
