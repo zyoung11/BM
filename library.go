@@ -45,16 +45,17 @@ type searchReturnState struct {
 type Library struct {
 	app *App
 
-	entries     []LibraryEntry // All entries in the current directory. / 当前目录中的所有条目。
-	currentPath string
-	initialPath string // The starting path provided to the application. / 提供给应用程序的起始路径。
-	cursor      int
-	selected    map[string]bool // Use file path as key for persistent selection. / 使用文件路径作为持久选择的键。
-	offset      int             // For scrolling the view. / 用于滚动视图。
-	pathHistory map[string]int  // Store cursor position for each path. / 存储每个路径的光标位置。
-	columns     []libraryColumn
-	isSearching bool
-	searchQuery string
+	entries             []LibraryEntry // All entries in the current directory. / 当前目录中的所有条目。
+	currentPath         string
+	initialPath         string // The starting path provided to the application. / 提供给应用程序的起始路径。
+	cursor              int
+	selected            map[string]bool // Use file path as key for persistent selection. / 使用文件路径作为持久选择的键。
+	offset              int             // For scrolling the view. / 用于滚动视图。
+	pathHistory         map[string]int  // Store cursor position for each path. / 存储每个路径的光标位置。
+	columns             []libraryColumn
+	previewEntriesCache map[string][]LibraryEntry
+	isSearching         bool
+	searchQuery         string
 	// searchCursor is the UI cursor on the search results.
 	//
 	// searchCursor 是搜索结果上的UI光标。
@@ -601,9 +602,11 @@ func (p *Library) tryFastCursorMove(oldCursor int) bool {
 	if len(geoms) == 0 {
 		return false
 	}
-	p.redrawColumnRow(geoms[len(geoms)-1], oldCursor)
-	p.redrawColumnRow(geoms[len(geoms)-1], p.cursor)
-	p.redrawPreviewArea(w, listHeight)
+	var buf strings.Builder
+	buf.WriteString(p.redrawColumnRow(geoms[len(geoms)-1], oldCursor))
+	buf.WriteString(p.redrawColumnRow(geoms[len(geoms)-1], p.cursor))
+	buf.WriteString(p.redrawPreviewArea(w, listHeight))
+	fmt.Print(buf.String())
 	return true
 }
 
@@ -633,9 +636,11 @@ func (p *Library) tryFastSearchMove(w, listHeight, oldCursor int) bool {
 	if len(geoms) == 0 {
 		return false
 	}
-	p.redrawSearchRow(geoms[len(geoms)-1], oldCursor)
-	p.redrawSearchRow(geoms[len(geoms)-1], p.searchCursor)
-	p.redrawPreviewArea(w, listHeight)
+	var buf strings.Builder
+	buf.WriteString(p.redrawSearchRow(geoms[len(geoms)-1], oldCursor))
+	buf.WriteString(p.redrawSearchRow(geoms[len(geoms)-1], p.searchCursor))
+	buf.WriteString(p.redrawPreviewArea(w, listHeight))
+	fmt.Print(buf.String())
 	return true
 }
 
@@ -698,6 +703,7 @@ func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
 	}
 	// Clear cache on selection change
 	p.dirSelectionCache = make(map[string]bool)
+	p.previewEntriesCache = nil
 }
 
 // toggleSelectAll toggles the selection for all items in the current view (directory or search results).
@@ -765,6 +771,7 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 	}
 	// Clear cache on selection change
 	p.dirSelectionCache = make(map[string]bool)
+	p.previewEntriesCache = nil
 }
 
 // toggleSelection adds or removes a file path from the selection and playlist.
@@ -786,6 +793,7 @@ func (p *Library) toggleSelection(path string) {
 	}
 	// Clear cache on selection change
 	p.dirSelectionCache = make(map[string]bool)
+	p.previewEntriesCache = nil
 	if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
 		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
@@ -882,6 +890,7 @@ func (p *Library) addSongsToPlaylistBatch(songPaths []string) {
 	wasEmpty := len(p.app.Playlist) == 0
 	p.app.setPlaylist(newPlaylist)
 	p.dirSelectionCache = make(map[string]bool)
+	p.previewEntriesCache = nil
 	if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
 		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
@@ -941,6 +950,7 @@ func (p *Library) removeSongsFromPlaylistBatch(songPaths []string) {
 	}
 
 	p.dirSelectionCache = make(map[string]bool)
+	p.previewEntriesCache = nil
 	p.app.invalidatePendingNext()
 	p.app.setPlaylist(newPlaylist)
 	for _, songPath := range songPaths {
@@ -1003,20 +1013,21 @@ func (p *Library) View() {
 		w, h = 80, 24
 	}
 
+	var buf strings.Builder
 	if !p.app.diffRender {
-		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
+		buf.WriteString("\x1b[2J\x1b[3J\x1b[H")
 	}
 
 	title := "Library"
 	titleX := (w - len(title)) / 2
-	fmt.Printf("\x1b[1;1H\x1b[K\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
-	fmt.Printf("\x1b[2;1H\x1b[K")
+	fmt.Fprintf(&buf, "\x1b[1;1H\x1b[K\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+	buf.WriteString("\x1b[2;1H\x1b[K")
 
 	listHeight := h - 4
 
 	if w < 20 || h < 8 {
 		for row := 2; row <= h; row++ {
-			fmt.Printf("\x1b[%d;1H\x1b[K", row)
+			fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K", row)
 		}
 		msg := "Terminal too small to browse"
 		if GlobalConfig.App.HelpLanguage == "zh" {
@@ -1024,7 +1035,8 @@ func (p *Library) View() {
 		}
 		msg = truncateToWidthFromStart(msg, max(w-1, 1))
 		x := max((w-runewidth.StringWidth(msg))/2, 0) + 1
-		fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", max(h/2, 1), x, msg)
+		fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[90m%s\x1b[0m", max(h/2, 1), x, msg)
+		fmt.Print(buf.String())
 		return
 	}
 
@@ -1065,16 +1077,17 @@ func (p *Library) View() {
 	}
 
 	if p.isSearching || p.searchQuery != "" {
-		p.drawSearchFooter(w, h, fmt.Sprintf("Search: %s", p.searchQuery))
+		buf.WriteString(p.drawSearchFooter(w, h, fmt.Sprintf("Search: %s", p.searchQuery)))
 	} else {
-		p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", p.rootDisplayPath()))
+		buf.WriteString(p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", p.rootDisplayPath())))
 	}
 
-	p.renderColumns(w, listHeight)
+	buf.WriteString(p.renderColumns(w, listHeight))
 
-	fmt.Printf("\x1b[%d;1H\x1b[K", h-1)
+	fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K", h-1)
 
-	p.drawScrollbar(listHeight, currentListLength, currentOffset)
+	buf.WriteString(p.drawScrollbar(listHeight, currentListLength, currentOffset))
+	fmt.Print(buf.String())
 }
 
 // rootDisplayPath returns the current path shown relative to the music library
@@ -1097,27 +1110,26 @@ func (p *Library) rootDisplayPath() string {
 // drawSearchFooter is a helper for drawing the search footer with cursor positioning.
 //
 // drawSearchFooter 是一个用于绘制带有光标定位的搜索页脚的辅助函数。
-func (p *Library) drawSearchFooter(w, h int, footerText string) {
-	fmt.Printf("\x1b[%d;1H\x1b[K", h)
+func (p *Library) drawSearchFooter(w, h int, footerText string) string {
 	footerText = truncateToWidth(footerText, w)
 	footerX := max((w-len(footerText))/2, 1)
-	fmt.Printf("\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, footerX, footerText)
+	out := fmt.Sprintf("\x1b[%d;1H\x1b[K\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, h, footerX, footerText)
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
 		if cursorX <= w {
-			fmt.Printf("\x1b[%d;%dH█", h, cursorX)
+			out += fmt.Sprintf("\x1b[%d;%dH█", h, cursorX)
 		}
 	}
+	return out
 }
 
 // drawPathFooter is a helper for drawing the path footer.
 //
 // drawPathFooter 是一个用于绘制路径页脚的辅助函数。
-func (p *Library) drawPathFooter(w, h int, footerText string) {
-	fmt.Printf("\x1b[%d;1H\x1b[K", h)
+func (p *Library) drawPathFooter(w, h int, footerText string) string {
 	footerText = truncateToWidth(footerText, w)
 	footerX := max((w-len(footerText))/2, 1)
-	fmt.Printf("\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, footerX, footerText)
+	return fmt.Sprintf("\x1b[%d;1H\x1b[K\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, h, footerX, footerText)
 }
 
 // truncateToWidth shortens text with a leading ellipsis so that its display
@@ -1200,7 +1212,7 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCurs
 // drawScrollbar draws a scrollbar on the right side of the screen.
 //
 // drawScrollbar 在屏幕右侧绘制一个滚动条。
-func (p *Library) drawScrollbar(listHeight, totalItems, currentOffset int) {
+func (p *Library) drawScrollbar(listHeight, totalItems, currentOffset int) string {
 	w, _, _ := term.GetSize(int(os.Stdout.Fd()))
 
 	thumbSize := 0
@@ -1214,6 +1226,7 @@ func (p *Library) drawScrollbar(listHeight, totalItems, currentOffset int) {
 		}
 	}
 
+	var buf strings.Builder
 	for i := range listHeight {
 		cell := "│"
 		if totalItems <= listHeight {
@@ -1221,8 +1234,9 @@ func (p *Library) drawScrollbar(listHeight, totalItems, currentOffset int) {
 		} else if i >= thumbStart && i < thumbStart+thumbSize {
 			cell = "┃"
 		}
-		fmt.Printf("\x1b[%d;%dH%s", i+3, w, cell)
+		fmt.Fprintf(&buf, "\x1b[%d;%dH%s", i+3, w, cell)
 	}
+	return buf.String()
 }
 
 // Tick for Library does nothing, as it's event-driven.

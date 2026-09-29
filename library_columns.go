@@ -176,7 +176,15 @@ func (p *Library) previewColumn() *libraryColumn {
 	if path == "" {
 		return nil
 	}
-	return &libraryColumn{path: path, entries: readLibraryEntries(path), cursor: -1}
+	if p.previewEntriesCache == nil {
+		p.previewEntriesCache = make(map[string][]LibraryEntry)
+	}
+	entries, ok := p.previewEntriesCache[path]
+	if !ok {
+		entries = readLibraryEntries(path)
+		p.previewEntriesCache[path] = entries
+	}
+	return &libraryColumn{path: path, entries: entries, cursor: -1}
 }
 
 // truncateWithEllipsis shortens text to the given display width and marks the
@@ -330,8 +338,8 @@ func (p *Library) planColumns(w int) ([]columnGeometry, *columnGeometry) {
 // clearColumnCell blanks one cell inside a column.
 //
 // clearColumnCell 清空列内单元。
-func clearColumnCell(x, width, y int) {
-	fmt.Printf("\x1b[%d;%dH%s", y, x, strings.Repeat(" ", width))
+func clearColumnCell(x, width, y int) string {
+	return fmt.Sprintf("\x1b[%d;%dH%s", y, x, strings.Repeat(" ", width))
 }
 
 // drawColumnCell draws one cell inside a column, padding it with spaces so no
@@ -342,7 +350,7 @@ func clearColumnCell(x, width, y int) {
 // drawColumnCell 绘制列内单元并用空格填充，清除旧内容且不影响相邻列。
 // 条目名与其他位置截断到相同宽度，光标行的对称填充只用剩余空间，
 // 保证光标不会让名字变短。
-func drawColumnCell(x, width, y int, line, style string, isCursor, dim bool) {
+func drawColumnCell(x, width, y int, line, style string, isCursor, dim bool) string {
 	line = truncateWithEllipsis(line, width)
 	if isCursor {
 		leading := len(line) - len(strings.TrimLeft(line, " "))
@@ -352,7 +360,7 @@ func drawColumnCell(x, width, y int, line, style string, isCursor, dim bool) {
 		style += "\x1b[2m"
 	}
 	pad := max(width-runewidth.StringWidth(line), 0)
-	fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m%s", y, x, style, line, strings.Repeat(" ", pad))
+	return fmt.Sprintf("\x1b[%d;%dH%s%s\x1b[0m%s", y, x, style, line, strings.Repeat(" ", pad))
 }
 
 // ancestorOffset recenters an ancestor column on its remembered cursor entry.
@@ -378,7 +386,7 @@ func ancestorOffset(col libraryColumn, listHeight int) int {
 // renderColumns 绘制多列浏览器，当前列位于导航列最右，祖先列居左并淡化，
 // 光标所在目录的弱化预览列可再居其右。每行先擦除再绘制单元，
 // 保证布局变化后不留旧列残影。
-func (p *Library) renderColumns(w, listHeight int) {
+func (p *Library) renderColumns(w, listHeight int) string {
 	geoms, preview := p.planColumns(w)
 	last := len(geoms) - 1
 	for i, geom := range geoms {
@@ -386,22 +394,24 @@ func (p *Library) renderColumns(w, listHeight int) {
 			geom.col.offset = ancestorOffset(geom.col, listHeight)
 		}
 	}
+	var buf strings.Builder
 	for row := range listHeight {
 		y := row + 3
-		fmt.Printf("\x1b[%d;1H\x1b[K", y)
+		fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K", y)
 		for i, geom := range geoms {
-			p.drawColumnRow(geom, row, i != last)
+			buf.WriteString(p.drawColumnRow(geom, row, i != last))
 		}
 		if preview != nil {
-			p.drawColumnRow(*preview, row, true)
+			buf.WriteString(p.drawColumnRow(*preview, row, true))
 		}
 	}
+	return buf.String()
 }
 
 // drawColumnRow draws one visible row of a column.
 //
 // drawColumnRow 绘制列的一个可见行。
-func (p *Library) drawColumnRow(geom columnGeometry, row int, dim bool) {
+func (p *Library) drawColumnRow(geom columnGeometry, row int, dim bool) string {
 	col := geom.col
 	y := row + 3
 	if col.isSearch {
@@ -416,70 +426,69 @@ func (p *Library) drawColumnRow(geom columnGeometry, row int, dim bool) {
 			if dim {
 				sepStyle += "\x1b[2m"
 			}
-			fmt.Printf("\x1b[%d;%dH%s%s\x1b[0m", y, geom.x, sepStyle, strings.Repeat("─", geom.width))
-			return
+			return fmt.Sprintf("\x1b[%d;%dH%s%s\x1b[0m", y, geom.x, sepStyle, strings.Repeat("─", geom.width))
 		}
 		itemIdx := visualRow
 		if hasSep && visualRow > col.dirCount {
 			itemIdx = visualRow - 1
 		}
 		if itemIdx < 0 || itemIdx >= len(col.items) {
-			return
+			return ""
 		}
 		line, style := p.getSearchEntryLine(col.items[itemIdx], itemIdx == col.cursor)
-		drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, dim)
-		return
+		return drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, dim)
 	}
 	idx := col.offset + row
 	if idx < 0 || idx >= len(col.entries) {
-		return
+		return ""
 	}
 	fullPath := filepath.Join(col.path, col.entries[idx].entry.Name())
 	line, style := p.getDirEntryLine(col.entries[idx], fullPath, idx == col.cursor)
-	drawColumnCell(geom.x, geom.width, y, line, style, idx == col.cursor, dim)
+	return drawColumnCell(geom.x, geom.width, y, line, style, idx == col.cursor, dim)
 }
 
 // redrawPreviewArea repaints the preview strip after a cursor move, leaving
 // the navigation columns untouched.
 //
 // redrawPreviewArea 在光标移动后仅重绘预览区，不碰导航列。
-func (p *Library) redrawPreviewArea(w, listHeight int) {
+func (p *Library) redrawPreviewArea(w, listHeight int) string {
 	geoms, preview := p.planColumns(w)
 	if len(geoms) == 0 {
-		return
+		return ""
 	}
 	lastGeom := geoms[len(geoms)-1]
 	startX := lastGeom.x + lastGeom.width + 1
+	var buf strings.Builder
 	for row := range listHeight {
-		fmt.Printf("\x1b[%d;%dH\x1b[K", row+3, startX)
+		fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[K", row+3, startX)
 	}
 	if preview != nil {
 		for row := range listHeight {
-			p.drawColumnRow(*preview, row, true)
+			buf.WriteString(p.drawColumnRow(*preview, row, true))
 		}
 	}
+	return buf.String()
 }
 
 // redrawColumnRow repaints a single entry row inside the current column.
 //
 // redrawColumnRow 重绘当前列内的单行条目。
-func (p *Library) redrawColumnRow(geom columnGeometry, entryIdx int) {
+func (p *Library) redrawColumnRow(geom columnGeometry, entryIdx int) string {
 	col := geom.col
 	y := entryIdx - col.offset + 3
 	if entryIdx < 0 || entryIdx >= len(col.entries) {
-		clearColumnCell(geom.x, geom.width, y)
-		return
+		return clearColumnCell(geom.x, geom.width, y)
 	}
 	fullPath := filepath.Join(col.path, col.entries[entryIdx].entry.Name())
 	line, style := p.getDirEntryLine(col.entries[entryIdx], fullPath, entryIdx == col.cursor)
-	drawColumnCell(geom.x, geom.width, y, line, style, entryIdx == col.cursor, false)
+	return drawColumnCell(geom.x, geom.width, y, line, style, entryIdx == col.cursor, false)
 }
 
 // redrawSearchRow repaints a single search result row inside the current
 // column, keeping the separator row in account.
 //
 // redrawSearchRow 重绘当前列内的单行搜索结果，并考虑分隔线占用的行。
-func (p *Library) redrawSearchRow(geom columnGeometry, itemIdx int) {
+func (p *Library) redrawSearchRow(geom columnGeometry, itemIdx int) string {
 	col := geom.col
 	hasSep := col.dirCount > 0 && col.dirCount < len(col.items)
 	visualRow := itemIdx
@@ -488,11 +497,10 @@ func (p *Library) redrawSearchRow(geom columnGeometry, itemIdx int) {
 	}
 	y := visualRow - col.offset + 3
 	if itemIdx < 0 || itemIdx >= len(col.items) {
-		clearColumnCell(geom.x, geom.width, y)
-		return
+		return clearColumnCell(geom.x, geom.width, y)
 	}
 	line, style := p.getSearchEntryLine(col.items[itemIdx], itemIdx == col.cursor)
-	drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, false)
+	return drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, false)
 }
 
 // getSearchEntryLine generates the display line and style for one search result.
