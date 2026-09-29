@@ -247,41 +247,36 @@ func (p *Library) planColumns(w int) ([]columnGeometry, *columnGeometry) {
 	mid := w / 2
 	last := len(cols) - 1
 
-	previewSpace := 0
-	if pcol != nil {
-		navNeed := min(full[last], avail)
-		if last > 0 {
-			navNeed += min(full[last-1], minWidth) + 1
-		}
-		previewSpace = min(pfull+1, max(avail-navNeed, 0))
-		if previewSpace < minWidth+1 {
-			previewSpace = 0
-		}
-	}
-	navAvail := avail - previewSpace
-
-	curWidth := min(full[last], navAvail)
+	curWidth := min(full[last], avail)
 	floor := min(full[last], minWidth)
 	onlyCurrent := false
 	if last > 0 {
 		reserve := min(full[last-1], minWidth) + 1
-		if full[last]+reserve > navAvail {
-			curWidth = navAvail - reserve
+		if full[last]+reserve > avail {
+			curWidth = avail - reserve
 		}
-	}
-	if curWidth < floor {
-		onlyCurrent = true
-		curWidth = min(full[last], avail)
+		if curWidth < floor {
+			onlyCurrent = true
+			curWidth = min(full[last], avail)
+		}
 	}
 
 	placed := make([]int, 0, len(cols))
 	widths := make(map[int]int)
 	widths[last] = max(curWidth, 1)
 	placed = append(placed, last)
-	remain := navAvail - widths[last]
+	remain := mid - widths[last]
+
+	if !onlyCurrent && last > 0 {
+		i := last - 1
+		availRemain := avail - widths[last]
+		widths[i] = min(full[i], availRemain)
+		placed = append(placed, i)
+		remain = mid - widths[last] - widths[i] - 1
+	}
 
 	if !onlyCurrent {
-		for i := last - 1; i >= 0; i-- {
+		for i := last - 2; i >= 0; i-- {
 			if full[i] <= remain {
 				widths[i] = full[i]
 				placed = append(placed, i)
