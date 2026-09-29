@@ -27,6 +27,16 @@ type LibraryEntry struct {
 	isDir bool // True if it's a directory or a symlink to a directory. / 如果是目录或指向目录的符号链接，则为true。
 }
 
+// browsePosition remembers where a folder was scrolled to and which entry the
+// cursor sat on, so re-entering or previewing it shows the same window.
+//
+// browsePosition 记住文件夹浏览时的滚动窗口和光标位置，
+// 重新进入或预览时呈现同样的画面。
+type browsePosition struct {
+	cursor int
+	offset int
+}
+
 // searchReturnState stores the search view state to restore when the user exits
 // a directory that was entered from the search results.
 //
@@ -51,7 +61,7 @@ type Library struct {
 	cursor              int
 	selected            map[string]bool // Use file path as key for persistent selection. / 使用文件路径作为持久选择的键。
 	offset              int             // For scrolling the view. / 用于滚动视图。
-	pathHistory         map[string]int  // Store cursor position for each path. / 存储每个路径的光标位置。
+	pathHistory         map[string]browsePosition
 	columns             []libraryColumn
 	previewEntriesCache map[string][]LibraryEntry
 	isSearching         bool
@@ -86,7 +96,7 @@ func NewLibrary(app *App) *Library {
 		currentPath:       ".",
 		initialPath:       ".",
 		selected:          make(map[string]bool),
-		pathHistory:       make(map[string]int),
+		pathHistory:       make(map[string]browsePosition),
 		dirSelectionCache: make(map[string]bool),
 		lastRemoveTime:    time.Time{},
 		searchEngine:      search.New(),
@@ -107,7 +117,7 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 		currentPath:       filepath.Clean(startPath),
 		initialPath:       filepath.Clean(startPath),
 		selected:          selectedSongs,
-		pathHistory:       make(map[string]int),
+		pathHistory:       make(map[string]browsePosition),
 		dirSelectionCache: make(map[string]bool),
 		lastRemoveTime:    time.Time{},
 		searchEngine:      search.New(),
@@ -120,21 +130,23 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 // scanDirectory 读取目录内容，筛选音频文件和目录，对它们进行排序，并填充到条目列表中。它还能处理符号链接。
 func (p *Library) scanDirectory(path string) {
 	if p.currentPath != "" {
-		p.pathHistory[p.currentPath] = p.cursor
+		p.pathHistory[p.currentPath] = browsePosition{cursor: p.cursor, offset: p.offset}
 	}
 
 	p.entries = make([]LibraryEntry, 0)
 	p.currentPath = path
 
-	if savedCursor, exists := p.pathHistory[path]; exists {
-		p.cursor = savedCursor
-	} else {
-		p.cursor = 0
+	saved, exists := p.pathHistory[path]
+	if !exists {
+		saved = browsePosition{}
 	}
 
 	p.entries = readLibraryEntries(path)
-	p.cursor = min(p.cursor, max(len(p.entries)-1, 0))
-	p.offset = 0
+	p.cursor = min(saved.cursor, max(len(p.entries)-1, 0))
+	p.offset = min(saved.offset, p.cursor)
+	if p.cursor >= p.offset+max(len(p.entries), 1) {
+		p.offset = max(p.cursor-len(p.entries)+1, 0)
+	}
 }
 
 // ensureGlobalCache builds a cache of all audio files and directories if it doesn't exist.
@@ -598,7 +610,7 @@ func (p *Library) tryFastCursorMove(oldCursor int) bool {
 		return false
 	}
 
-	geoms, _ := p.planColumns(w)
+	geoms, _ := p.planColumns(w, listHeight)
 	if len(geoms) == 0 {
 		return false
 	}
@@ -632,7 +644,7 @@ func (p *Library) tryFastSearchMove(w, listHeight, oldCursor int) bool {
 		return false
 	}
 
-	geoms, _ := p.planColumns(w)
+	geoms, _ := p.planColumns(w, listHeight)
 	if len(geoms) == 0 {
 		return false
 	}

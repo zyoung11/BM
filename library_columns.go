@@ -111,7 +111,7 @@ func (p *Library) popColumn() bool {
 	if len(p.columns) == 0 {
 		return false
 	}
-	p.pathHistory[p.currentPath] = p.cursor
+	p.pathHistory[p.currentPath] = browsePosition{cursor: p.cursor, offset: p.offset}
 	col := p.columns[len(p.columns)-1]
 	p.columns = p.columns[:len(p.columns)-1]
 	p.currentPath = col.path
@@ -167,7 +167,7 @@ func (p *Library) entryPreviewPath(idx int) string {
 //
 // previewColumn 返回光标所在目录的预览，光标不在目录上时返回 nil。
 // 预览只列出一层内容，光标不会进入预览列。
-func (p *Library) previewColumn() *libraryColumn {
+func (p *Library) previewColumn(listHeight int) *libraryColumn {
 	idx := p.cursor
 	if p.searchQuery != "" {
 		idx = p.searchCursor
@@ -184,7 +184,13 @@ func (p *Library) previewColumn() *libraryColumn {
 		entries = readLibraryEntries(path)
 		p.previewEntriesCache[path] = entries
 	}
-	return &libraryColumn{path: path, entries: entries, cursor: -1}
+	saved := p.pathHistory[path]
+	cursor := min(saved.cursor, max(len(entries)-1, 0))
+	offset := min(saved.offset, cursor)
+	if cursor >= offset+listHeight {
+		offset = cursor - listHeight + 1
+	}
+	return &libraryColumn{path: path, entries: entries, cursor: -1, offset: offset}
 }
 
 // truncateWithEllipsis shortens text to the given display width and marks the
@@ -238,14 +244,14 @@ func (p *Library) columnContentWidth(col libraryColumn) int {
 // 进入更深层文件夹时折叠最左列而不是把当前列继续右推。
 // 预览列占据下一个导航列本应出现的位置，显示光标所在目录的一层内容，
 // 若缩短后的名字宽度仍低于配置的最小宽度则不显示预览。
-func (p *Library) planColumns(w int) ([]columnGeometry, *columnGeometry) {
+func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeometry) {
 	cols := p.viewColumns()
 	minWidth := GlobalConfig.App.MinColumnWidth
 	full := make([]int, len(cols))
 	for i, col := range cols {
 		full[i] = p.columnContentWidth(col)
 	}
-	pcol := p.previewColumn()
+	pcol := p.previewColumn(listHeight)
 	var pfull int
 	if pcol != nil {
 		pfull = p.columnContentWidth(*pcol)
@@ -387,7 +393,7 @@ func ancestorOffset(col libraryColumn, listHeight int) int {
 // 光标所在目录的弱化预览列可再居其右。每行先擦除再绘制单元，
 // 保证布局变化后不留旧列残影。
 func (p *Library) renderColumns(w, listHeight int) string {
-	geoms, preview := p.planColumns(w)
+	geoms, preview := p.planColumns(w, listHeight)
 	last := len(geoms) - 1
 	for i, geom := range geoms {
 		if i != last {
@@ -452,7 +458,7 @@ func (p *Library) drawColumnRow(geom columnGeometry, row int, dim bool) string {
 //
 // redrawPreviewArea 在光标移动后仅重绘预览区，不碰导航列。
 func (p *Library) redrawPreviewArea(w, listHeight int) string {
-	geoms, preview := p.planColumns(w)
+	geoms, preview := p.planColumns(w, listHeight)
 	if len(geoms) == 0 {
 		return ""
 	}
