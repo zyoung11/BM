@@ -247,24 +247,38 @@ func (p *Library) planColumns(w int) ([]columnGeometry, *columnGeometry) {
 	mid := w / 2
 	last := len(cols) - 1
 
-	placed := make([]int, 0, len(cols))
-	widths := make(map[int]int)
-	curWidth := min(full[last], avail)
+	previewSpace := 0
+	if pcol != nil {
+		navNeed := min(full[last], avail)
+		if last > 0 {
+			navNeed += min(full[last-1], minWidth) + 1
+		}
+		previewSpace = min(pfull+1, max(avail-navNeed, 0))
+		if previewSpace < minWidth+1 {
+			previewSpace = 0
+		}
+	}
+	navAvail := avail - previewSpace
+
+	curWidth := min(full[last], navAvail)
 	floor := min(full[last], minWidth)
 	onlyCurrent := false
 	if last > 0 {
 		reserve := min(full[last-1], minWidth) + 1
-		if full[last]+reserve > avail {
-			curWidth = avail - reserve
+		if full[last]+reserve > navAvail {
+			curWidth = navAvail - reserve
 		}
 	}
 	if curWidth < floor {
 		onlyCurrent = true
 		curWidth = min(full[last], avail)
 	}
+
+	placed := make([]int, 0, len(cols))
+	widths := make(map[int]int)
 	widths[last] = max(curWidth, 1)
 	placed = append(placed, last)
-	remain := avail - widths[last]
+	remain := navAvail - widths[last]
 
 	if !onlyCurrent {
 		for i := last - 1; i >= 0; i-- {
