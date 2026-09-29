@@ -191,6 +191,13 @@ shuffle_history_window = -1
 # 其余目录仍可通过滚动访问。分割线下的文件不受此限制。
 max_search_dirs = 15
 
+# Minimum column width in the Library multi-column view - a column narrower than this
+# would cut too many file names short, so the view falls back to fewer columns instead.
+#
+# 媒体库多列视图的单列最小宽度 - 列宽低于该值时会截断过多文件名，
+# 此时改为显示更少的列。
+min_column_width = 15
+
 # Keymap settings - defines all keybindings for the application.
 #
 # 键位映射设置 - 定义应用程序的所有按键绑定。

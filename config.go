@@ -98,6 +98,7 @@ type AppConfig struct {
 	Icons                string `toml:"icons"`
 	ShuffleHistoryWindow int    `toml:"shuffle_history_window"`
 	MaxSearchDirs        int    `toml:"max_search_dirs"`
+	MinColumnWidth       int    `toml:"min_column_width"`
 }
 
 // Keymap defines all the keybindings for the application, organized by page.
@@ -287,6 +288,9 @@ func LoadConfig() error {
 	if GlobalConfig.App.DefaultLayoutWide < 0 || GlobalConfig.App.DefaultLayoutWide > 4 {
 		GlobalConfig.App.DefaultLayoutWide = 0
 	}
+	if GlobalConfig.App.MinColumnWidth < 3 {
+		GlobalConfig.App.MinColumnWidth = 15
+	}
 
 	resolveIconSet(GlobalConfig)
 
@@ -409,6 +413,7 @@ func updateConfigFile(configPath string) error {
 		{"[app]", "icons", "icons = \"auto\"", "# Icon set - which icon set to use for player UI elements (play, pause, progress bar, etc.).\n# Set to \"auto\" to auto-detect based on $TERM and $TERM_PROGRAM.\n# Set to a named set like \"default\" or \"nerd_font\" to use that specific set.\n# Named icon sets are defined in [icons.<name>] sections below.\n#\n# 图标集 - 播放器UI元素使用哪套图标（播放、暂停、进度条等）。\n# 设置为 \"auto\" 时根据 $TERM 和 $TERM_PROGRAM 自动检测。\n# 设置为 \"default\" 或 \"nerd_font\" 等命名集合直接使用对应图标集。\n# 命名图标集定义在下方 [icons.<name>] 节中。"},
 		{"[app]", "shuffle_history_window", "shuffle_history_window = -1", "# Shuffle history window - when in random play mode, exclude the last N unique songs from play history\n# from the random selection to avoid frequent repeats.\n# 0 = disabled (pure random).\n# -1 or value >= playlist length = never repeat until all songs in the playlist have been played.\n# Positive value = exclude the last N unique songs from history.\n#\n# 随机播放历史窗口 - 在随机播放模式下，从播放历史的最近 N 首不重复歌曲中排除，\n# 避免频繁重复。设为 0 禁用此功能（纯随机）。负值或大于等于歌单长度的值表示歌单内\n# 所有歌曲都听过一遍之前不重复。"},
 		{"[app]", "max_search_dirs", "max_search_dirs = 15", "# Maximum number of directory results to show in search - limits the visible directory entries\n# in search results on the Library page. The rest of the directories are still accessible via scrolling.\n# Files below the separator are not limited.\n#\n# 搜索结果中最多显示的目录数量 - 限制媒体库页面搜索结果中可见的目录条目。\n# 其余目录仍可通过滚动访问。分割线下的文件不受此限制。"},
+		{"[app]", "min_column_width", "min_column_width = 15", "# Minimum column width in the Library multi-column view - a column narrower than this\n# would cut too many file names short, so the view falls back to fewer columns instead.\n#\n# 媒体库多列视图的单列最小宽度 - 列宽低于该值时会截断过多文件名，\n# 此时改为显示更少的列。"},
 		{"[app]", "layout_debounce_ms", "layout_debounce_ms = 200", "# Layout switching debounce time (milliseconds) - prevents rapid layout switching.\n#\n# 布局切换防抖时间（毫秒）- 防止快速连续切换布局。"},
 		{"[app]", "default_layout_narrow", "default_layout_narrow = 0", "# Default layout for narrow terminal - the layout displayed when the program starts in a narrow terminal.\n# 0 = auto, 1 = text only, 2 = image only, 3 = memory (use saved layout from last session).\n#\n# 窄终端默认布局 - 程序在窄终端启动时显示的布局。\n# 0 = 自动, 1 = 仅文本, 2 = 仅封面, 3 = 记忆（使用上次保存的布局）。"},
 		{"[app]", "default_layout_wide", "default_layout_wide = 0", "# Default layout for wide terminal - the layout displayed when the program starts in a wide terminal.\n# 0 = auto, 1 = narrow mode, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).\n#\n# 宽终端默认布局 - 程序在宽终端启动时显示的布局。\n# 0 = 自动, 1 = 窄终端模式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。"},

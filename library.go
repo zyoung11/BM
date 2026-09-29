@@ -52,7 +52,7 @@ type Library struct {
 	selected    map[string]bool // Use file path as key for persistent selection. / 使用文件路径作为持久选择的键。
 	offset      int             // For scrolling the view. / 用于滚动视图。
 	pathHistory map[string]int  // Store cursor position for each path. / 存储每个路径的光标位置。
-	lastEntered string          // Store the name of the last entered directory. / 存储最后进入的目录的名称。
+	columns     []libraryColumn
 	isSearching bool
 	searchQuery string
 	// searchCursor is the UI cursor on the search results.
@@ -131,46 +131,8 @@ func (p *Library) scanDirectory(path string) {
 		p.cursor = 0
 	}
 
-	files, err := os.ReadDir(path)
-	if err != nil {
-		return
-	}
-
-	for _, file := range files {
-		info, err := file.Info()
-		if err != nil {
-			continue
-		}
-
-		isDir := info.IsDir()
-		isLink := info.Mode()&os.ModeSymlink != 0
-		isValidAudio := isAudioFile(info.Name())
-
-		if isLink {
-			targetPath := filepath.Join(path, file.Name())
-			targetInfo, err := os.Stat(targetPath)
-			if err != nil {
-				continue
-			}
-			isDir = targetInfo.IsDir()
-			isValidAudio = isAudioFile(targetInfo.Name())
-		}
-
-		if isDir || isValidAudio {
-			p.entries = append(p.entries, LibraryEntry{
-				entry: file,
-				info:  info,
-				isDir: isDir,
-			})
-		}
-	}
-
-	sort.SliceStable(p.entries, func(i, j int) bool {
-		if p.entries[i].isDir != p.entries[j].isDir {
-			return p.entries[i].isDir
-		}
-		return strings.ToLower(p.entries[i].entry.Name()) < strings.ToLower(p.entries[j].entry.Name())
-	})
+	p.entries = readLibraryEntries(path)
+	p.cursor = min(p.cursor, max(len(p.entries)-1, 0))
 	p.offset = 0
 }
 
@@ -385,7 +347,7 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavEnterDir) {
 		if p.cursor < len(p.entries) && p.entries[p.cursor].isDir {
-			p.lastEntered = p.entries[p.cursor].entry.Name()
+			p.pushColumn()
 			newPath := filepath.Join(p.currentPath, p.entries[p.cursor].entry.Name())
 			p.scanDirectory(newPath)
 		}
@@ -473,16 +435,10 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 				} else {
 					allSelected = false
 				}
-				for _, songPath := range songsInDir {
-					if allSelected {
-						if p.selected[songPath] {
-							p.toggleSelection(songPath)
-						}
-					} else {
-						if !p.selected[songPath] {
-							p.toggleSelection(songPath)
-						}
-					}
+				if allSelected {
+					p.removeSongsFromPlaylistBatch(songsInDir)
+				} else {
+					p.addSongsToPlaylistBatch(songsInDir)
 				}
 			} else {
 				p.toggleSelection(path)
@@ -518,6 +474,7 @@ func (p *Library) enterDirFromSearchResults() {
 		cursor:      p.searchCursor,
 		offset:      p.searchOffset,
 	})
+	p.pushColumn()
 	p.searchQuery = ""
 	p.searchCursor = 0
 	p.searchOffset = 0
@@ -539,17 +496,10 @@ func (p *Library) exitDir() bool {
 	if currentAbs == initialAbs {
 		return false
 	}
-	newPath := filepath.Dir(p.currentPath)
-	p.scanDirectory(newPath)
-	if p.lastEntered != "" {
-		for i, libEntry := range p.entries {
-			if libEntry.entry.Name() == p.lastEntered && libEntry.isDir {
-				p.cursor = i
-				break
-			}
-		}
-		p.lastEntered = ""
+	if p.popColumn() {
+		return true
 	}
+	p.scanDirectory(filepath.Dir(p.currentPath))
 	return true
 }
 
@@ -592,8 +542,8 @@ func (p *Library) exitToSearchResults() bool {
 	p.searchQuery = top.query
 	p.searchCursor = top.cursor
 	p.searchOffset = top.offset
+	p.popColumn()
 	p.filterSongs()
-	p.scanDirectory(top.browsePath)
 	return true
 }
 
@@ -647,8 +597,13 @@ func (p *Library) tryFastCursorMove(oldCursor int) bool {
 		return false
 	}
 
-	p.drawDirListRow(w, oldCursor-p.offset, oldCursor)
-	p.drawDirListRow(w, p.cursor-p.offset, p.cursor)
+	geoms, _ := p.planColumns(w)
+	if len(geoms) == 0 {
+		return false
+	}
+	p.redrawColumnRow(geoms[len(geoms)-1], oldCursor)
+	p.redrawColumnRow(geoms[len(geoms)-1], p.cursor)
+	p.redrawPreviewArea(w, listHeight)
 	return true
 }
 
@@ -674,19 +629,13 @@ func (p *Library) tryFastSearchMove(w, listHeight, oldCursor int) bool {
 		return false
 	}
 
-	visualOffset := newOffset
-	if hasSep && newOffset >= dirCount {
-		visualOffset = newOffset + 1
+	geoms, _ := p.planColumns(w)
+	if len(geoms) == 0 {
+		return false
 	}
-	visualRowOf := func(itemIdx int) int {
-		if hasSep && itemIdx >= dirCount {
-			return itemIdx + 1
-		}
-		return itemIdx
-	}
-
-	p.drawFilteredItemRow(w, visualRowOf(oldCursor)-visualOffset, oldCursor)
-	p.drawFilteredItemRow(w, visualRowOf(p.searchCursor)-visualOffset, p.searchCursor)
+	p.redrawSearchRow(geoms[len(geoms)-1], oldCursor)
+	p.redrawSearchRow(geoms[len(geoms)-1], p.searchCursor)
+	p.redrawPreviewArea(w, listHeight)
 	return true
 }
 
@@ -744,11 +693,7 @@ func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
 		if allSelected {
 			p.removeSongsFromPlaylistBatch(songsInDir)
 		} else {
-			for _, songPath := range songsInDir {
-				if !p.selected[songPath] {
-					p.toggleSelection(songPath)
-				}
-			}
+			p.addSongsToPlaylistBatch(songsInDir)
 		}
 	}
 	// Clear cache on selection change
@@ -814,48 +759,9 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 	}
 
 	if allCurrentlySelected {
-		// 取消选择所有歌曲：直接清空播放列表，而不是逐个移除
-		// 这样可以避免在移除过程中触发自动播放下一首
-
-		// 先停止当前播放
-		p.app.stopCurrentPlayback()
-		p.app.invalidatePendingNext()
-
-		// 清空播放列表
-		oldPlaylist := p.app.Playlist
-		p.app.setPlaylist([]string{})
-
-		// 清空选择状态（播放列表已清空，其他目录的选中状态一并清除）
-		p.selected = make(map[string]bool)
-
-		// 清空当前播放状态
-		p.app.setCurrentSong("")
-		if p.app.mprisServer != nil {
-			p.app.mprisServer.StopService()
-			p.app.mprisServer = nil
-		}
-
-		// 更新播放器页面
-		if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
-			playerPage.UpdateSong("")
-		}
-
-		// 保存空播放列表
-		if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
-			l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
-		}
-
-		// 记录移除历史（用于防抖）
-		if len(oldPlaylist) > 0 {
-			p.lastRemoveTime = time.Now()
-		}
+		p.removeSongsFromPlaylistBatch(allSongs)
 	} else {
-		// 选择所有歌曲：逐个添加
-		for _, songPath := range allSongs {
-			if !p.selected[songPath] {
-				p.toggleSelection(songPath)
-			}
-		}
+		p.addSongsToPlaylistBatch(allSongs)
 	}
 	// Clear cache on selection change
 	p.dirSelectionCache = make(map[string]bool)
@@ -941,6 +847,49 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 	}
 }
 
+// addSongsToPlaylistBatch adds a batch of songs to the playlist in a single
+// update and starts playback only when the playlist was empty.
+//
+// addSongsToPlaylistBatch 一次性向播放列表批量添加歌曲，
+// 仅在播放列表为空时启动播放。
+func (p *Library) addSongsToPlaylistBatch(songPaths []string) {
+	if len(songPaths) == 0 {
+		return
+	}
+
+	existing := make(map[string]bool, len(p.app.Playlist))
+	for _, songPath := range p.app.Playlist {
+		existing[songPath] = true
+	}
+
+	newPlaylist := append([]string(nil), p.app.Playlist...)
+	changed := false
+	for _, songPath := range songPaths {
+		if p.selected[songPath] {
+			continue
+		}
+		p.selected[songPath] = true
+		changed = true
+		if !existing[songPath] {
+			existing[songPath] = true
+			newPlaylist = append(newPlaylist, songPath)
+		}
+	}
+	if !changed {
+		return
+	}
+
+	wasEmpty := len(p.app.Playlist) == 0
+	p.app.setPlaylist(newPlaylist)
+	p.dirSelectionCache = make(map[string]bool)
+	if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
+		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
+	}
+	if wasEmpty && len(newPlaylist) > 0 {
+		p.app.PlaySongWithSwitchAndRender(newPlaylist[0], false, false)
+	}
+}
+
 // removeSongsFromPlaylistBatch removes a batch of songs from the playlist in a
 // single update and switches playback at most once when the current song is
 // part of the batch. The next song is chosen from the playlist after the whole
@@ -991,6 +940,7 @@ func (p *Library) removeSongsFromPlaylistBatch(songPaths []string) {
 		return
 	}
 
+	p.dirSelectionCache = make(map[string]bool)
 	p.app.invalidatePendingNext()
 	p.app.setPlaylist(newPlaylist)
 	for _, songPath := range songPaths {
@@ -1064,6 +1014,20 @@ func (p *Library) View() {
 
 	listHeight := h - 4
 
+	if w < 20 || h < 8 {
+		for row := 2; row <= h; row++ {
+			fmt.Printf("\x1b[%d;1H\x1b[K", row)
+		}
+		msg := "Terminal too small to browse"
+		if GlobalConfig.App.HelpLanguage == "zh" {
+			msg = "终端过小，无法浏览媒体库"
+		}
+		msg = truncateToWidthFromStart(msg, max(w-1, 1))
+		x := max((w-runewidth.StringWidth(msg))/2, 0) + 1
+		fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", max(h/2, 1), x, msg)
+		return
+	}
+
 	isSearchView := p.searchQuery != ""
 
 	var currentListLength int
@@ -1106,11 +1070,7 @@ func (p *Library) View() {
 		p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", p.rootDisplayPath()))
 	}
 
-	if isSearchView {
-		p.renderFilteredListContent(w, listHeight, currentOffset)
-	} else {
-		p.renderDirectoryListContent(w, listHeight, currentOffset)
-	}
+	p.renderColumns(w, listHeight)
 
 	fmt.Printf("\x1b[%d;1H\x1b[K", h-1)
 
@@ -1141,7 +1101,7 @@ func (p *Library) drawSearchFooter(w, h int, footerText string) {
 	fmt.Printf("\x1b[%d;1H\x1b[K", h)
 	footerText = truncateToWidth(footerText, w)
 	footerX := max((w-len(footerText))/2, 1)
-	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
+	fmt.Printf("\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, footerX, footerText)
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
 		if cursorX <= w {
@@ -1157,7 +1117,7 @@ func (p *Library) drawPathFooter(w, h int, footerText string) {
 	fmt.Printf("\x1b[%d;1H\x1b[K", h)
 	footerText = truncateToWidth(footerText, w)
 	footerX := max((w-len(footerText))/2, 1)
-	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footerText)
+	fmt.Printf("\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, footerX, footerText)
 }
 
 // truncateToWidth shortens text with a leading ellipsis so that its display
@@ -1196,194 +1156,6 @@ func truncateToWidthFromStart(text string, w int) string {
 	return string(runes) + "..."
 }
 
-// renderFilteredListContent renders the search results with directories on top,
-// files on bottom, separated by a gray dashed line.
-//
-// renderFilteredListContent 渲染搜索结果，目录在上，歌曲在下，中间用灰色虚线分隔。
-func (p *Library) renderFilteredListContent(w, listHeight, currentOffset int) {
-	dirCount := p.searchDirCount
-	hasSep := dirCount > 0 && dirCount < len(p.filteredSongPaths)
-
-	visualOffset := currentOffset
-	if hasSep && currentOffset >= dirCount {
-		visualOffset = currentOffset + 1
-	}
-
-	for i := range listHeight {
-		visualRow := visualOffset + i
-
-		if hasSep && visualRow == dirCount {
-			p.drawFilteredSepRow(w, i)
-			continue
-		}
-
-		itemIdx := visualRow
-		if hasSep && visualRow > dirCount {
-			itemIdx = visualRow - 1
-		}
-		p.drawFilteredItemRow(w, i, itemIdx)
-	}
-}
-
-// drawFilteredSepRow renders the dashed separator between directories and songs
-// in the search results.
-//
-// drawFilteredSepRow 渲染搜索结果中目录与歌曲之间的虚线分割线。
-func (p *Library) drawFilteredSepRow(w, screenRow int) {
-	sepWidth := max(w-1, 1)
-	sepText := strings.Repeat("─", sepWidth)
-	fmt.Printf("\x1b[%d;1H\x1b[K\x1b[90m%s\x1b[0m", screenRow+3, sepText)
-}
-
-// drawFilteredItemRow renders one search result row, erasing the row first.
-//
-// drawFilteredItemRow 先擦除整行再渲染一条搜索结果。
-func (p *Library) drawFilteredItemRow(w, screenRow, itemIdx int) {
-	y := screenRow + 3
-	if itemIdx < 0 || itemIdx >= len(p.filteredSongPaths) {
-		fmt.Printf("\x1b[%d;1H\x1b[K", y)
-		return
-	}
-
-	fullPath := p.filteredSongPaths[itemIdx]
-	cleanInitial := filepath.Clean(p.initialPath)
-
-	info, err := os.Stat(fullPath)
-	isDir := err == nil && info.IsDir()
-
-	var displayPath string
-	if isDir {
-		cleanPath := filepath.Clean(fullPath)
-		if rel, relErr := filepath.Rel(cleanInitial, cleanPath); relErr == nil && !strings.HasPrefix(rel, "..") {
-			displayPath = rel
-		} else {
-			displayPath = cleanPath
-		}
-		if displayPath == "." {
-			displayPath = filepath.Base(cleanInitial)
-			if displayPath == "." {
-				displayPath = "(root)"
-			}
-		}
-	} else {
-		displayPath = filepath.Base(fullPath)
-	}
-
-	isSelected := p.selected[fullPath]
-	if isDir && !isSelected {
-		if cached, ok := p.dirSelectionCache[fullPath]; ok {
-			isSelected = cached
-		} else {
-			var checkSelected func(string) bool
-			checkSelected = func(dirPath string) bool {
-				files, err := os.ReadDir(dirPath)
-				if err != nil {
-					return false
-				}
-				for _, file := range files {
-					entryPath := filepath.Join(dirPath, file.Name())
-					info, err := file.Info()
-					if err != nil {
-						continue
-					}
-
-					isDir := info.IsDir()
-					if info.Mode()&os.ModeSymlink != 0 {
-						statInfo, statErr := os.Stat(entryPath)
-						if statErr == nil {
-							isDir = statInfo.IsDir()
-						} else {
-							continue
-						}
-					}
-
-					if isDir {
-						if checkSelected(entryPath) {
-							return true
-						}
-					} else if p.selected[entryPath] {
-						return true
-					}
-				}
-				return false
-			}
-			isSelected = checkSelected(fullPath)
-			p.dirSelectionCache[fullPath] = isSelected
-		}
-	}
-
-	line := ""
-	style := "\x1b[0m"
-	if isSelected {
-		style += "\x1b[32m"
-		if isDir {
-			line = "✓ " + displayPath + "/"
-		} else {
-			line = "✓ " + displayPath
-		}
-	} else {
-		if isDir {
-			line = "▸ " + displayPath + "/"
-		} else {
-			line = "  " + displayPath
-		}
-	}
-
-	isCursor := itemIdx == p.searchCursor
-	if isCursor {
-		style += "\x1b[7m"
-	}
-	suffix := ""
-	if isCursor {
-		suffix = strings.Repeat(" ", len(line)-len(strings.TrimLeft(line, " ")))
-	}
-	maxWidth := w - 1 - runewidth.StringWidth(suffix)
-	if runewidth.StringWidth(line) > maxWidth {
-		for runewidth.StringWidth(line) > maxWidth && len(line) > 0 {
-			line = line[:len(line)-1]
-		}
-	}
-	line += suffix
-	fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", y, style, line)
-}
-
-// renderDirectoryListContent is a helper for rendering the directory list content.
-//
-// renderDirectoryListContent 是一个用于渲染目录列表内容的辅助函数。
-func (p *Library) renderDirectoryListContent(w, listHeight, currentOffset int) {
-	for i := range listHeight {
-		p.drawDirListRow(w, i, currentOffset+i)
-	}
-}
-
-// drawDirListRow renders one directory browsing row, erasing the row first.
-//
-// drawDirListRow 先擦除整行再渲染一行目录浏览内容。
-func (p *Library) drawDirListRow(w, screenRow, entryIndex int) {
-	y := screenRow + 3
-	if entryIndex < 0 || entryIndex >= len(p.entries) {
-		fmt.Printf("\x1b[%d;1H\x1b[K", y)
-		return
-	}
-
-	libEntry := p.entries[entryIndex]
-	fullPath := filepath.Join(p.currentPath, libEntry.entry.Name())
-	isCursor := entryIndex == p.cursor
-	line, style := p.getDirEntryLine(libEntry, fullPath, isCursor)
-	suffix := ""
-	if isCursor {
-		suffix = strings.Repeat(" ", len(line)-len(strings.TrimLeft(line, " ")))
-	}
-	maxWidth := w - 1 - runewidth.StringWidth(suffix)
-	if runewidth.StringWidth(line) > maxWidth {
-		for runewidth.StringWidth(line) > maxWidth && len(line) > 0 {
-			line = line[:len(line)-1]
-		}
-	}
-	line += suffix
-	fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", y, style, line)
-}
-
 // getDirEntryLine generates the display line and style for a directory entry.
 //
 // getDirEntryLine 为目录条目生成显示行和样式。
@@ -1402,40 +1174,7 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCurs
 		if cached, ok := p.dirSelectionCache[fullPath]; ok {
 			isDirPartiallySelected = cached
 		} else {
-			var checkSelected func(string) bool
-			checkSelected = func(dirPath string) bool {
-				files, err := os.ReadDir(dirPath)
-				if err != nil {
-					return false
-				}
-				for _, file := range files {
-					entryPath := filepath.Join(dirPath, file.Name())
-					info, err := file.Info()
-					if err != nil {
-						continue
-					}
-
-					isDir := info.IsDir()
-					if info.Mode()&os.ModeSymlink != 0 {
-						statInfo, statErr := os.Stat(entryPath)
-						if statErr == nil {
-							isDir = statInfo.IsDir()
-						} else {
-							continue
-						}
-					}
-
-					if isDir {
-						if checkSelected(entryPath) {
-							return true
-						}
-					} else if p.selected[entryPath] {
-						return true
-					}
-				}
-				return false
-			}
-			isDirPartiallySelected = checkSelected(fullPath)
+			isDirPartiallySelected = p.dirHasSelection(fullPath)
 			p.dirSelectionCache[fullPath] = isDirPartiallySelected
 		}
 		if isDirPartiallySelected {
