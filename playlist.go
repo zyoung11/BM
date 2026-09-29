@@ -288,6 +288,7 @@ func (p *PlayList) removeCurrentSong() {
 	for _, page := range p.app.pages {
 		if libPage, ok := page.(*Library); ok {
 			delete(libPage.selected, songPath)
+			libPage.dirSelectionCache = make(map[string]bool)
 			if libPage.searchQuery != "" {
 				libPage.filterSongs()
 			}

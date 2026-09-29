@@ -741,10 +741,10 @@ func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
 			allSelected = false
 		}
 
-		for _, songPath := range songsInDir {
-			if allSelected {
-				p.toggleSelection(songPath)
-			} else {
+		if allSelected {
+			p.removeSongsFromPlaylistBatch(songsInDir)
+		} else {
+			for _, songPath := range songsInDir {
 				if !p.selected[songPath] {
 					p.toggleSelection(songPath)
 				}
@@ -939,6 +939,97 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 			return
 		}
 	}
+}
+
+// removeSongsFromPlaylistBatch removes a batch of songs from the playlist in a
+// single update and switches playback at most once when the current song is
+// part of the batch. The next song is chosen from the playlist after the whole
+// batch is gone, so removed songs never become candidates.
+//
+// removeSongsFromPlaylistBatch 一次性从播放列表批量移除歌曲，
+// 当前播放歌曲在批次中时最多只切换一次播放，下一首从移除后的播放列表中选取，
+// 被移除的歌曲不会再成为候选项。
+func (p *Library) removeSongsFromPlaylistBatch(songPaths []string) {
+	if len(songPaths) == 0 {
+		return
+	}
+
+	toRemove := make(map[string]bool, len(songPaths))
+	for _, songPath := range songPaths {
+		toRemove[songPath] = true
+	}
+
+	playingIndex := -1
+	for i, songPath := range p.app.Playlist {
+		if songPath == p.app.currentSongPath {
+			playingIndex = i
+			break
+		}
+	}
+	wasPlayingRemoved := playingIndex >= 0 && toRemove[p.app.currentSongPath]
+
+	keptBefore := 0
+	newPlaylist := make([]string, 0, len(p.app.Playlist))
+	for i, songPath := range p.app.Playlist {
+		if toRemove[songPath] {
+			continue
+		}
+		if playingIndex >= 0 && i < playingIndex {
+			keptBefore++
+		}
+		newPlaylist = append(newPlaylist, songPath)
+	}
+
+	changed := len(newPlaylist) != len(p.app.Playlist)
+	for _, songPath := range songPaths {
+		if p.selected[songPath] {
+			delete(p.selected, songPath)
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+
+	p.app.invalidatePendingNext()
+	p.app.setPlaylist(newPlaylist)
+	for _, songPath := range songPaths {
+		p.app.removeFromPlayHistory(songPath)
+	}
+	if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
+		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
+	}
+
+	if !wasPlayingRemoved {
+		return
+	}
+
+	if len(p.app.Playlist) == 0 {
+		if p.app.player != nil {
+			speaker.Lock()
+			if p.app.player.ctrl != nil {
+				p.app.player.ctrl.Paused = true
+			}
+			speaker.Unlock()
+		}
+		p.app.player = nil
+		p.app.setCurrentSong("")
+		if p.app.mprisServer != nil {
+			p.app.mprisServer.StopService()
+			p.app.mprisServer = nil
+		}
+		if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
+			playerPage.UpdateSong("")
+		}
+		return
+	}
+
+	nextIndex := keptBefore
+	if nextIndex >= len(p.app.Playlist) {
+		nextIndex = len(p.app.Playlist) - 1
+	}
+	p.lastRemoveTime = time.Now()
+	p.app.PlaySongWithSwitchAndRender(p.app.Playlist[nextIndex], false, false)
 }
 
 // HandleSignal handles window resize events.
@@ -1238,14 +1329,21 @@ func (p *Library) drawFilteredItemRow(w, screenRow, itemIdx int) {
 		}
 	}
 
-	if itemIdx == p.searchCursor {
+	isCursor := itemIdx == p.searchCursor
+	if isCursor {
 		style += "\x1b[7m"
 	}
-	if runewidth.StringWidth(line) > w-1 {
-		for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
+	suffix := ""
+	if isCursor {
+		suffix = strings.Repeat(" ", len(line)-len(strings.TrimLeft(line, " ")))
+	}
+	maxWidth := w - 1 - runewidth.StringWidth(suffix)
+	if runewidth.StringWidth(line) > maxWidth {
+		for runewidth.StringWidth(line) > maxWidth && len(line) > 0 {
 			line = line[:len(line)-1]
 		}
 	}
+	line += suffix
 	fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", y, style, line)
 }
 
@@ -1270,12 +1368,19 @@ func (p *Library) drawDirListRow(w, screenRow, entryIndex int) {
 
 	libEntry := p.entries[entryIndex]
 	fullPath := filepath.Join(p.currentPath, libEntry.entry.Name())
-	line, style := p.getDirEntryLine(libEntry, fullPath, entryIndex == p.cursor)
-	if runewidth.StringWidth(line) > w-1 {
-		for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
+	isCursor := entryIndex == p.cursor
+	line, style := p.getDirEntryLine(libEntry, fullPath, isCursor)
+	suffix := ""
+	if isCursor {
+		suffix = strings.Repeat(" ", len(line)-len(strings.TrimLeft(line, " ")))
+	}
+	maxWidth := w - 1 - runewidth.StringWidth(suffix)
+	if runewidth.StringWidth(line) > maxWidth {
+		for runewidth.StringWidth(line) > maxWidth && len(line) > 0 {
 			line = line[:len(line)-1]
 		}
 	}
+	line += suffix
 	fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", y, style, line)
 }
 
