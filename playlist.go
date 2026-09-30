@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -460,12 +461,13 @@ func (p *PlayList) drawTrackListRow(w, screenRow, trackIndex int) {
 		prefix = "⚠"
 	}
 	line := fmt.Sprintf("%s %s", prefix, trackName)
-	if runewidth.StringWidth(line) > w-1 {
-		for runewidth.StringWidth(line) > w-1 && len(line) > 0 {
+	if runewidth.StringWidth(line) > w-2 {
+		for runewidth.StringWidth(line) > w-2 && len(line) > 0 {
 			line = line[:len(line)-1]
 		}
 	}
-	fmt.Printf("\x1b[%d;1H\x1b[K%s%s\x1b[0m", y, style, line)
+	fmt.Printf("\x1b[%d;1H%s%s\x1b[0m%s", y, style, line,
+		strings.Repeat(" ", max(w-1-runewidth.StringWidth(line), 0)))
 }
 
 // tryFastCursorMove redraws only the old and new cursor rows after a cursor move
