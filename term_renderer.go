@@ -34,7 +34,7 @@ const (
 // 使浮层相关的重绘一次性上屏。嵌套调用是透明的；浮层之外它不做任何事，
 // 使普通渲染保持渐进式和原有的手感。
 func (a *App) beginFrame() {
-	if !a.helpOpen && !a.confirmQuitOpen {
+	if !a.helpOpen && !a.confirmQuitOpen && !a.diffRender {
 		return
 	}
 	if a.frameDepth == 0 {

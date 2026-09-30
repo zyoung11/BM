@@ -571,7 +571,7 @@ func (p *Library) redrawSearchRow(geom columnGeometry, itemIdx int) string {
 	col := geom.col
 	hasSep := col.dirCount > 0 && col.dirCount < len(col.items)
 	visualRow := itemIdx
-	if hasSep && itemIdx > col.dirCount {
+	if hasSep && itemIdx >= col.dirCount {
 		visualRow = itemIdx + 1
 	}
 	y := visualRow - col.offset + 3
