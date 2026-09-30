@@ -219,9 +219,6 @@ func (p *Library) columnContentWidth(col libraryColumn) int {
 	width := 1
 	if col.isSearch {
 		for i, item := range col.items {
-			if col.dirCount > 0 && i >= col.dirCount {
-				continue
-			}
 			line, _ := p.getSearchEntryLine(item, i == col.cursor)
 			width = max(width, runewidth.StringWidth(line))
 		}
@@ -266,6 +263,11 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	avail := w - 1
 	mid := w / 2
 	last := len(cols) - 1
+	for i, col := range cols {
+		if col.isSearch && i != last {
+			full[i] = p.searchFolderWidth(col)
+		}
+	}
 
 	parentBudget := 0
 	if last > 0 {
@@ -322,6 +324,9 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	if pcol != nil {
 		lastGeom := geoms[len(geoms)-1]
 		previewX := lastGeom.x + lastGeom.width + 1
+		if lastGeom.col.isSearch {
+			previewX = lastGeom.x + p.searchFolderWidth(lastGeom.col) + 1
+		}
 		previewAvail := avail - (previewX - 1)
 		previewWidth := 0
 		switch {
@@ -335,6 +340,24 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 		}
 	}
 	return geoms, preview
+}
+
+// searchFolderWidth measures the folder section above the separator line of a
+// search column. The preview column anchors to this width so long song names
+// below the line never push it around.
+//
+// searchFolderWidth 测量搜索列分隔线上方文件夹区的宽度。
+// 预览列以此定位，横线下的长歌名不会推动预览位置。
+func (p *Library) searchFolderWidth(col libraryColumn) int {
+	width := 1
+	for i, item := range col.items {
+		if col.dirCount > 0 && i >= col.dirCount {
+			break
+		}
+		line, _ := p.getSearchEntryLine(item, i == col.cursor)
+		width = max(width, runewidth.StringWidth(line))
+	}
+	return width
 }
 
 // clearColumnCell blanks one cell inside a column.
@@ -508,11 +531,12 @@ func (p *Library) redrawPreviewArea(w, listHeight int) string {
 		}
 	}
 	var buf strings.Builder
+	pad := strings.Repeat(" ", max(w-1-startX, 0))
 	for row := range listHeight {
 		if row == sepRow {
 			continue
 		}
-		fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[K", row+3, startX)
+		fmt.Fprintf(&buf, "\x1b[%d;%dH%s", row+3, startX, pad)
 	}
 	if preview != nil {
 		for row := range listHeight {
