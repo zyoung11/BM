@@ -124,9 +124,6 @@ type App struct {
 	// Corrupted file tracking. / 损坏文件跟踪。
 	corruptedFiles map[string]bool // Records corrupted FLAC files. / 记录损坏的FLAC文件。
 
-	// Single song mode flag. / 单曲播放模式标志。
-	isSingleSongMode bool // True if in single song playback mode. / 如果处于单曲播放模式，则为true。
-
 	// Random mode transition tracking. / 随机模式切换跟踪。
 	switchedToRandom bool // True if just switched to random mode and haven't played yet. / 如果刚切换到随机模式且尚未播放。
 
@@ -221,17 +218,43 @@ func (a *App) stopCurrentPlayback() {
 	}
 }
 
+// stopPlaybackAndClear stops playback and resets the playback state to empty:
+// the chain is drained and closed, any prepared next song is dropped, the
+// player is cleared, and MPRIS and the player page are updated.
+//
+// stopPlaybackAndClear 停止播放并把播放状态重置为空：排干并关闭播放链、
+// 丢弃已准备的下一首、清空 player，并同步 MPRIS 与播放器页面。
+func (a *App) stopPlaybackAndClear() {
+	a.stopCurrentPlayback()
+	a.invalidatePendingNext()
+	a.player = nil
+	a.setCurrentSong("")
+	if a.mprisServer != nil {
+		a.mprisServer.StopService()
+		a.mprisServer = nil
+	}
+	if len(a.pages) > 0 {
+		if playerPage, ok := a.pages[0].(*PlayerPage); ok {
+			playerPage.UpdateSong("")
+		}
+	}
+}
+
 // setPlaylist replaces the playlist and republishes its length for
 // cross-goroutine readers. It is the only allowed writer of App.Playlist.
-// When CanGoNext/CanGoPrevious flip, a PropertiesChanged signal is emitted.
+// Every change drops any prepared next song, so a queued pick never outlives
+// the list it was drawn from. When CanGoNext/CanGoPrevious flip, a
+// PropertiesChanged signal is emitted.
 //
 // setPlaylist 替换播放列表并为跨 goroutine 读取方重新发布长度。它是
-// App.Playlist 唯一允许的写入方。CanGoNext/CanGoPrevious 翻转时发送
+// App.Playlist 唯一允许的写入方。每次变更都会丢弃已准备的下一首，
+// 保证排入的歌曲始终来自当前歌单。CanGoNext/CanGoPrevious 翻转时发送
 // PropertiesChanged 信号。
 func (a *App) setPlaylist(pl []string) {
 	old := a.playlistLen.Load()
 	a.Playlist = pl
 	a.playlistLen.Store(int64(len(pl)))
+	a.invalidatePendingNext()
 	if a.mprisServer != nil && (old > 1) != (int64(len(pl)) > 1) {
 		a.mprisServer.UpdateProperties()
 	}
@@ -529,6 +552,21 @@ func (a *App) setCurrentSong(songPath string) {
 	if err := SaveCurrentSong(songPath, a.LibraryPath); err != nil {
 		l.Warnf("failed to save current song: %v\n\n警告: 保存当前歌曲失败: %v", err, err)
 	}
+}
+
+// playingSongPath returns the song the audio chain is actually streaming.
+// Right after a seamless queue handoff it leads App.currentSongPath, which
+// only catches up on the next UI tick.
+//
+// playingSongPath 返回音频链实际正在播放的歌曲路径。无缝换源刚发生时它领先于
+// App.currentSongPath，后者要到下一个 UI tick 才同步。
+func (a *App) playingSongPath() string {
+	if a.player != nil && a.player.queue != nil {
+		if hp := a.player.queue.path(); hp != "" {
+			return hp
+		}
+	}
+	return a.currentSongPath
 }
 
 // sanitizePlayHistory cleans up the play history at startup:
@@ -856,24 +894,35 @@ func main() {
 		}
 
 		info, err := os.Stat(arg)
-		if err == nil && !info.IsDir() {
-			ext := filepath.Ext(arg)
-			ext = strings.ToLower(ext)
-			if ext == ".flac" || ext == ".mp3" || ext == ".wav" || ext == ".ogg" {
-				fmt.Print("\x1b[?1049h\x1b[?25l")
-				defer fmt.Print("\x1b[2J\x1b[?1049l\x1b[?25h")
-
-				oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
-				if err != nil {
-					l.Fatalf("failed to set raw mode: %v\n\n设置原始模式失败: %v", err, err)
-				}
-				defer term.Restore(int(os.Stdin.Fd()), oldState)
-
-				if err := runSingleSong(arg); err != nil {
-					l.Fatalf("failed to play single song: %v\n\n播放单曲失败: %v", err, err)
-				}
-				return
+		if err != nil {
+			l.Fatalf("Unable to access path: %v\n\n无法访问路径: %v", err, err)
+		}
+		if !info.IsDir() {
+			if !isAudioFile(arg) {
+				l.Fatalf("Unsupported audio file: %s (supported: FLAC, MP3, WAV, OGG)\n\n不支持的音频文件: %s（支持: FLAC, MP3, WAV, OGG）", arg, arg)
 			}
+			songPath, err := filepath.Abs(arg)
+			if err != nil {
+				l.Fatalf("Unable to get absolute path: %v\n\n无法获取绝对路径: %v", err, err)
+			}
+			dirPath, err := validateSongInput(songPath)
+			if err != nil {
+				l.Fatalf("%v", err)
+			}
+
+			fmt.Print("\x1b[?1049h\x1b[?25l")
+			defer fmt.Print("\x1b[2J\x1b[?1049l\x1b[?25h")
+
+			oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+			if err != nil {
+				l.Fatalf("failed to set raw mode: %v\n\n设置原始模式失败: %v", err, err)
+			}
+			defer term.Restore(int(os.Stdin.Fd()), oldState)
+
+			if err := runApplication(dirPath, songPath); err != nil {
+				l.Fatalf("%v", err)
+			}
+			return
 		}
 	}
 
@@ -891,22 +940,106 @@ func main() {
 	}
 	defer term.Restore(int(os.Stdin.Fd()), oldState)
 
-	if err := runApplication(dirPath); err != nil {
+	if err := runApplication(dirPath, ""); err != nil {
 		l.Fatalf("%v", err)
 	}
 }
 
-func validateInputsAndConfig() (string, error) {
+// validateConfig loads the configuration file and checks the option
+// constraints that every session shares.
+//
+// validateConfig 加载配置文件并检查所有会话共有的选项约束。
+func validateConfig() error {
 	if err := LoadConfig(); err != nil {
-		return "", fmt.Errorf("Failed to load config: %v\n\n加载配置失败: %v", err, err)
+		return fmt.Errorf("Failed to load config: %v\n\n加载配置失败: %v", err, err)
 	}
 
 	if GlobalConfig.App.PlaylistHistory && !GlobalConfig.App.RememberLibraryPath {
-		return "", fmt.Errorf("Configuration error: 'playlist_history' cannot be true when 'remember_library_path' is false\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false")
+		return fmt.Errorf("Configuration error: 'playlist_history' cannot be true when 'remember_library_path' is false\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false")
 	}
 
 	if GlobalConfig.App.AutostartLastPlayed && !GlobalConfig.App.PlaylistHistory {
-		return "", fmt.Errorf("Configuration error: 'autostart_last_played' cannot be true when 'playlist_history' is false\n\n配置错误: 'autostart_last_played' 为 true 时 'playlist_history' 不能为 false")
+		return fmt.Errorf("Configuration error: 'autostart_last_played' cannot be true when 'playlist_history' is false\n\n配置错误: 'autostart_last_played' 为 true 时 'playlist_history' 不能为 false")
+	}
+
+	return nil
+}
+
+// isInsideDir reports whether file lives under dir once symlinks are resolved,
+// falling back to a lexical comparison when a path cannot be resolved.
+//
+// isInsideDir 判断 file 是否位于 dir 之下，解析符号链接后比较；
+// 路径无法解析时回退为词法比较。
+func isInsideDir(dir, file string) (bool, error) {
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		resolvedDir = filepath.Clean(dir)
+	}
+	resolvedFile, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		resolvedFile = filepath.Clean(file)
+	}
+	rel, err := filepath.Rel(resolvedDir, resolvedFile)
+	if err != nil {
+		return false, err
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)), nil
+}
+
+// validateSongInput validates a song argument and resolves the remembered
+// music library the song must belong to. It errors when no music folder has
+// been set up yet, when the folder is unreachable, when the song is outside
+// the folder, or when the song cannot be decoded.
+//
+// validateSongInput 校验歌曲参数并解析其必须归属的记忆音乐库。
+// 尚未设置过歌曲文件夹、文件夹不可访问、歌曲不在文件夹内或歌曲无法解码时返回错误。
+func validateSongInput(songPath string) (string, error) {
+	if err := validateConfig(); err != nil {
+		return "", err
+	}
+
+	storageData, err := loadStorageData()
+	if err != nil {
+		return "", fmt.Errorf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
+	}
+	if storageData.LibraryPath == "" {
+		return "", fmt.Errorf("No music folder has been set up yet.\nPlease set `remember_library_path = true` in the config file and run `%s <music_directory>` once first.\n\n尚未设置过歌曲文件夹。\n请先在配置文件中设置 `remember_library_path = true`，并运行一次 `%s <音乐目录>`。", os.Args[0], os.Args[0])
+	}
+
+	dirPath := storageData.LibraryPath
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		return "", fmt.Errorf("Unable to access the saved music folder: %s\n\n无法访问已保存的歌曲文件夹: %s", dirPath, dirPath)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("The saved music folder is not a directory: %s\n\n已保存的歌曲文件夹不是目录: %s", dirPath, dirPath)
+	}
+
+	inside, err := isInsideDir(dirPath, songPath)
+	if err != nil {
+		return "", fmt.Errorf("Unable to compare paths: %v\n\n无法比较路径: %v", err, err)
+	}
+	if !inside {
+		return "", fmt.Errorf("The song is not inside your music folder (%s):\n%s\n\n这首歌不在你的歌曲文件夹内（%s）:\n%s", dirPath, songPath, dirPath, songPath)
+	}
+
+	dec, _, err := decodeAudioFile(songPath)
+	if err != nil {
+		return "", fmt.Errorf("Failed to decode audio: %v\n\n解码音频失败: %v", err, err)
+	}
+	dec.Close()
+
+	return dirPath, nil
+}
+
+// validateInputsAndConfig resolves the music library directory for a normal
+// session, loading the configuration and remembering the path when asked to.
+//
+// validateInputsAndConfig 为常规会话解析音乐库目录，
+// 加载配置并在需要时记住该路径。
+func validateInputsAndConfig() (string, error) {
+	if err := validateConfig(); err != nil {
+		return "", err
 	}
 
 	var dirPath string
@@ -951,7 +1084,13 @@ func validateInputsAndConfig() (string, error) {
 	return dirPath, nil
 }
 
-func runApplication(dirPath string) error {
+// runApplication runs the full player for the given music library. When
+// songPath is not empty, the song is added to the playlist and played right
+// away with the repeat-one mode selected.
+//
+// runApplication 为给定音乐库运行完整播放器。songPath 非空时，
+// 该歌曲会被加入播放列表并立即播放，同时切换到单曲循环模式。
+func runApplication(dirPath string, songPath string) error {
 	storageData, err := loadStorageData()
 	if err != nil {
 		return fmt.Errorf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
@@ -969,6 +1108,13 @@ func runApplication(dirPath string) error {
 	if err != nil {
 		l.Warnf("Could not load playlist: %v\n\n警告: 无法加载播放列表: %v", err, err)
 		playlist = make([]string, 0)
+	}
+
+	if songPath != "" && !slices.Contains(playlist, songPath) {
+		playlist = append(playlist, songPath)
+		if err := SavePlaylist(playlist, dirPath); err != nil {
+			l.Warnf("Could not save playlist: %v\n\n警告: 无法保存播放列表: %v", err, err)
+		}
 	}
 
 	playHistory, err := LoadPlayHistory(dirPath)
@@ -998,7 +1144,6 @@ func runApplication(dirPath string) error {
 		historyIndex:         len(playHistory) - 1,
 		isNavigatingHistory:  false,
 		corruptedFiles:       make(map[string]bool),
-		isSingleSongMode:     false,
 		switchedToRandom:     false,
 		quitChan:             make(chan struct{}),
 		notificationsEnabled: GlobalConfig.App.EnableNotifications,
@@ -1042,6 +1187,13 @@ func runApplication(dirPath string) error {
 		app.playMode = savedPlayMode
 	}
 
+	if songPath != "" {
+		app.playMode = 0
+		if err := SavePlayMode(0); err != nil {
+			l.Warnf("Could not save play mode: %v\n\n警告: 无法保存播放模式: %v", err, err)
+		}
+	}
+
 	termW, termH, _ := term.GetSize(int(os.Stdout.Fd()))
 	isWide := isWideTerminal(termW, termH)
 	initialLayout := resolveInitialLayout(isWide)
@@ -1055,7 +1207,11 @@ func runApplication(dirPath string) error {
 		app.currentPageIndex = 0
 	}
 
-	if GlobalConfig.App.AutostartLastPlayed {
+	if songPath != "" {
+		if err := app.PlaySongWithSwitchAndRender(songPath, true, false); err != nil {
+			return fmt.Errorf("Failed to play song: %v\n\n播放歌曲失败: %v", err, err)
+		}
+	} else if GlobalConfig.App.AutostartLastPlayed {
 		currentSong, err := LoadCurrentSong(dirPath)
 		if err != nil {
 			l.Warnf("Could not load current song: %v\n\n无法加载当前歌曲: %v", err, err)
@@ -1086,150 +1242,6 @@ func runApplication(dirPath string) error {
 	}
 
 	return app.Run()
-}
-
-// runSingleSong runs the application in single song playback mode.
-//
-// runSingleSong 以单曲播放模式运行应用程序。
-func runSingleSong(songPath string) error {
-	info, err := os.Stat(songPath)
-	if err != nil {
-		return fmt.Errorf("Unable to access file: %v\n\n无法访问文件: %v", err, err)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("Input must be an audio file, not a directory.\n\n输入必须是音频文件，而不是目录。")
-	}
-
-	absPath, err := filepath.Abs(songPath)
-	if err != nil {
-		return fmt.Errorf("Unable to get absolute path: %v\n\n无法获取绝对路径: %v", err, err)
-	}
-
-	if err := loadMinimalConfig(); err != nil {
-		return fmt.Errorf("Failed to load minimal config: %v\n\n加载最小配置失败: %v", err, err)
-	}
-
-	cellW, cellH, _ := getCellSize()
-	if cellW <= 0 || cellH <= 0 {
-		cellW, cellH = 10, 20
-	}
-
-	sampleRate := beep.SampleRate(44100)
-	speaker.Init(sampleRate, sampleRate.N(time.Second/30))
-
-	app := &App{
-		player:               nil,
-		mprisServer:          nil,
-		currentPageIndex:     0,
-		Playlist:             []string{absPath},
-		LibraryPath:          filepath.Dir(absPath),
-		playMode:             0,
-		volume:               0,
-		linearVolume:         1.0,
-		playbackRate:         1.0,
-		actionQueue:          make(chan func(), 10),
-		sampleRate:           sampleRate,
-		playHistory:          make([]string, 0),
-		historyIndex:         -1,
-		isNavigatingHistory:  false,
-		corruptedFiles:       make(map[string]bool),
-		isSingleSongMode:     true,
-		quitChan:             make(chan struct{}),
-		notificationsEnabled: GlobalConfig.App.EnableNotifications,
-	}
-	app.setPlaylist([]string{absPath})
-	app.forcedTextMode = inTerminalMultiplexer()
-
-	playerPage := NewPlayerPage(app, "", cellW, cellH, -1)
-	app.pages = []Page{playerPage}
-
-	if err := app.PlaySongWithSwitchAndRender(absPath, true, false); err != nil {
-		return fmt.Errorf("Failed to play song: %v\n\n播放歌曲失败: %v", err, err)
-	}
-
-	return app.Run()
-}
-
-// loadMinimalConfig loads minimal configuration for single song mode.
-//
-// loadMinimalConfig 为单曲播放模式加载最小配置。
-func loadMinimalConfig() error {
-	GlobalConfig = &Config{
-		Keymap: Keymap{
-			Global: GlobalKeymap{
-				Quit:             Key{"esc"},
-				CyclePages:       Key{"tab"},
-				SwitchToPlayer:   Key{"1"},
-				SwitchToPlayList: Key{"2"},
-				SwitchToLibrary:  Key{"3"},
-			},
-			Player: PlayerKeymap{
-				TogglePause:     Key{"space"},
-				SeekForward:     Key{"e", "l"},
-				SeekBackward:    Key{"q", "h"},
-				VolumeUp:        Key{"w", "up"},
-				VolumeDown:      Key{"s", "down"},
-				RateUp:          Key{"x", "k"},
-				RateDown:        Key{"z", "j"},
-				NextSong:        Key{"d", "right"},
-				PrevSong:        Key{"a", "left"},
-				TogglePlayMode:  Key{"r"},
-				ToggleTextColor: Key{"c"},
-				Reset:           Key{"backspace"},
-			},
-			Library: LibraryKeymap{
-				NavUp:           Key{"k", "w", "up"},
-				NavDown:         Key{"j", "s", "down"},
-				NavEnterDir:     Key{"l", "d", "right"},
-				NavExitDir:      Key{"h", "a", "left"},
-				ToggleSelect:    Key{"space"},
-				ToggleSelectAll: Key{"e"},
-				Search:          Key{"/", "f"},
-				SearchMode: SearchModeKeymap{
-					ConfirmSearch:   Key{"enter"},
-					EscapeSearch:    Key{"esc"},
-					SearchBackspace: Key{"backspace"},
-				},
-			},
-			Playlist: PlaylistKeymap{
-				NavUp:      Key{"k", "w", "up"},
-				NavDown:    Key{"j", "s", "down"},
-				RemoveSong: Key{"space"},
-				PlaySong:   Key{"enter"},
-				Search:     Key{"/", "f"},
-				SearchMode: SearchModeKeymap{
-					ConfirmSearch:   Key{"enter"},
-					EscapeSearch:    Key{"esc"},
-					SearchBackspace: Key{"backspace"},
-				},
-			},
-		},
-		App: AppConfig{
-			MaxHistorySize:       100,
-			SwitchDebounceMs:     1000,
-			DefaultPage:          0,
-			DefaultPlayMode:      0,
-			RememberLibraryPath:  false,
-			PlaylistHistory:      false,
-			AutostartLastPlayed:  false,
-			RememberVolume:       false,
-			RememberPlaybackRate: false,
-			DefaultColorR:        100,
-			DefaultColorG:        149,
-			DefaultColorB:        237,
-			ImageProtocol:        "auto",
-			EnableNotifications:  false,
-			LibraryPath:          "",
-			Storage:              "",
-			DefaultCoverPath:     "",
-			EnableFolderCovers:   true,
-			MaxSearchDirs:        15,
-		},
-	}
-
-	resolveIconSet(GlobalConfig)
-
-	return nil
 }
 
 // MarkFileAsCorrupted marks a file as corrupted.
@@ -1265,7 +1277,7 @@ func displayHelp() {
 	fmt.Println(bold + "COMMANDS:" + reset)
 	fmt.Println("  " + green + "bm" + reset + "                          Start player with interactive library selection")
 	fmt.Println("  " + green + "bm <directory>" + reset + "              Start player with specified music library")
-	fmt.Println("  " + green + "bm <audio-file>" + reset + "             Play single audio file")
+	fmt.Println("  " + green + "bm <audio-file>" + reset + "             Add a song from the music folder to the playlist and play it")
 	fmt.Println("  " + green + "bm help, -h, -help, --help" + reset + "  Show this help message")
 	fmt.Println("  " + green + "bm --version, -v, -V" + reset + "        Show version")
 	fmt.Println()

@@ -257,15 +257,13 @@ func (p *PlayList) escapeBack() bool {
 //
 // removeCurrentSong 删除当前光标位置的歌曲。
 func (p *PlayList) removeCurrentSong() {
-	p.app.invalidatePendingNext()
-
 	if p.cursor < 0 || p.cursor >= len(p.viewPlaylist) {
 		return
 	}
 
 	originalIndex := p.originalIndices[p.cursor]
 	songPath := p.app.Playlist[originalIndex]
-	wasPlayingSong := (p.app.currentSongPath == songPath)
+	wasPlayingSong := (p.app.playingSongPath() == songPath)
 
 	if wasPlayingSong {
 		currentTime := time.Now()
@@ -314,16 +312,7 @@ func (p *PlayList) removeCurrentSong() {
 //
 // stopPlaybackAndShowEmptyState 停止播放并显示播放器页面的空状态。
 func (p *PlayList) stopPlaybackAndShowEmptyState() {
-	p.app.stopCurrentPlayback()
-	p.app.player = nil
-	p.app.setCurrentSong("")
-	if p.app.mprisServer != nil {
-		p.app.mprisServer.StopService()
-		p.app.mprisServer = nil
-	}
-	if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
-		playerPage.UpdateSong("")
-	}
+	p.app.stopPlaybackAndClear()
 }
 
 // HandleSignal redraws the view on resize.

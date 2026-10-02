@@ -273,7 +273,7 @@ func (a *App) computeNextPath(currentPath string) (string, bool) {
 // prepareNextIfNeeded 在当前歌曲进入预解码窗口后于后台解码下一首。采样率相同的
 // 歌曲排入无缝队列；需要变更采样率的歌曲暂存给推进路径，仍然省去解码等待。
 func (a *App) prepareNextIfNeeded() {
-	if a.player == nil || a.player.queue == nil || a.isSingleSongMode {
+	if a.player == nil || a.player.queue == nil {
 		return
 	}
 	if a.playMode != 1 && a.playMode != 2 || len(a.Playlist) == 0 {
@@ -407,11 +407,7 @@ func (a *App) handleAutoAdvance() {
 
 	nextPath, ok := a.computeNextPath(a.currentSongPath)
 	if !ok {
-		a.stopCurrentPlayback()
-		a.setCurrentSong("")
-		if playerPage, ok2 := a.pages[0].(*PlayerPage); ok2 {
-			playerPage.UpdateSong("")
-		}
+		a.stopPlaybackAndClear()
 		return
 	}
 
@@ -446,11 +442,7 @@ func (a *App) handleAutoAdvance() {
 			nextPath = np
 		}
 		if dec == nil {
-			a.stopCurrentPlayback()
-			a.setCurrentSong("")
-			if playerPage, ok2 := a.pages[0].(*PlayerPage); ok2 {
-				playerPage.UpdateSong("")
-			}
+			a.stopPlaybackAndClear()
 			return
 		}
 	}
@@ -516,7 +508,7 @@ func (a *App) finishAutoSongSwitch(path string) {
 // rebuildChainForPlaybackMode 在播放模式变化后替换链的内层流：单曲循环继续用
 // Loop2 循环，列表/随机模式走无缝队列。解码器及其位置保持不变。
 func (a *App) rebuildChainForPlaybackMode() {
-	if a.player == nil || a.isSingleSongMode {
+	if a.player == nil {
 		return
 	}
 	speaker.Lock()
