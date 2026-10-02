@@ -98,7 +98,7 @@ paru -S bm-terminal-music-player
 # 启动播放器（指定音乐库目录）
 bm /path/to/music/library
 
-# 播放单个音频文件
+# 播放音乐库中的一首歌曲
 bm /path/to/song.flac
 
 # 启动播放器（交互式选择音乐库）

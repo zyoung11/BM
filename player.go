@@ -204,21 +204,17 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 	} else if IsKey(key, GlobalConfig.Keymap.Player.NextSong) {
 		p.playNextSong()
 	} else if IsKey(key, GlobalConfig.Keymap.Player.TogglePlayMode) {
-		// Disable play mode toggle in single song mode
-		// 在单曲播放模式下禁用播放模式切换
-		if !p.app.isSingleSongMode {
-			oldMode := p.app.playMode
-			p.app.playMode = (p.app.playMode + 1) % 3
-			if oldMode != 2 && p.app.playMode == 2 {
-				p.app.switchedToRandom = true
-			} else {
-				p.app.switchedToRandom = false
-			}
-			if err := SavePlayMode(p.app.playMode); err != nil {
-				l.Warnf("failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
-			}
-			p.app.rebuildChainForPlaybackMode()
+		oldMode := p.app.playMode
+		p.app.playMode = (p.app.playMode + 1) % 3
+		if oldMode != 2 && p.app.playMode == 2 {
+			p.app.switchedToRandom = true
+		} else {
+			p.app.switchedToRandom = false
 		}
+		if err := SavePlayMode(p.app.playMode); err != nil {
+			l.Warnf("failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
+		}
+		p.app.rebuildChainForPlaybackMode()
 	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleTextColor) {
 		p.useCoverColor = !p.useCoverColor
 	} else if IsKey(key, GlobalConfig.Keymap.Player.Reset) {
@@ -491,11 +487,7 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 
 	for {
 		if triedIndices[nextIndex] {
-			p.app.stopCurrentPlayback()
-			p.app.setCurrentSong("")
-			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
-				playerPage.UpdateSong("")
-			}
+			p.app.stopPlaybackAndClear()
 			return
 		}
 
@@ -516,11 +508,7 @@ func (p *PlayerPage) tryPlayNextSong(currentIndex, nextIndex int) {
 		nextIndex = (nextIndex + 1) % len(p.app.Playlist)
 
 		if nextIndex == currentIndex {
-			p.app.stopCurrentPlayback()
-			p.app.setCurrentSong("")
-			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
-				playerPage.UpdateSong("")
-			}
+			p.app.stopPlaybackAndClear()
 			return
 		}
 	}
@@ -580,11 +568,7 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 
 	for {
 		if triedIndices[prevIndex] {
-			p.app.stopCurrentPlayback()
-			p.app.setCurrentSong("")
-			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
-				playerPage.UpdateSong("")
-			}
+			p.app.stopPlaybackAndClear()
 			return
 		}
 
@@ -609,11 +593,7 @@ func (p *PlayerPage) tryPlayPreviousSong(currentIndex, prevIndex int) {
 		}
 
 		if prevIndex == currentIndex {
-			p.app.stopCurrentPlayback()
-			p.app.setCurrentSong("")
-			if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
-				playerPage.UpdateSong("")
-			}
+			p.app.stopPlaybackAndClear()
 			return
 		}
 	}

@@ -13,7 +13,6 @@ import (
 
 	"bm/search"
 
-	"github.com/gopxl/beep/v2/speaker"
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 )
@@ -823,7 +822,7 @@ func (p *Library) toggleSelection(path string) {
 func (p *Library) removeSongFromPlaylist(songPath string) {
 	for i, s := range p.app.Playlist {
 		if s == songPath {
-			wasPlayingSong := (p.app.currentSongPath == songPath)
+			wasPlayingSong := (p.app.playingSongPath() == songPath)
 
 			// 防抖机制：防止快速连续移除当前播放的歌曲
 			if wasPlayingSong {
@@ -843,22 +842,7 @@ func (p *Library) removeSongFromPlaylist(songPath string) {
 			p.app.removeFromPlayHistory(songPath)
 
 			if len(p.app.Playlist) == 0 {
-				if p.app.player != nil {
-					speaker.Lock()
-					if p.app.player.ctrl != nil {
-						p.app.player.ctrl.Paused = true
-					}
-					speaker.Unlock()
-				}
-				p.app.player = nil
-				p.app.setCurrentSong("")
-				if p.app.mprisServer != nil {
-					p.app.mprisServer.StopService()
-					p.app.mprisServer = nil
-				}
-				if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
-					playerPage.UpdateSong("")
-				}
+				p.app.stopPlaybackAndClear()
 			} else if wasPlayingSong {
 				// 如果移除的是正在播放的歌曲，播放下一首
 				nextIndex := i
@@ -935,14 +919,15 @@ func (p *Library) removeSongsFromPlaylistBatch(songPaths []string) {
 		toRemove[songPath] = true
 	}
 
+	playingPath := p.app.playingSongPath()
 	playingIndex := -1
 	for i, songPath := range p.app.Playlist {
-		if songPath == p.app.currentSongPath {
+		if songPath == playingPath {
 			playingIndex = i
 			break
 		}
 	}
-	wasPlayingRemoved := playingIndex >= 0 && toRemove[p.app.currentSongPath]
+	wasPlayingRemoved := playingIndex >= 0 && toRemove[playingPath]
 
 	keptBefore := 0
 	newPlaylist := make([]string, 0, len(p.app.Playlist))
@@ -969,7 +954,6 @@ func (p *Library) removeSongsFromPlaylistBatch(songPaths []string) {
 
 	p.dirSelectionCache = make(map[string]bool)
 	p.previewEntriesCache = nil
-	p.app.invalidatePendingNext()
 	p.app.setPlaylist(newPlaylist)
 	for _, songPath := range songPaths {
 		p.app.removeFromPlayHistory(songPath)
@@ -983,22 +967,7 @@ func (p *Library) removeSongsFromPlaylistBatch(songPaths []string) {
 	}
 
 	if len(p.app.Playlist) == 0 {
-		if p.app.player != nil {
-			speaker.Lock()
-			if p.app.player.ctrl != nil {
-				p.app.player.ctrl.Paused = true
-			}
-			speaker.Unlock()
-		}
-		p.app.player = nil
-		p.app.setCurrentSong("")
-		if p.app.mprisServer != nil {
-			p.app.mprisServer.StopService()
-			p.app.mprisServer = nil
-		}
-		if playerPage, ok := p.app.pages[0].(*PlayerPage); ok {
-			playerPage.UpdateSong("")
-		}
+		p.app.stopPlaybackAndClear()
 		return
 	}
 

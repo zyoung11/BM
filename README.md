@@ -100,7 +100,7 @@ Download the binary for your platform from the [Releases](https://github.com/zyo
 # Start player (specify music library directory)
 bm /path/to/music/library
 
-# Play single audio file
+# Play one song from the music library
 bm /path/to/song.flac
 
 # Start player (interactive library selection)
