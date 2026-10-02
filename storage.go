@@ -12,16 +12,15 @@ import (
 //
 // StorageData 保存存储在 storage.json 文件中的数据。
 type StorageData struct {
-	LibraryPath        string   `json:"library_path"`
-	Playlist           []string `json:"playlist"`
-	PlayHistory        []string `json:"play_history"`
-	CurrentSong        *string  `json:"current_song,omitempty"`
-	Volume             *float64 `json:"volume,omitempty"`
-	PlaybackRate       *float64 `json:"playback_rate,omitempty"`
-	PlayMode           *int     `json:"play_mode,omitempty"`
-	Page               *int     `json:"page,omitempty"`
-	OverrideLayoutNarrow *int   `json:"override_layout_narrow,omitempty"`
-	OverrideLayoutWide   *int   `json:"override_layout_wide,omitempty"`
+	LibraryPath    string   `json:"library_path"`
+	Playlist       []string `json:"playlist"`
+	PlayHistory    []string `json:"play_history"`
+	CurrentSong    *string  `json:"current_song,omitempty"`
+	Volume         *float64 `json:"volume,omitempty"`
+	PlaybackRate   *float64 `json:"playback_rate,omitempty"`
+	PlayMode       *int     `json:"play_mode,omitempty"`
+	Page           *int     `json:"page,omitempty"`
+	OverrideLayout *int     `json:"override_layout,omitempty"`
 }
 
 // getStoragePath returns the absolute path to the storage file.
@@ -103,7 +102,7 @@ func saveStorageData(data *StorageData) error {
 //
 // SaveLibraryPath 将音乐库路径保存到 storage.json 文件。
 func SaveLibraryPath(path string) error {
-	if !GlobalConfig.App.RememberLibraryPath {
+	if GlobalConfig.App.SessionMemory < 1 {
 		return nil
 	}
 	storageData, err := loadStorageData()
@@ -125,7 +124,7 @@ func SaveLibraryPath(path string) error {
 // SavePlaylist 将当前播放列表保存到 storage.json 文件。
 // 它将绝对路径转换为相对于音乐库根目录的相对路径。
 func SavePlaylist(playlist []string, libraryPath string) error {
-	if !GlobalConfig.App.PlaylistHistory {
+	if GlobalConfig.App.SessionMemory < 2 {
 		return nil
 	}
 
@@ -158,7 +157,7 @@ func SavePlaylist(playlist []string, libraryPath string) error {
 // LoadPlaylist 从 storage.json 文件加载播放列表。
 // 它将相对路径转换回基于音乐库根目录的绝对路径。
 func LoadPlaylist(libraryPath string) ([]string, error) {
-	if !GlobalConfig.App.PlaylistHistory {
+	if GlobalConfig.App.SessionMemory < 2 {
 		return []string{}, nil
 	}
 
@@ -189,7 +188,7 @@ func LoadPlaylist(libraryPath string) ([]string, error) {
 // SavePlayHistory 将当前播放历史记录保存到 storage.json 文件。
 // 它将绝对路径转换为相对于音乐库根目录的相对路径。
 func SavePlayHistory(playHistory []string, libraryPath string) error {
-	if !GlobalConfig.App.AutostartLastPlayed {
+	if GlobalConfig.App.SessionMemory < 3 {
 		return nil
 	}
 
@@ -222,7 +221,7 @@ func SavePlayHistory(playHistory []string, libraryPath string) error {
 // SaveCurrentSong 将当前播放的歌曲保存到 storage.json 文件。
 // 它将绝对路径转换为相对于音乐库根目录的相对路径。
 func SaveCurrentSong(songPath string, libraryPath string) error {
-	if !GlobalConfig.App.AutostartLastPlayed {
+	if GlobalConfig.App.SessionMemory < 3 {
 		return nil
 	}
 
@@ -256,7 +255,7 @@ func SaveCurrentSong(songPath string, libraryPath string) error {
 // LoadCurrentSong 从 storage.json 文件加载当前播放的歌曲。
 // 它将相对路径转换回绝对路径。
 func LoadCurrentSong(libraryPath string) (string, error) {
-	if !GlobalConfig.App.AutostartLastPlayed {
+	if GlobalConfig.App.SessionMemory < 3 {
 		return "", nil
 	}
 
@@ -283,7 +282,7 @@ func LoadCurrentSong(libraryPath string) (string, error) {
 // LoadPlayHistory 从 storage.json 文件加载播放历史记录。
 // 它将相对路径转换回基于音乐库根目录的绝对路径。
 func LoadPlayHistory(libraryPath string) ([]string, error) {
-	if !GlobalConfig.App.AutostartLastPlayed {
+	if GlobalConfig.App.SessionMemory < 3 {
 		return []string{}, nil
 	}
 
@@ -388,22 +387,16 @@ func LoadPage() (int, error) {
 	return *storageData.Page, nil
 }
 
-// SaveOverrideLayout saves the current layout override to the storage.json file.
-// It saves separately for narrow and wide terminals based on the isWide parameter.
+// SaveOverrideLayout saves the player page layout override to the storage.json file.
 //
-// SaveOverrideLayout 将当前布局覆盖保存到 storage.json 文件。
-// 根据 isWide 参数分别保存窄终端和宽终端的布局。
-func SaveOverrideLayout(overrideLayout int, isWide bool) error {
+// SaveOverrideLayout 将播放页布局覆盖保存到 storage.json 文件。
+func SaveOverrideLayout(overrideLayout int) error {
 	storageData, err := loadStorageData()
 	if err != nil {
 		return fmt.Errorf("could not load storage data for layout: %v\n\n无法加载布局的存储数据: %v", err, err)
 	}
 
-	if isWide {
-		storageData.OverrideLayoutWide = &overrideLayout
-	} else {
-		storageData.OverrideLayoutNarrow = &overrideLayout
-	}
+	storageData.OverrideLayout = &overrideLayout
 
 	if err := saveStorageData(storageData); err != nil {
 		return fmt.Errorf("could not save layout data: %v\n\n无法保存布局数据: %v", err, err)
@@ -411,28 +404,19 @@ func SaveOverrideLayout(overrideLayout int, isWide bool) error {
 	return nil
 }
 
-// LoadOverrideLayout loads the layout override from the storage.json file.
-// It loads the appropriate layout based on whether the terminal is wide or narrow.
-// Returns -1 if no layout is saved.
+// LoadOverrideLayout loads the player page layout override from the
+// storage.json file. It returns -1 when no layout is saved.
 //
-// LoadOverrideLayout 从 storage.json 文件加载布局覆盖。
-// 根据终端是宽还是窄加载相应的布局。
-// 如果没有保存的布局则返回 -1。
-func LoadOverrideLayout(isWide bool) (int, error) {
+// LoadOverrideLayout 从 storage.json 文件加载播放页布局覆盖。
+// 未保存过布局时返回 -1。
+func LoadOverrideLayout() (int, error) {
 	storageData, err := loadStorageData()
 	if err != nil {
 		return -1, fmt.Errorf("could not load storage data for layout: %v\n\n无法加载布局的存储数据: %v", err, err)
 	}
 
-	if isWide {
-		if storageData.OverrideLayoutWide == nil {
-			return -1, nil
-		}
-		return *storageData.OverrideLayoutWide, nil
-	} else {
-		if storageData.OverrideLayoutNarrow == nil {
-			return -1, nil
-		}
-		return *storageData.OverrideLayoutNarrow, nil
+	if storageData.OverrideLayout == nil {
+		return -1, nil
 	}
+	return *storageData.OverrideLayout, nil
 }

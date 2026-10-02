@@ -84,13 +84,6 @@ func NewPlayerPage(app *App, flacPath string, cellW, cellH int, overrideLayout i
 	}
 }
 
-// SetOverrideLayout sets the override layout for the player page.
-//
-// SetOverrideLayout 设置播放器页面的覆盖布局。
-func (p *PlayerPage) SetOverrideLayout(layout int) {
-	p.overrideLayout = LayoutType(layout)
-}
-
 // Init for PlayerPage is a placeholder, as setup is done in the constructor.
 //
 // PlayerPage的Init是一个占位符，因为设置在构造函数中完成。
@@ -305,13 +298,11 @@ func (p *PlayerPage) displayEmptyState() {
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
 }
 
-// cycleLayout cycles through available layout overrides based on current layout.
-// Wide mode: switch-narrow -> switch-text -> switch-image -> auto
-// Narrow mode: switch-text -> switch-image -> auto
+// cycleLayout cycles through the available layout overrides.
+// auto -> narrow -> text -> image -> auto
 //
-// cycleLayout 根据当前布局循环切换可用的布局覆盖。
-// 宽模式：切换窄屏 -> 切换纯文本 -> 切换纯封面 -> 自动
-// 窄模式：切换纯文本 -> 切换纯封面 -> 自动
+// cycleLayout 循环切换可用的布局覆盖。
+// 自动 -> 窄屏样式 -> 纯文本 -> 纯封面 -> 自动
 func (p *PlayerPage) cycleLayout() {
 	if p.app.forcedTextMode {
 		return
@@ -321,35 +312,21 @@ func (p *PlayerPage) cycleLayout() {
 	}
 	p.lastLayoutSwitchTime = time.Now()
 
-	w, h, _ := term.GetSize(int(os.Stdout.Fd()))
-	wide := isWideTerminal(w, h)
-
 	var nextLayout LayoutType
 
-	if wide {
-		switch p.overrideLayout {
-		case -1:
-			nextLayout = LayoutSwitchNarrow
-		case LayoutSwitchNarrow:
-			nextLayout = LayoutSwitchText
-		case LayoutSwitchText:
-			nextLayout = LayoutSwitchImage
-		default:
-			nextLayout = -1
-		}
-	} else {
-		switch p.overrideLayout {
-		case -1:
-			nextLayout = LayoutSwitchText
-		case LayoutSwitchText:
-			nextLayout = LayoutSwitchImage
-		default:
-			nextLayout = -1
-		}
+	switch p.overrideLayout {
+	case -1:
+		nextLayout = LayoutSwitchNarrow
+	case LayoutSwitchNarrow:
+		nextLayout = LayoutSwitchText
+	case LayoutSwitchText:
+		nextLayout = LayoutSwitchImage
+	default:
+		nextLayout = -1
 	}
 
 	p.overrideLayout = nextLayout
-	if err := SaveOverrideLayout(int(nextLayout), wide); err != nil {
+	if err := SaveOverrideLayout(int(nextLayout)); err != nil {
 		l.Warnf("Could not save layout: %v\n\n无法保存布局: %v", err, err)
 	}
 	p.showLayoutIndicator()
@@ -1131,6 +1108,9 @@ func (p *PlayerPage) updateSwitchNarrowMode(imageBottomRow, w, h int) {
 
 func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 	title, artist, album := getSongMetadata(p.flacPath)
+	title = truncateToWidthFromStart(title, w-2)
+	artist = truncateToWidthFromStart(artist, w-2)
+	album = truncateToWidthFromStart(album, w-2)
 	centerRow, centerCol := h/2, w/2
 
 	colorCode := p.getColorCode()
@@ -1154,6 +1134,9 @@ func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 // updateSwitchTextMode 为切换布局渲染居中的文本和进度条。
 func (p *PlayerPage) updateSwitchTextMode(w, h int) {
 	title, artist, album := getSongMetadata(p.flacPath)
+	title = truncateToWidthFromStart(title, w-2)
+	artist = truncateToWidthFromStart(artist, w-2)
+	album = truncateToWidthFromStart(album, w-2)
 	centerRow, centerCol := h/2, w/2
 
 	colorCode := p.getColorCode()

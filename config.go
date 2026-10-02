@@ -75,11 +75,8 @@ type AppConfig struct {
 	LayoutDebounceMs     int    `toml:"layout_debounce_ms"`
 	DefaultPage          int    `toml:"default_page"`
 	DefaultPlayMode      int    `toml:"default_play_mode"`
-	DefaultLayoutNarrow  int    `toml:"default_layout_narrow"`
-	DefaultLayoutWide    int    `toml:"default_layout_wide"`
-	RememberLibraryPath  bool   `toml:"remember_library_path"`
-	PlaylistHistory      bool   `toml:"playlist_history"`
-	AutostartLastPlayed  bool   `toml:"autostart_last_played"`
+	DefaultLayout        int    `toml:"default_layout"`
+	SessionMemory        int    `toml:"session_memory"`
 	ConfirmQuitPlayer    bool   `toml:"confirm_quit_player"`
 	ConfirmQuitPlaylist  bool   `toml:"confirm_quit_playlist"`
 	ConfirmQuitLibrary   bool   `toml:"confirm_quit_library"`
@@ -279,14 +276,11 @@ func LoadConfig() error {
 	if GlobalConfig.App.LayoutDebounceMs <= 0 {
 		GlobalConfig.App.LayoutDebounceMs = 200
 	}
-	if GlobalConfig.App.AutostartLastPlayed && (!GlobalConfig.App.RememberLibraryPath || !GlobalConfig.App.PlaylistHistory) {
-		return fmt.Errorf("autostart_last_played can only be enabled when both remember_library_path and playlist_history are also enabled\n\nautostart_last_played 只能在 remember_library_path 和 playlist_history 同时开启时才能开启")
+	if GlobalConfig.App.SessionMemory < 0 || GlobalConfig.App.SessionMemory > 3 {
+		GlobalConfig.App.SessionMemory = 3
 	}
-	if GlobalConfig.App.DefaultLayoutNarrow < 0 || GlobalConfig.App.DefaultLayoutNarrow > 3 {
-		GlobalConfig.App.DefaultLayoutNarrow = 0
-	}
-	if GlobalConfig.App.DefaultLayoutWide < 0 || GlobalConfig.App.DefaultLayoutWide > 4 {
-		GlobalConfig.App.DefaultLayoutWide = 0
+	if GlobalConfig.App.DefaultLayout < 0 || GlobalConfig.App.DefaultLayout > 4 {
+		GlobalConfig.App.DefaultLayout = 4
 	}
 	if GlobalConfig.App.MinColumnWidth < 3 {
 		GlobalConfig.App.MinColumnWidth = 15
@@ -368,7 +362,7 @@ func updateConfigFile(configPath string) error {
 	content := string(data)
 	updated := false
 
-	for _, deprecated := range []string{"confirm_quit"} {
+	for _, deprecated := range []string{"confirm_quit", "default_layout_narrow", "default_layout_wide", "remember_library_path", "playlist_history", "autostart_last_played"} {
 		var stripped bool
 		content, stripped = stripDeprecatedKey(content, deprecated)
 		if stripped {
@@ -393,9 +387,7 @@ func updateConfigFile(configPath string) error {
 		{"[app]", "switch_debounce_ms", "switch_debounce_ms = 50", "# Song switching debounce time (milliseconds) - prevents rapid continuous song switching, avoiding misoperation.\n#\n# 切歌防抖时间（毫秒）- 防止快速连续切歌，避免误操作"},
 		{"[app]", "default_page", "default_page = 3", "# Default starting page - the page displayed when the program starts.\n# 0 = Player page, 1 = PlayList page, 2 = Library page, 3 = memory (use saved page from last session).\n#\n# 默认启动页面 - 程序启动时显示的页面。\n# 0 = 播放器页面, 1 = 播放列表页面, 2 = 媒体库页面, 3 = 记忆（使用上次保存的页面）。"},
 		{"[app]", "default_play_mode", "default_play_mode = 3", "# Default play mode - the playback mode when the program starts.\n# 0 = repeat one, 1 = repeat all, 2 = random, 3 = memory (use saved play mode from last session).\n#\n# 默认播放模式 - 程序启动时的播放模式。\n# 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放, 3 = 记忆（使用上次保存的播放模式）。"},
-		{"[app]", "remember_library_path", "remember_library_path = true", "# Whether to remember the music library path - if true, the program will remember the last used music library path.\n# If no path parameter is specified next time the program starts, the saved path will be used automatically.\n#\n# 是否记录音乐库路径 - 如果为true，程序会记住上次使用的音乐库路径。\n# 下次启动时如果不指定路径参数，会自动使用保存的路径。"},
-		{"[app]", "playlist_history", "playlist_history = true", "# Whether to record the playlist - if true, the program will record the playlist and load it next time it starts.\n# Note: 'remember_library_path' must also be true for this to take effect.\n#\n# 是否记录播放列表 - 如果为true，程序会记录播放列表并在下次启动时加载。\n# 注意: 'remember_library_path' 也必须为 true 才能生效。"},
-		{"[app]", "autostart_last_played", "autostart_last_played = true", "# Autostart last played song\n# When enabled, the program will automatically play the last played song when starting.\n# Note: This requires both 'remember_library_path' and 'playlist_history' to be enabled.\n#\n# 自动播放上次播放的歌曲\n# 启用后，程序启动时会自动播放上次播放的歌曲。\n# 注意：这需要 'remember_library_path' 和 'playlist_history' 同时启用。"},
+		{"[app]", "session_memory", "session_memory = 3", "# Session memory - how much state to restore on startup.\n# 0 = nothing, 1 = remember the music folder, 2 = also the playlist, 3 = also resume the last played song.\n#\n# 会话记忆 - 启动时恢复多少状态。\n# 0 = 不记忆, 1 = 记住音乐文件夹, 2 = 同时记住播放列表, 3 = 同时继续播放上次的歌曲。"},
 		{"[app]", "confirm_quit_player", "confirm_quit_player = true", "# Whether to show a quit confirmation prompt on the Player page.\n# Press enter to quit and esc to close the prompt.\n#\n# 是否在播放器页面退出时显示确认提示。\n# 按 enter 退出程序，按 esc 关闭提示。"},
 		{"[app]", "confirm_quit_playlist", "confirm_quit_playlist = true", "# Whether to show a quit confirmation prompt on the PlayList page.\n# Press enter to quit and esc to close the prompt.\n#\n# 是否在播放列表页面退出时显示确认提示。\n# 按 enter 退出程序，按 esc 关闭提示。"},
 		{"[app]", "confirm_quit_library", "confirm_quit_library = true", "# Whether to show a quit confirmation prompt on the Library page.\n# Press enter to quit and esc to close the prompt.\n#\n# 是否在媒体库页面退出时显示确认提示。\n# 按 enter 退出程序，按 esc 关闭提示。"},
@@ -415,8 +407,7 @@ func updateConfigFile(configPath string) error {
 		{"[app]", "max_search_dirs", "max_search_dirs = 15", "# Maximum number of directory results to show in search - limits the visible directory entries\n# in search results on the Library page. The rest of the directories are still accessible via scrolling.\n# Files below the separator are not limited.\n#\n# 搜索结果中最多显示的目录数量 - 限制媒体库页面搜索结果中可见的目录条目。\n# 其余目录仍可通过滚动访问。分割线下的文件不受此限制。"},
 		{"[app]", "min_column_width", "min_column_width = 15", "# Minimum column width in the Library multi-column view - a column narrower than this\n# would cut too many file names short, so the view falls back to fewer columns instead.\n#\n# 媒体库多列视图的单列最小宽度 - 列宽低于该值时会截断过多文件名，\n# 此时改为显示更少的列。"},
 		{"[app]", "layout_debounce_ms", "layout_debounce_ms = 200", "# Layout switching debounce time (milliseconds) - prevents rapid layout switching.\n#\n# 布局切换防抖时间（毫秒）- 防止快速连续切换布局。"},
-		{"[app]", "default_layout_narrow", "default_layout_narrow = 0", "# Default layout for narrow terminal - the layout displayed when the program starts in a narrow terminal.\n# 0 = auto, 1 = text only, 2 = image only, 3 = memory (use saved layout from last session).\n#\n# 窄终端默认布局 - 程序在窄终端启动时显示的布局。\n# 0 = 自动, 1 = 仅文本, 2 = 仅封面, 3 = 记忆（使用上次保存的布局）。"},
-		{"[app]", "default_layout_wide", "default_layout_wide = 0", "# Default layout for wide terminal - the layout displayed when the program starts in a wide terminal.\n# 0 = auto, 1 = narrow mode, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).\n#\n# 宽终端默认布局 - 程序在宽终端启动时显示的布局。\n# 0 = 自动, 1 = 窄终端模式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。"},
+		{"[app]", "default_layout", "default_layout = 4", "# Player page layout - the layout displayed when the program starts.\n# 0 = auto, 1 = narrow style, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).\n#\n# 播放页布局 - 程序启动时播放页显示的布局。\n# 0 = 自动, 1 = 窄屏样式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。"},
 	}
 
 	for _, missing := range missingKeys {

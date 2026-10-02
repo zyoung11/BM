@@ -954,14 +954,6 @@ func validateConfig() error {
 		return fmt.Errorf("Failed to load config: %v\n\n加载配置失败: %v", err, err)
 	}
 
-	if GlobalConfig.App.PlaylistHistory && !GlobalConfig.App.RememberLibraryPath {
-		return fmt.Errorf("Configuration error: 'playlist_history' cannot be true when 'remember_library_path' is false\n\n配置错误: 'playlist_history' 为 true 时 'remember_library_path' 不能为 false")
-	}
-
-	if GlobalConfig.App.AutostartLastPlayed && !GlobalConfig.App.PlaylistHistory {
-		return fmt.Errorf("Configuration error: 'autostart_last_played' cannot be true when 'playlist_history' is false\n\n配置错误: 'autostart_last_played' 为 true 时 'playlist_history' 不能为 false")
-	}
-
 	return nil
 }
 
@@ -1003,7 +995,7 @@ func validateSongInput(songPath string) (string, error) {
 		return "", fmt.Errorf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
 	}
 	if storageData.LibraryPath == "" {
-		return "", fmt.Errorf("No music folder has been set up yet.\nPlease set `remember_library_path = true` in the config file and run `%s <music_directory>` once first.\n\n尚未设置过歌曲文件夹。\n请先在配置文件中设置 `remember_library_path = true`，并运行一次 `%s <音乐目录>`。", os.Args[0], os.Args[0])
+		return "", fmt.Errorf("No music folder has been set up yet.\nPlease set `session_memory` to at least 1 in the config file and run `%s <music_directory>` once first.\n\n尚未设置过歌曲文件夹。\n请先在配置文件中将 `session_memory` 设为 1 以上，并运行一次 `%s <音乐目录>`。", os.Args[0], os.Args[0])
 	}
 
 	dirPath := storageData.LibraryPath
@@ -1047,19 +1039,19 @@ func validateInputsAndConfig() (string, error) {
 		dirPath = os.Args[1]
 	}
 
-	if GlobalConfig.App.RememberLibraryPath && dirPath == "" {
+	if GlobalConfig.App.SessionMemory >= 1 && dirPath == "" {
 		storageData, err := loadStorageData()
 		if err != nil {
 			return "", fmt.Errorf("Error loading storage data: %v\n\n加载存储数据时出错: %v", err, err)
 		}
 		if storageData.LibraryPath == "" {
-			return "", fmt.Errorf("`remember_library_path` is enabled but no path has been saved yet.\nPlease provide a directory path once for future use.\n\nUsage: %s <music_directory>\n\n`remember_library_path` 已启用，但尚未保存任何路径。\n请提供一次目录路径以便将来使用。 \n\n用法: %s <music_directory>", os.Args[0], os.Args[0])
+			return "", fmt.Errorf("`session_memory` is enabled but no path has been saved yet.\nPlease provide a directory path once for future use.\n\nUsage: %s <music_directory>\n\n`session_memory` 已启用，但尚未保存任何路径。\n请提供一次目录路径以便将来使用。 \n\n用法: %s <music_directory>", os.Args[0], os.Args[0])
 		}
 		dirPath = storageData.LibraryPath
 	}
 
-	if !GlobalConfig.App.RememberLibraryPath && dirPath == "" {
-		return "", fmt.Errorf("Please enter a music directory path.\nIf you want the application to remember the path, set `remember_library_path = true` in the config file.\n\nUsage: %s <music_directory>\n\n请输入音乐目录路径。\n如果希望应用记住该路径，请在配置文件中设置 `remember_library_path = true`。\n\n用法: %s <music_directory>", os.Args[0], os.Args[0])
+	if GlobalConfig.App.SessionMemory < 1 && dirPath == "" {
+		return "", fmt.Errorf("Please enter a music directory path.\nIf you want the application to remember the path, set `session_memory` to at least 1 in the config file.\n\nUsage: %s <music_directory>\n\n请输入音乐目录路径。\n如果希望应用记住该路径，请在配置文件中将 `session_memory` 设为 1 以上。\n\n用法: %s <music_directory>", os.Args[0], os.Args[0])
 	}
 
 	info, err := os.Stat(dirPath)
@@ -1070,7 +1062,7 @@ func validateInputsAndConfig() (string, error) {
 		return "", fmt.Errorf("Input path must be a directory, not a file\n\n输入路径必须是目录，而不是文件")
 	}
 
-	if GlobalConfig.App.RememberLibraryPath {
+	if GlobalConfig.App.SessionMemory >= 1 {
 		absPath, err := filepath.Abs(dirPath)
 		if err != nil {
 			l.Warnf("Unable to get absolute path: %v\n\n警告: 无法获取绝对路径: %v", err, err)
@@ -1194,9 +1186,7 @@ func runApplication(dirPath string, songPath string) error {
 		}
 	}
 
-	termW, termH, _ := term.GetSize(int(os.Stdout.Fd()))
-	isWide := isWideTerminal(termW, termH)
-	initialLayout := resolveInitialLayout(isWide)
+	initialLayout := resolveInitialLayout()
 
 	playerPage := NewPlayerPage(app, "", cellW, cellH, initialLayout)
 	playListPage := NewPlayList(app)
@@ -1211,7 +1201,7 @@ func runApplication(dirPath string, songPath string) error {
 		if err := app.PlaySongWithSwitchAndRender(songPath, true, false); err != nil {
 			return fmt.Errorf("Failed to play song: %v\n\n播放歌曲失败: %v", err, err)
 		}
-	} else if GlobalConfig.App.AutostartLastPlayed {
+	} else if GlobalConfig.App.SessionMemory >= 3 {
 		currentSong, err := LoadCurrentSong(dirPath)
 		if err != nil {
 			l.Warnf("Could not load current song: %v\n\n无法加载当前歌曲: %v", err, err)

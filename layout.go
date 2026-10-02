@@ -39,52 +39,33 @@ func isWideTerminal(w, h int) bool {
 }
 
 // configLayoutToOverride converts a config layout value to an overrideLayout value.
-// For narrow terminal: 0=auto(-1), 1=text(LayoutSwitchText), 2=image(LayoutSwitchImage), 3=memory(-1)
-// For wide terminal: 0=auto(-1), 1=narrow(LayoutSwitchNarrow), 2=text(LayoutSwitchText), 3=image(LayoutSwitchImage), 4=memory(-1)
+// 0 = auto (-1), 1 = narrow (LayoutSwitchNarrow), 2 = text (LayoutSwitchText),
+// 3 = image (LayoutSwitchImage).
 //
 // configLayoutToOverride 将配置布局值转换为 overrideLayout 值。
-// 窄终端: 0=自动(-1), 1=文本(LayoutSwitchText), 2=封面(LayoutSwitchImage), 3=记忆(-1)
-// 宽终端: 0=自动(-1), 1=窄终端模式(LayoutSwitchNarrow), 2=文本(LayoutSwitchText), 3=封面(LayoutSwitchImage), 4=记忆(-1)
-func configLayoutToOverride(configValue int, isWide bool) int {
-	if isWide {
-		switch configValue {
-		case 1:
-			return int(LayoutSwitchNarrow)
-		case 2:
-			return int(LayoutSwitchText)
-		case 3:
-			return int(LayoutSwitchImage)
-		default:
-			return -1
-		}
-	} else {
-		switch configValue {
-		case 1:
-			return int(LayoutSwitchText)
-		case 2:
-			return int(LayoutSwitchImage)
-		default:
-			return -1
-		}
+// 0 = 自动(-1), 1 = 窄屏样式(LayoutSwitchNarrow), 2 = 文本(LayoutSwitchText),
+// 3 = 封面(LayoutSwitchImage)。
+func configLayoutToOverride(configValue int) int {
+	switch configValue {
+	case 1:
+		return int(LayoutSwitchNarrow)
+	case 2:
+		return int(LayoutSwitchText)
+	case 3:
+		return int(LayoutSwitchImage)
+	default:
+		return -1
 	}
 }
 
-// resolveInitialLayout resolves the initial overrideLayout value based on config and storage.
-// For "memory" mode, it loads from storage. For other modes, it converts the config value.
+// resolveInitialLayout resolves the initial overrideLayout value from the
+// configuration. For the "memory" mode it loads the saved layout instead.
 //
-// resolveInitialLayout 根据配置和存储解析初始 overrideLayout 值。
-// 对于“记忆”模式，从存储加载。对于其他模式，转换配置值。
-func resolveInitialLayout(isWide bool) int {
-	var configValue int
-	if isWide {
-		configValue = GlobalConfig.App.DefaultLayoutWide
-	} else {
-		configValue = GlobalConfig.App.DefaultLayoutNarrow
-	}
-
-	// Check if memory mode (3 for narrow, 4 for wide)
-	if (isWide && configValue == 4) || (!isWide && configValue == 3) {
-		savedLayout, err := LoadOverrideLayout(isWide)
+// resolveInitialLayout 从配置解析初始 overrideLayout 值。
+// “记忆”模式下改为加载已保存的布局。
+func resolveInitialLayout() int {
+	if GlobalConfig.App.DefaultLayout == 4 {
+		savedLayout, err := LoadOverrideLayout()
 		if err != nil {
 			l.Warnf("Could not load saved layout: %v\n\n无法加载已保存的布局: %v", err, err)
 			return -1
@@ -92,7 +73,7 @@ func resolveInitialLayout(isWide bool) int {
 		return savedLayout
 	}
 
-	return configLayoutToOverride(configValue, isWide)
+	return configLayoutToOverride(GlobalConfig.App.DefaultLayout)
 }
 
 // LayoutMetrics holds the metrics used to determine layout.
@@ -159,9 +140,12 @@ func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 	return metrics
 }
 
-// determineLayout determines the layout type based on metrics.
+// determineLayout determines the layout type based on metrics. The user
+// override picks the display mode; tiny terminals fall back to the protective
+// layouts of the auto mode, while text and image modes blank out instead.
 //
-// determineLayout 根据指标判断布局类型。
+// determineLayout 根据指标判断布局类型。用户覆盖值决定显示模式；
+// 过小的终端回退到自动模式的保护布局，文本或封面模式则显示为空白。
 func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 	w, h := metrics.W, metrics.H
 
@@ -176,18 +160,41 @@ func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 	// 终端复用器无法可靠显示图像；无论保存或配置的覆盖值如何，都强制为
 	// O 键循环到的文本布局。
 	if p.app.forcedTextMode {
+		if h < 10 {
+			return LayoutNothing
+		}
 		return LayoutSwitchText
+	}
+
+	switch p.overrideLayout {
+	case LayoutSwitchText:
+		if h < 10 {
+			return LayoutNothing
+		}
+		return LayoutSwitchText
+	case LayoutSwitchImage:
+		if h < 13 {
+			return LayoutNothing
+		}
+		return LayoutSwitchImage
+	case LayoutSwitchNarrow:
+		if h < 13 {
+			return LayoutTextOnly
+		}
+		if w < metrics.MaxTextLength {
+			return LayoutInfoOnly
+		}
+		if metrics.IsWideTerminal {
+			return LayoutSwitchNarrow
+		}
+		return LayoutNarrow
 	}
 
 	if h < 13 {
 		return LayoutTextOnly
 	}
 
-	if p.overrideLayout >= LayoutSwitchText {
-		return p.overrideLayout
-	}
-
-	if w < metrics.MaxTextLength || h < 10 {
+	if w < metrics.MaxTextLength {
 		return LayoutInfoOnly
 	}
 
