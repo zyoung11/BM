@@ -36,42 +36,19 @@ default_page = 3
 # 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放, 3 = 记忆（使用上次保存的播放模式）。
 default_play_mode = 3
 
-# Default layout for narrow terminal - the layout displayed when the program starts in a narrow terminal.
-# 0 = auto, 1 = text only, 2 = image only, 3 = memory (use saved layout from last session).
+# Player page layout - the layout displayed when the program starts.
+# 0 = auto, 1 = narrow style, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).
 #
-# 窄终端默认布局 - 程序在窄终端启动时显示的布局。
-# 0 = 自动, 1 = 仅文本, 2 = 仅封面, 3 = 记忆（使用上次保存的布局）。
-default_layout_narrow = 0
+# 播放页布局 - 程序启动时播放页显示的布局。
+# 0 = 自动, 1 = 窄屏样式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。
+default_layout = 4
 
-# Default layout for wide terminal - the layout displayed when the program starts in a wide terminal.
-# 0 = auto, 1 = narrow mode, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).
+# Session memory - how much state to restore on startup.
+# 0 = nothing, 1 = remember the music folder, 2 = also the playlist, 3 = also resume the last played song.
 #
-# 宽终端默认布局 - 程序在宽终端启动时显示的布局。
-# 0 = 自动, 1 = 窄终端模式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。
-default_layout_wide = 0
-
-# Whether to remember the music library path - if true, the program will remember the last used music library path.
-# If no path parameter is specified next time the program starts, the saved path will be used automatically.
-#
-# 是否记录音乐库路径 - 如果为true，程序会记住上次使用的音乐库路径。
-# 下次启动时如果不指定路径参数，会自动使用保存的路径。
-remember_library_path = true
-
-# Whether to record the playlist - if true, the program will record the playlist and load it next time it starts.
-# Note: 'remember_library_path' must also be true for this to take effect.
-#
-# 是否记录播放列表 - 如果为true，程序会记录播放列表并在下次启动时加载。
-# 注意: 'remember_library_path' 也必须为 true 才能生效。
-playlist_history = true
-
-# Autostart last played song
-# When enabled, the program will automatically play the last played song when starting.
-# Note: This requires both 'remember_library_path' and 'playlist_history' to be enabled.
-#
-# 自动播放上次播放的歌曲
-# 启用后，程序启动时会自动播放上次播放的歌曲。
-# 注意：这需要 'remember_library_path' 和 'playlist_history' 同时启用。
-autostart_last_played = true
+# 会话记忆 - 启动时恢复多少状态。
+# 0 = 不记忆, 1 = 记住音乐文件夹, 2 = 同时记住播放列表, 3 = 同时继续播放上次的歌曲。
+session_memory = 3
 
 # Whether to show a quit confirmation prompt on the Player page.
 # Press enter to quit and esc to close the prompt.

@@ -144,7 +144,7 @@ You can use [FNE](https://github.com/zyoung11/FNE) another tool I made to decryp
 | `A` / `←` | Previous song |
 | `R` | Toggle playback mode |
 | `C` | Toggle text color (cover color/white) |
-| `O` | Toggle layout mode (wide: narrow/text/image/auto, narrow: text/image/auto) |
+| `O` | Toggle layout mode (auto/narrow/text/image) |
 | `N` | Toggle desktop notifications |
 | `Backspace` | Reset volume and playback speed |
 
