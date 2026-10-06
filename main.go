@@ -638,6 +638,28 @@ func (a *App) PreviousSong() {
 	}
 }
 
+// setPlayMode switches to the given playback mode, persisting the choice,
+// rebuilding the playback chain and announcing the matching MPRIS state.
+//
+// setPlayMode 切换到给定播放模式，持久化该选择、重建播放链
+// 并广播对应的 MPRIS 状态。
+func (a *App) setPlayMode(mode int) {
+	oldMode := a.playMode
+	a.playMode = mode
+	if oldMode != 2 && mode == 2 {
+		a.switchedToRandom = true
+	} else {
+		a.switchedToRandom = false
+	}
+	if err := SavePlayMode(mode); err != nil {
+		l.Warnf("failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
+	}
+	a.rebuildChainForPlaybackMode()
+	if a.mprisServer != nil {
+		a.mprisServer.updatePlayMode(mode)
+	}
+}
+
 // SaveSettings saves the current volume and playback rate to the storage file.
 //
 // SaveSettings 将当前的音量和播放速度保存到存储文件。
@@ -1180,10 +1202,7 @@ func runApplication(dirPath string, songPath string) error {
 	}
 
 	if songPath != "" {
-		app.playMode = 0
-		if err := SavePlayMode(0); err != nil {
-			l.Warnf("Could not save play mode: %v\n\n警告: 无法保存播放模式: %v", err, err)
-		}
+		app.setPlayMode(0)
 	}
 
 	initialLayout := resolveInitialLayout()

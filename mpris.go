@@ -3,9 +3,13 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"hash/fnv"
+	"maps"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +19,22 @@ import (
 	"github.com/gopxl/beep/v2/speaker"
 )
 
+// seekCoalesceWindow is how long a burst of seeks is held back so rapid
+// position changes collapse into one Seeked signal carrying the final
+// position, mirroring the idle batching of other MPRIS implementations.
+//
+// seekCoalesceWindow 是连续 seek 的合批窗口，窗口内的多次位置跳变只发
+// 一次携带最终位置的 Seeked 信号，对齐其他 MPRIS 实现的空闲合批做法。
+const seekCoalesceWindow = 50 * time.Millisecond
+
+// seekJumpTolerance is how far the sampled position may deviate from the
+// linear progression implied by the playback rate before the jump counts as a
+// seek and is announced through the Seeked signal.
+//
+// seekJumpTolerance 是采样位置相对播放速率线性推进的允许偏差，
+// 超出即视为跳转并通过 Seeked 信号广播。
+const seekJumpTolerance = 1500 * time.Millisecond
+
 // MPRISServer implements the D-Bus MPRIS2 specification.
 //
 // MPRISServer 实现了 D-Bus MPRIS2 规范。
@@ -23,21 +43,28 @@ type MPRISServer struct {
 	app          *App
 	player       *audioPlayer
 	flacPath     string
-	isPlaying    bool
+	trackID      dbus.ObjectPath
+	playMode     int
 	position     int64
 	duration     int64
 	metadata     map[string]dbus.Variant
-	originalFile *os.File  // Keep a reference to the original file for duration calculation. / 保留对原始文件的引用以计算时长。
-	lastUpdate   time.Time // Time of the last update. / 上次更新的时间。
-	startTime    time.Time // Time when playback started. / 播放开始的时间。
+	originalFile *os.File // Keep a reference to the original file for duration calculation. / 保留对原始文件的引用以计算时长。
 
 	stopChan chan struct{} // Channel to signal goroutines to stop. / 用于通知 goroutine 停止的通道。
 	stopped  bool          // Whether the server has been stopped. / 服务器是否已停止。
 
-	// Guards isPlaying, position, startTime, lastUpdate, metadata and stopped,
-	// which are accessed from D-Bus handler goroutines and the update loop.
+	stoppedPlayback bool        // Whether Stop ended playback until the next Play. / Stop 是否已结束播放，直到下次 Play。
+	pendingSeek     bool        // Whether a coalesced Seeked signal is pending. / 是否有合批待发的 Seeked 信号。
+	pendingSeekPos  int64       // Position the pending Seeked signal will carry. / 待发 Seeked 信号携带的位置。
+	seekTimer       *time.Timer // Timer flushing the coalesced Seeked signal. / 触发合批 Seeked 信号的定时器。
+	lastSampleUs    int64       // Last position sample for jump detection. / 跳变检测的上次位置采样。
+	lastSampleAt    time.Time   // Time of the last position sample. / 上次位置采样的时间。
+
+	// Guards position, metadata, trackID, playMode, stopped and the seek
+	// bookkeeping, which are accessed from D-Bus handler goroutines and the
+	// update loop.
 	//
-	// 保护 isPlaying、position、startTime、lastUpdate、metadata 和 stopped，
+	// 保护 position、metadata、trackID、playMode、stopped 与 seek 记账字段，
 	// 这些字段会被 D-Bus 处理 goroutine 和更新循环并发访问。
 	mu sync.Mutex
 }
@@ -61,22 +88,19 @@ func NewMPRISServer(app *App, player *audioPlayer, flacPath string) (*MPRISServe
 		app:          app,
 		player:       player,
 		flacPath:     flacPath,
-		isPlaying:    false,
-		position:     0,
-		duration:     0,
+		playMode:     app.playMode,
 		metadata:     make(map[string]dbus.Variant),
 		originalFile: f,
-		lastUpdate:   time.Now(),
-		startTime:    time.Time{},
 		stopChan:     make(chan struct{}),
 		stopped:      false,
+		lastSampleAt: time.Now(),
 	}
-
-	server.updateMetadata()
 
 	if err := server.calculateDuration(); err != nil {
 		// Ignore duration calculation errors for now.
 	}
+
+	server.updateMetadata()
 
 	return server, nil
 }
@@ -121,6 +145,10 @@ func (m *MPRISServer) StopService() {
 		return
 	}
 	m.stopped = true
+	if m.seekTimer != nil {
+		m.seekTimer.Stop()
+		m.seekTimer = nil
+	}
 	m.mu.Unlock()
 
 	// Signal goroutines to stop
@@ -142,77 +170,153 @@ func (m *MPRISServer) StopService() {
 //
 // UpdatePlaybackStatus 更新播放状态。
 func (m *MPRISServer) UpdatePlaybackStatus(playing bool) {
-	m.mu.Lock()
-	if playing && !m.isPlaying {
-		m.startTime = time.Now().Add(-time.Duration(m.position) * time.Microsecond)
-	} else if !playing && m.isPlaying {
-		m.updatePositionFromTimeLocked()
+	if playing {
+		m.mu.Lock()
+		m.stoppedPlayback = false
+		m.mu.Unlock()
 	}
-	m.isPlaying = playing
-	m.lastUpdate = time.Now()
-	m.mu.Unlock()
-
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 		"PlaybackStatus": m.getPlaybackStatus(),
 	})
 }
 
-// UpdatePosition updates the playback position.
+// NotifySeek announces a position discontinuity to MPRIS clients by emitting
+// the Seeked signal. Position is a polled property whose PropertiesChanged
+// signal is never emitted; per the MPRIS specification clients only learn
+// that playback stopped progressing according to Rate through Seeked, so
+// every seek must emit it.
 //
-// UpdatePosition 更新播放位置。
-func (m *MPRISServer) UpdatePosition(pos int64) {
+// NotifySeek 通过 Seeked 信号向 MPRIS 客户端广播位置跳变。
+// Position 是只轮询属性，不发变更信号；按 MPRIS 规范，客户端只能通过
+// Seeked 得知播放脱离 Rate 线性推进，因此每次跳转都必须发出。
+func (m *MPRISServer) NotifySeek(pos int64) {
 	m.mu.Lock()
 	m.position = pos
-	m.lastUpdate = time.Now()
-	m.mu.Unlock()
-
-	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-		"Position": pos,
-	})
-}
-
-// updatePositionFromTimeLocked updates the position based on elapsed time.
-// The caller must hold m.mu.
-//
-// updatePositionFromTimeLocked 根据经过的时间更新位置。调用方必须持有 m.mu。
-func (m *MPRISServer) updatePositionFromTimeLocked() {
-	if !m.isPlaying || m.startTime.IsZero() {
+	m.lastSampleUs = pos
+	m.lastSampleAt = time.Now()
+	if m.stopped {
+		m.mu.Unlock()
 		return
 	}
-
-	elapsed := time.Since(m.startTime)
-	newPosition := int64(elapsed.Microseconds())
-
-	if m.duration > 0 && newPosition >= m.duration {
-		newPosition = newPosition % m.duration
-		m.startTime = time.Now().Add(-time.Duration(newPosition) * time.Microsecond)
+	m.pendingSeek = true
+	m.pendingSeekPos = pos
+	if m.seekTimer != nil {
+		m.seekTimer.Stop()
 	}
-
-	if newPosition != m.position {
-		m.position = newPosition
-		m.lastUpdate = time.Now()
-	}
+	m.seekTimer = time.AfterFunc(seekCoalesceWindow, m.flushSeeked)
+	m.mu.Unlock()
 }
 
-// getCurrentPosition gets the current position in microseconds.
+// flushSeeked emits the coalesced Seeked signal carrying the position of the
+// last seek in the burst.
 //
-// getCurrentPosition 获取当前位置（以微秒为单位）。
-func (m *MPRISServer) getCurrentPosition() int64 {
+// flushSeeked 发出合批后的 Seeked 信号，携带本轮最后一次跳转的位置。
+func (m *MPRISServer) flushSeeked() {
+	m.mu.Lock()
+	if m.stopped || !m.pendingSeek {
+		m.mu.Unlock()
+		return
+	}
+	pos := m.pendingSeekPos
+	m.pendingSeek = false
+	m.seekTimer = nil
+	conn := m.conn
+	m.mu.Unlock()
+	if conn == nil {
+		return
+	}
+	conn.Emit(
+		dbus.ObjectPath("/org/mpris/MediaPlayer2"),
+		"org.mpris.MediaPlayer2.Player.Seeked",
+		pos,
+	)
+}
+
+// detectPositionJump reports whether the sampled position deviates from the
+// linear progression implied by the playback rate beyond the tolerance, which
+// means playback stopped progressing the way clients assume and they must be
+// told through the Seeked signal.
+//
+// detectPositionJump 判断采样位置是否超出播放速率隐含的线性推进容差，
+// 超出即表示播放脱离客户端假设的推进方式，须通过 Seeked 信号告知。
+func (m *MPRISServer) detectPositionJump(pos int64, rate float64, paused bool) bool {
+	now := time.Now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.isPlaying && !m.startTime.IsZero() {
-		m.updatePositionFromTimeLocked()
+	elapsed := now.Sub(m.lastSampleAt).Seconds()
+	expected := float64(m.lastSampleUs)
+	if !paused {
+		expected += elapsed * rate * 1e6
 	}
+	deviation := float64(pos) - expected
+	m.lastSampleUs = pos
+	m.lastSampleAt = now
+	tolerance := float64(seekJumpTolerance.Microseconds())
+	return deviation < -tolerance || deviation > tolerance
+}
+
+// getCurrentPosition returns the playback position in microseconds from the
+// decoder that is actually streaming, so every client sees one timeline. The
+// cached position only backs it up when no player exists.
+//
+// getCurrentPosition 以正在播放的解码器为准返回播放位置（微秒），
+// 使所有客户端看到同一条时间线。缓存位置仅在无播放器时兜底。
+func (m *MPRISServer) getCurrentPosition() int64 {
+	if m.player != nil && m.player.streamer != nil {
+		speaker.Lock()
+		samplePos := m.player.streamer.Position()
+		speaker.Unlock()
+		if rate := float64(m.player.sampleRate); rate > 0 {
+			pos := int64(float64(samplePos) / rate * 1e6)
+			m.mu.Lock()
+			m.position = pos
+			m.mu.Unlock()
+			return pos
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.position
 }
 
-// getLoopStatus gets the loop status.
-// Accessing App.playMode here would cause a circular dependency, so it returns a default value.
+// getLoopStatus maps the playback mode to the MPRIS loop status. Random mode
+// reports "Playlist" because the playlist keeps playing; the Shuffle property
+// carries the randomness.
 //
-// getLoopStatus 获取循环状态。
-// 此处访问 App.playMode 会导致循环依赖，因此返回默认值。
+// getLoopStatus 将播放模式映射为 MPRIS 循环状态。随机模式报告 "Playlist"，
+// 因为歌单仍在循环播放；随机性由 Shuffle 属性表达。
 func (m *MPRISServer) getLoopStatus() string {
-	return "None"
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.playMode == 0 {
+		return "Track"
+	}
+	return "Playlist"
+}
+
+// getShuffle reports whether the playback mode is random.
+//
+// getShuffle 报告播放模式是否为随机。
+func (m *MPRISServer) getShuffle() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.playMode == 2
+}
+
+// updatePlayMode refreshes the cached playback mode and announces the
+// matching LoopStatus and Shuffle values. It runs on the main thread after the
+// play mode changed.
+//
+// updatePlayMode 刷新缓存的播放模式并广播对应的 LoopStatus 与 Shuffle 值。
+// 在播放模式变更后由主线程调用。
+func (m *MPRISServer) updatePlayMode(mode int) {
+	m.mu.Lock()
+	m.playMode = mode
+	m.mu.Unlock()
+	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
+		"LoopStatus": m.getLoopStatus(),
+		"Shuffle":    m.getShuffle(),
+	})
 }
 
 // UpdateMetadata updates the metadata.
@@ -368,16 +472,32 @@ func (m *MPRISServer) PlayPause() *dbus.Error {
 	return nil
 }
 
-// Stop stops the playback.
+// Stop stops playback and rewinds to the beginning of the track so a later
+// Play starts from there, as the MPRIS specification requires.
 //
-// Stop 停止播放。
+// Stop 停止播放并回退到曲目开头，使之后的 Play 从头开始，
+// 符合 MPRIS 规范要求。
 func (m *MPRISServer) Stop() *dbus.Error {
-	if m.player != nil {
-		speaker.Lock()
-		m.player.ctrl.Paused = true
-		speaker.Unlock()
-		m.UpdatePlaybackStatus(false)
+	if m.player == nil {
+		return nil
 	}
+	speaker.Lock()
+	m.player.ctrl.Paused = true
+	streamer := m.player.streamer
+	speaker.Unlock()
+	if streamer != nil {
+		speaker.Lock()
+		err := streamer.Seek(0)
+		speaker.Unlock()
+		if err != nil {
+			l.Warnf("rewind failed: %v\n\n警告: 回退失败: %v", err, err)
+		}
+	}
+	m.mu.Lock()
+	m.stoppedPlayback = true
+	m.mu.Unlock()
+	m.NotifySeek(0)
+	m.UpdatePlaybackStatus(false)
 	return nil
 }
 
@@ -401,72 +521,97 @@ func (m *MPRISServer) Play() *dbus.Error {
 //
 // Seek 按给定的偏移量（微秒）在曲目中跳转。
 func (m *MPRISServer) Seek(offset int64) (int64, *dbus.Error) {
-	m.mu.Lock()
-	currentPos := m.position
-	if m.isPlaying && !m.startTime.IsZero() {
-		m.updatePositionFromTimeLocked()
-		currentPos = m.position
-	}
-	newPos := min(max(currentPos+offset, 0), m.duration-1)
-	m.position = newPos
-	if m.isPlaying {
-		m.startTime = time.Now().Add(-time.Duration(newPos) * time.Microsecond)
-	}
-	m.lastUpdate = time.Now()
-	pos := newPos
-	m.mu.Unlock()
-
-	if m.player != nil && m.player.streamer != nil {
-		samplePos := int(float64(pos) / 1e6 * float64(m.player.sampleRate))
-		speaker.Lock()
-		if err := m.player.streamer.Seek(samplePos); err != nil {
-			// Ignore seek errors
-		}
-		speaker.Unlock()
-	}
-
-	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-		"Position": pos,
-	})
-	return pos, nil
+	newPos := m.seekToUs(m.getCurrentPosition() + offset)
+	return newPos, nil
 }
 
-// SetPosition sets the track's position in microseconds.
+// SetPosition sets the track's position in microseconds. Calls naming a track
+// other than the current one are ignored as the MPRIS specification requires.
 //
-// SetPosition 设置曲目的位置（微秒）。
+// SetPosition 设置曲目的位置（微秒）。按 MPRIS 规范要求，
+// 指定曲目不是当前曲目时调用会被忽略。
 func (m *MPRISServer) SetPosition(trackID dbus.ObjectPath, position int64) *dbus.Error {
-	position = max(position, 0)
-
 	m.mu.Lock()
-	position = min(position, m.duration-1)
-	m.position = position
-	if m.isPlaying {
-		m.startTime = time.Now().Add(-time.Duration(position) * time.Microsecond)
-	}
-	m.lastUpdate = time.Now()
-	pos := m.position
+	current := m.trackID
 	m.mu.Unlock()
-
-	if m.player != nil && m.player.streamer != nil {
-		samplePos := int(float64(pos) / 1e6 * float64(m.player.sampleRate))
-		speaker.Lock()
-		if err := m.player.streamer.Seek(samplePos); err != nil {
-			// Ignore seek errors
-		}
-		speaker.Unlock()
+	if trackID != current {
+		return nil
 	}
-
-	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-		"Position": pos,
-	})
+	m.seekToUs(position)
 	return nil
 }
 
-// OpenUri opens a URI (not supported).
+// seekToUs seeks the streaming decoder to the given position in microseconds
+// and reports where playback actually landed through the Seeked signal and a
+// Position property change.
 //
-// OpenUri 打开一个URI（不支持）。
+// seekToUs 将正在播放的解码器跳转到给定位置（微秒），并以 Seeked 信号
+// 和 Position 属性变更报告实际落点。
+func (m *MPRISServer) seekToUs(pos int64) int64 {
+	pos = max(pos, 0)
+	m.mu.Lock()
+	if m.duration > 0 {
+		pos = min(pos, m.duration-1)
+	}
+	m.mu.Unlock()
+
+	if m.player != nil && m.player.streamer != nil {
+		samplePos := int(float64(pos) / 1e6 * float64(m.player.sampleRate))
+		speaker.Lock()
+		err := m.player.streamer.Seek(samplePos)
+		speaker.Unlock()
+		if err != nil {
+			l.Warnf("seek failed: %v\n\n警告: 跳转失败: %v", err, err)
+		}
+	}
+
+	pos = m.getCurrentPosition()
+	m.NotifySeek(pos)
+	return pos
+}
+
+// OpenUri plays a local audio file addressed by a file URI. The song joins
+// the playlist and plays in the repeat-one mode, mirroring what launching bm
+// with a song argument does.
+//
+// OpenUri 播放 file URI 指向的本地音频文件。歌曲加入播放列表并以单曲循环
+// 模式播放，与用歌曲参数启动 bm 的行为一致。
 func (m *MPRISServer) OpenUri(uri string) *dbus.Error {
-	return dbus.MakeFailedError(fmt.Errorf("Opening URI is not supported\n\n不支持打开 URI"))
+	parsed, err := url.Parse(uri)
+	if err != nil || parsed.Scheme != "file" {
+		return dbus.MakeFailedError(fmt.Errorf("Unsupported URI: %s\n\n不支持的 URI: %s", uri, uri))
+	}
+	path, err := filepath.Abs(parsed.Path)
+	if err != nil {
+		return dbus.MakeFailedError(fmt.Errorf("Unable to resolve path: %v\n\n无法解析路径: %v", err, err))
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return dbus.MakeFailedError(fmt.Errorf("Unable to access audio file: %s\n\n无法访问音频文件: %s", path, path))
+	}
+	if !isAudioFile(path) {
+		return dbus.MakeFailedError(fmt.Errorf("Unsupported audio file: %s\n\n不支持的音频文件: %s", path, path))
+	}
+	if m.app == nil {
+		return dbus.MakeFailedError(fmt.Errorf("Player is not ready\n\n播放器未就绪"))
+	}
+	inside, err := isInsideDir(m.app.LibraryPath, path)
+	if err != nil || !inside {
+		return dbus.MakeFailedError(fmt.Errorf("The song is not inside your music folder (%s):\n%s\n\n这首歌不在你的歌曲文件夹内（%s）:\n%s", m.app.LibraryPath, path, m.app.LibraryPath, path))
+	}
+	m.app.actionQueue <- func() {
+		if !slices.Contains(m.app.Playlist, path) {
+			m.app.setPlaylist(append(m.app.Playlist, path))
+			if err := SavePlaylist(m.app.Playlist, m.app.LibraryPath); err != nil {
+				l.Warnf("could not save playlist: %v\n\n警告: 无法保存播放列表: %v", err, err)
+			}
+		}
+		m.app.setPlayMode(0)
+		if err := m.app.PlaySongWithSwitchAndRender(path, true, true); err != nil {
+			l.Warnf("could not play %s: %v\n\n警告: 无法播放 %s: %v", path, err, path, err)
+		}
+	}
+	return nil
 }
 
 // --- D-Bus Properties interface implementation ---
@@ -492,14 +637,14 @@ func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *db
 		case "SupportedUriSchemes":
 			return dbus.MakeVariant([]string{"file"}), nil
 		case "SupportedMimeTypes":
-			return dbus.MakeVariant([]string{"audio/flac"}), nil
+			return dbus.MakeVariant([]string{"audio/flac", "audio/mpeg", "audio/wav", "audio/ogg"}), nil
 		}
 	case "org.mpris.MediaPlayer2.Player":
 		switch propertyName {
 		case "PlaybackStatus":
 			return dbus.MakeVariant(m.getPlaybackStatus()), nil
 		case "LoopStatus":
-			return dbus.MakeVariant("None"), nil
+			return dbus.MakeVariant(m.getLoopStatus()), nil
 		case "Rate":
 			if m.player != nil {
 				speaker.Lock()
@@ -509,7 +654,7 @@ func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *db
 			}
 			return dbus.MakeVariant(1.0), nil
 		case "Shuffle":
-			return dbus.MakeVariant(false), nil
+			return dbus.MakeVariant(m.getShuffle()), nil
 		case "Metadata":
 			m.mu.Lock()
 			metadata := m.metadata
@@ -550,7 +695,8 @@ func (m *MPRISServer) Get(interfaceName, propertyName string) (dbus.Variant, *db
 //
 // GetAll 实现 D-Bus Properties.GetAll。
 func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *dbus.Error) {
-	if interfaceName == "org.mpris.MediaPlayer2" {
+	switch interfaceName {
+	case "org.mpris.MediaPlayer2":
 		props := make(map[string]dbus.Variant)
 		props["CanQuit"] = dbus.MakeVariant(true)
 		props["CanRaise"] = dbus.MakeVariant(false)
@@ -558,9 +704,9 @@ func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *db
 		props["Identity"] = dbus.MakeVariant("BM")
 		props["DesktopEntry"] = dbus.MakeVariant("")
 		props["SupportedUriSchemes"] = dbus.MakeVariant([]string{"file"})
-		props["SupportedMimeTypes"] = dbus.MakeVariant([]string{"audio/flac"})
+		props["SupportedMimeTypes"] = dbus.MakeVariant([]string{"audio/flac", "audio/mpeg", "audio/wav", "audio/ogg"})
 		return props, nil
-	} else if interfaceName == "org.mpris.MediaPlayer2.Player" {
+	case "org.mpris.MediaPlayer2.Player":
 		props := make(map[string]dbus.Variant)
 
 		props["PlaybackStatus"] = dbus.MakeVariant(m.getPlaybackStatus())
@@ -585,7 +731,7 @@ func (m *MPRISServer) GetAll(interfaceName string) (map[string]dbus.Variant, *db
 			props["Position"] = dbus.MakeVariant(m.position)
 		}
 
-		props["Shuffle"] = dbus.MakeVariant(false)
+		props["Shuffle"] = dbus.MakeVariant(m.getShuffle())
 		m.mu.Lock()
 		metadata := m.metadata
 		m.mu.Unlock()
@@ -657,9 +803,32 @@ func (m *MPRISServer) Set(interfaceName, propertyName string, value dbus.Variant
 				})
 			}
 		case "LoopStatus":
-			// Not supported
+			status, ok := value.Value().(string)
+			if !ok {
+				return dbus.MakeFailedError(fmt.Errorf("LoopStatus must be a string\n\nLoopStatus 必须是字符串"))
+			}
+			var mode int
+			switch status {
+			case "Track":
+				mode = 0
+			case "Playlist", "None":
+				mode = 1
+			default:
+				return dbus.MakeFailedError(fmt.Errorf("Unknown loop status: %s\n\n未知循环状态: %s", status, status))
+			}
+			m.app.actionQueue <- func() { m.app.setPlayMode(mode) }
 		case "Shuffle":
-			// Not supported
+			enabled, ok := value.Value().(bool)
+			if !ok {
+				return dbus.MakeFailedError(fmt.Errorf("Shuffle must be a boolean\n\nShuffle 必须是布尔值"))
+			}
+			m.app.actionQueue <- func() {
+				if enabled {
+					m.app.setPlayMode(2)
+				} else if m.app.playMode == 2 {
+					m.app.setPlayMode(1)
+				}
+			}
 		default:
 			return dbus.MakeFailedError(fmt.Errorf("Property %s is not writable\n\n属性 %s 不可写", propertyName, propertyName))
 		}
@@ -676,6 +845,12 @@ func (m *MPRISServer) Set(interfaceName, propertyName string, value dbus.Variant
 // getPlaybackStatus 以字符串形式获取播放状态。
 func (m *MPRISServer) getPlaybackStatus() string {
 	if m.player == nil {
+		return "Stopped"
+	}
+	m.mu.Lock()
+	stopped := m.stoppedPlayback
+	m.mu.Unlock()
+	if stopped {
 		return "Stopped"
 	}
 	speaker.Lock()
@@ -696,17 +871,63 @@ func (m *MPRISServer) updateMetadata() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	h := fnv.New64a()
+	h.Write([]byte(filepath.Clean(m.flacPath)))
+	m.trackID = dbus.ObjectPath(fmt.Sprintf("/org/mpris/MediaPlayer2/TrackList/%016x", h.Sum64()))
+
 	m.metadata = map[string]dbus.Variant{
-		"mpris:trackid": dbus.MakeVariant(dbus.ObjectPath("/org/mpris/MediaPlayer2/TrackList/NoTrack")),
+		"mpris:trackid": dbus.MakeVariant(m.trackID),
 		"mpris:length":  dbus.MakeVariant(int64(m.duration)),
 		"xesam:title":   dbus.MakeVariant(title),
 		"xesam:artist":  dbus.MakeVariant([]string{artist}),
 		"xesam:album":   dbus.MakeVariant(album),
+		"xesam:url":     dbus.MakeVariant((&url.URL{Scheme: "file", Path: m.flacPath}).String()),
 	}
+
+	maps.Copy(m.metadata, readSongExtraTags(m.flacPath, m.duration))
 
 	if coverData := m.extractAlbumArt(); coverData != "" {
 		m.metadata["mpris:artUrl"] = dbus.MakeVariant(coverData)
 	}
+}
+
+// readSongExtraTags reads the extended Xesam metadata fields of an audio file.
+// Fields the file does not carry are left out of the result.
+//
+// readSongExtraTags 读取音频文件的扩展 Xesam 元数据字段。
+// 文件中缺失的字段不会出现在结果中。
+func readSongExtraTags(flacPath string, durationUs int64) map[string]dbus.Variant {
+	tags := make(map[string]dbus.Variant)
+	f, err := os.Open(flacPath)
+	if err != nil {
+		return tags
+	}
+	defer f.Close()
+	md, err := tag.ReadFrom(f)
+	if err != nil {
+		return tags
+	}
+	if genre := md.Genre(); genre != "" {
+		tags["xesam:genre"] = dbus.MakeVariant([]string{genre})
+	}
+	if albumArtist := md.AlbumArtist(); albumArtist != "" {
+		tags["xesam:albumArtist"] = dbus.MakeVariant([]string{albumArtist})
+	}
+	if track, _ := md.Track(); track > 0 {
+		tags["xesam:trackNumber"] = dbus.MakeVariant(int32(track))
+	}
+	if disc, _ := md.Disc(); disc > 0 {
+		tags["xesam:discNumber"] = dbus.MakeVariant(int32(disc))
+	}
+	if year := md.Year(); year > 0 {
+		tags["xesam:contentCreated"] = dbus.MakeVariant(fmt.Sprintf("%04d-01-01T00:00:00Z", year))
+	}
+	if durationUs > 0 {
+		if info, err := os.Stat(flacPath); err == nil {
+			tags["xesam:audioBitrate"] = dbus.MakeVariant(int32(float64(info.Size()*8) / (float64(durationUs) / 1e6)))
+		}
+	}
+	return tags
 }
 
 // extractAlbumArt extracts the album art.
@@ -851,9 +1072,9 @@ func (m *MPRISServer) UpdateSong(path string) {
 	}
 	m.flacPath = path
 	m.position = 0
-	m.isPlaying = true
-	m.startTime = time.Now()
-	m.lastUpdate = time.Now()
+	m.lastSampleUs = 0
+	m.lastSampleAt = time.Now()
+	m.stoppedPlayback = false
 	m.mu.Unlock()
 
 	m.calculateDuration()
@@ -864,13 +1085,14 @@ func (m *MPRISServer) UpdateSong(path string) {
 	m.mu.Unlock()
 	m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
 		"Metadata": metadata,
-		"Position": int64(0),
 	})
 }
 
-// StartUpdateLoop starts the MPRIS update loop.
+// StartUpdateLoop keeps the cached position fresh for the rare callers that
+// read it while no client is polling.
 //
-// StartUpdateLoop 启动 MPRIS 更新循环。
+// StartUpdateLoop 在无客户端轮询时保持缓存位置新鲜，
+// 供少数直接读取缓存的调用方使用。
 func (m *MPRISServer) StartUpdateLoop() {
 	go func() {
 		ticker := time.NewTicker(time.Second)
@@ -887,21 +1109,16 @@ func (m *MPRISServer) StartUpdateLoop() {
 				if stopped {
 					return
 				}
-
-				if m.player != nil && m.player.streamer != nil {
+				pos := m.getCurrentPosition()
+				rate, paused := 1.0, true
+				if m.player != nil {
 					speaker.Lock()
-					samplePos := m.player.streamer.Position()
+					rate = m.player.resampler.Ratio()
+					paused = m.player.ctrl.Paused
 					speaker.Unlock()
-
-					m.mu.Lock()
-					m.position = int64(float64(samplePos) / float64(m.player.sampleRate) * 1e6)
-					m.lastUpdate = time.Now()
-					pos := m.position
-					m.mu.Unlock()
-
-					m.sendPropertiesChanged("org.mpris.MediaPlayer2.Player", map[string]any{
-						"Position": pos,
-					})
+				}
+				if m.detectPositionJump(pos, rate, paused) {
+					m.NotifySeek(pos)
 				}
 			}
 		}
