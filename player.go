@@ -1092,25 +1092,37 @@ func (p *PlayerPage) updateSwitchNarrowMode(imageBottomRow, w, h int) {
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
 
+// textBlockStartRow returns the first row of a content block of the given
+// height so the whitespace above and below it stays even, with the extra row
+// on top when the whitespace count is odd.
+//
+// textBlockStartRow 返回给定高度内容块的起始行，使上下留白尽量相等，
+// 留白总数为奇数时上面多留一行。
+func textBlockStartRow(h, contentHeight int) int {
+	blank := max(h-contentHeight, 0)
+	return blank - blank/2 + 1
+}
+
 func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 	title, artist, album := getSongMetadata(p.flacPath)
 	title = truncateToWidthFromStart(title, w-2)
 	artist = truncateToWidthFromStart(artist, w-2)
 	album = truncateToWidthFromStart(album, w-2)
-	centerRow, centerCol := h/2, w/2
+	centerCol := w / 2
 
 	colorCode := p.getColorCode()
 	titleWidth := runewidth.StringWidth(title)
 	artistWidth := runewidth.StringWidth(artist)
 	albumWidth := runewidth.StringWidth(album)
 
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", centerRow-1, centerCol-titleWidth/2, colorCode, title)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", centerRow, centerCol-artistWidth/2, colorCode, artist)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", centerRow+1, centerCol-albumWidth/2, colorCode, album)
+	infoRow := textBlockStartRow(h, 5)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, centerCol-titleWidth/2, colorCode, title)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
+	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
 
 	progressBarStartCol := 5
 	progressBarWidth := max(w-10, 10)
-	progressRow := centerRow + 3
+	progressRow := infoRow + 4
 
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
@@ -1123,14 +1135,14 @@ func (p *PlayerPage) updateSwitchTextMode(w, h int) {
 	title = truncateToWidthFromStart(title, w-2)
 	artist = truncateToWidthFromStart(artist, w-2)
 	album = truncateToWidthFromStart(album, w-2)
-	centerRow, centerCol := h/2, w/2
+	centerCol := w / 2
 
 	colorCode := p.getColorCode()
 	titleWidth := runewidth.StringWidth(title)
 	artistWidth := runewidth.StringWidth(artist)
 	albumWidth := runewidth.StringWidth(album)
 
-	infoRow := centerRow - 1
+	infoRow := textBlockStartRow(h, 7)
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, centerCol-titleWidth/2, colorCode, title)
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
@@ -1147,7 +1159,7 @@ func (p *PlayerPage) updateSwitchTextMode(w, h int) {
 	if progressBarWidth < 10 {
 		progressBarWidth = 10
 	}
-	progressRow := centerRow + 5
+	progressRow := infoRow + 6
 
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
