@@ -126,7 +126,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		}
 		speaker.Unlock()
 		if mprisServer != nil {
-			mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
+			mprisServer.NotifySeek(p.currentPositionInMicroseconds())
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.SeekForward) {
 		speaker.Lock()
@@ -139,7 +139,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 		}
 		speaker.Unlock()
 		if mprisServer != nil {
-			mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
+			mprisServer.NotifySeek(p.currentPositionInMicroseconds())
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Player.VolumeDown) {
 		p.volumeDisplayTimer = 10
@@ -197,17 +197,7 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 	} else if IsKey(key, GlobalConfig.Keymap.Player.NextSong) {
 		p.playNextSong()
 	} else if IsKey(key, GlobalConfig.Keymap.Player.TogglePlayMode) {
-		oldMode := p.app.playMode
-		p.app.playMode = (p.app.playMode + 1) % 3
-		if oldMode != 2 && p.app.playMode == 2 {
-			p.app.switchedToRandom = true
-		} else {
-			p.app.switchedToRandom = false
-		}
-		if err := SavePlayMode(p.app.playMode); err != nil {
-			l.Warnf("failed to save play mode: %v\n\n警告: 保存播放模式失败: %v", err, err)
-		}
-		p.app.rebuildChainForPlaybackMode()
+		p.app.setPlayMode((p.app.playMode + 1) % 3)
 	} else if IsKey(key, GlobalConfig.Keymap.Player.ToggleTextColor) {
 		p.useCoverColor = !p.useCoverColor
 	} else if IsKey(key, GlobalConfig.Keymap.Player.Reset) {
@@ -387,10 +377,6 @@ func (p *PlayerPage) Tick() {
 	}
 
 	p.updateStatus()
-
-	if p.app.mprisServer != nil {
-		p.app.mprisServer.UpdatePosition(p.currentPositionInMicroseconds())
-	}
 }
 
 // currentPositionInMicroseconds is a helper to get the player position for MPRIS.
