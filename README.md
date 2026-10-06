@@ -212,11 +212,14 @@ Player UI icons (play, pause, progress bar, repeat modes, notification state) ar
 
 BM implements a complete MPRIS2 (Media Player Remote Interfacing Specification) interface, supporting:
 
-- System media key control (Play/Pause/Next/Previous)
+- System media key control (Play/Pause/Stop/Next/Previous)
 - Playback status synchronization
-- Metadata transmission
-- Volume control
+- Progress bar seeking with accurate Seeked feedback
+- Loop and shuffle mode control from media widgets
+- Metadata transmission including genre, track number, year and bitrate
+- Volume and playback speed control
 - Playback position synchronization
+- Opening local audio files through file URIs
 
 ## Acknowledgments
 
