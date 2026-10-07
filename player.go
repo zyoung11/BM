@@ -983,18 +983,19 @@ func (p *PlayerPage) updateStatus() {
 }
 
 // updateRightPanel renders the song info and the progress bar in the panel
-// right of the cover for the wide layout. Both share the horizontal center of
-// the panel, and overflowing text is shortened with an ellipsis.
+// right of the cover for the wide layout. The panel is as wide as the capped
+// progress bar plus its side padding, and both share its horizontal center.
 //
 // updateRightPanel 为宽屏布局在封面右侧的面板中渲染歌曲信息与进度条。
-// 两者共享面板的水平中心，过长文本以省略号截断。
+// 面板宽度为封顶后的进度条宽度加两侧留白，两者共享面板的水平中心。
 func (p *PlayerPage) updateRightPanel(w int) {
 	if p.imageHeight < rightPanelMinHeight {
 		return
 	}
 
-	availableWidth := w - p.imageRightEdge
-	centerCol := p.imageRightEdge + availableWidth/2
+	bar := progressBarWidth(w, songTextWidth(p.flacPath))
+	panelWidth := bar + 2*progressBarPad
+	centerCol := p.imageRightEdge + panelWidth/2
 
 	partHeight := p.imageHeight / 3
 	titleRow := p.imageTop + partHeight + partHeight/2 - 1
@@ -1011,12 +1012,9 @@ func (p *PlayerPage) updateRightPanel(w int) {
 		progressRow = p.imageTop + p.imageHeight - 1
 	}
 
-	p.drawSongInfo(titleRow, centerCol, availableWidth-2)
+	p.drawSongInfo(titleRow, centerCol, panelWidth-2)
 
-	progressBarWidth := max(availableWidth-2*progressBarPad, minProgressBarWidth)
-	progressBarStartCol := centerCol - progressBarWidth/2
-
-	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, p.getColorCode())
+	p.drawProgressBar(progressRow, centerCol-bar/2, bar, p.getColorCode())
 }
 
 // drawSongInfo draws the centered title, artist and album lines starting at
@@ -1060,10 +1058,10 @@ func (p *PlayerPage) updateNarrowStatus(w, h int) {
 
 	p.drawSongInfo(infoRow, centerCol, virtualWidth-2)
 
-	progressBarWidth := narrowProgressBarWidth(w, songTextWidth(p.flacPath))
-	progressBarStartCol := centerCol - progressBarWidth/2
+	bar := progressBarWidth(w, songTextWidth(p.flacPath))
+	progressBarStartCol := centerCol - bar/2
 
-	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, p.getColorCode())
+	p.drawProgressBar(progressRow, progressBarStartCol, bar, p.getColorCode())
 }
 
 // textBlockStartRow returns the first row of a content block of the given
@@ -1085,10 +1083,10 @@ func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 	infoRow := textBlockStartRow(h, textOnlyBlockHeight)
 	p.drawSongInfo(infoRow, w/2, w-2)
 
-	progressBarWidth := cappedProgressBarWidth(max(w-2*progressBarPad, minProgressBarWidth), songTextWidth(p.flacPath))
-	progressBarStartCol := (w - progressBarWidth) / 2
+	bar := cappedProgressBarWidth(max(w-2*progressBarPad, minProgressBarWidth), songTextWidth(p.flacPath))
+	progressBarStartCol := (w - bar) / 2
 
-	p.drawProgressBar(infoRow+textOnlyBlockHeight-1, progressBarStartCol, progressBarWidth, p.getColorCode())
+	p.drawProgressBar(infoRow+textOnlyBlockHeight-1, progressBarStartCol, bar, p.getColorCode())
 }
 
 // updateSwitchTextMode renders centered text and progress bar for switch layout.
@@ -1106,10 +1104,10 @@ func (p *PlayerPage) updateSwitchTextMode(w, h int) {
 	if isWideTerminal(w, h) {
 		base = w / 2
 	}
-	progressBarWidth := cappedProgressBarWidth(base, songTextWidth(p.flacPath))
-	progressBarStartCol := (w - progressBarWidth) / 2
+	bar := cappedProgressBarWidth(base, songTextWidth(p.flacPath))
+	progressBarStartCol := (w - bar) / 2
 
-	p.drawProgressBar(infoRow+switchTextBlockHeight-1, progressBarStartCol, progressBarWidth, p.getColorCode())
+	p.drawProgressBar(infoRow+switchTextBlockHeight-1, progressBarStartCol, bar, p.getColorCode())
 }
 
 func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string) {

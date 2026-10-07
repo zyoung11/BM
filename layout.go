@@ -155,13 +155,13 @@ func cappedProgressBarWidth(base, maxTextWidth int) int {
 	return max(width, minProgressBarWidth)
 }
 
-// narrowProgressBarWidth returns the progress bar width for the narrow
-// layouts: the virtual column band minus its side padding, capped by the song
-// metadata.
+// progressBarWidth returns the shared progress bar width for the narrow
+// layouts and the wide right-text layout: the virtual column band minus its
+// side padding, capped by the song metadata.
 //
-// narrowProgressBarWidth 返回窄屏布局的进度条宽度，即虚拟列宽减去两侧留白，
-// 并受歌曲元数据封顶。
-func narrowProgressBarWidth(w, maxTextWidth int) int {
+// progressBarWidth 返回窄屏布局与宽屏右文布局共用的进度条宽度，
+// 即虚拟列宽减去两侧留白，并受歌曲元数据封顶。
+func progressBarWidth(w, maxTextWidth int) int {
 	base := max(min(narrowVirtualWidth, w)-2*progressBarPad, minProgressBarWidth)
 	return cappedProgressBarWidth(base, maxTextWidth)
 }
@@ -183,8 +183,8 @@ func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 	}
 
 	if wide {
-		availableWidth := w - wideTextPanelWidth
-		if availableWidth < maxTextLength+wideTextMinGap {
+		panelWidth := progressBarWidth(w, maxTextLength) + 2*progressBarPad
+		if panelWidth < maxTextLength+wideTextMinGap {
 			metrics.TextTooLongForWide = true
 		}
 	}
@@ -201,7 +201,7 @@ func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 // 即被元数据块挤小时的情况。调用方随即回退到只显示封面的布局，
 // 避免小封面配文字的版面上屏。
 func (p *PlayerPage) narrowCoverTooSmall(w, h, maxTextWidth int) bool {
-	barWidth := narrowProgressBarWidth(w, maxTextWidth)
+	barWidth := progressBarWidth(w, maxTextWidth)
 	heightCols := narrowImageHeightBudget(h) * p.cellH / p.cellW
 	coverCols := min(barWidth, heightCols)
 	return coverCols*5 < barWidth*3
@@ -300,8 +300,9 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 		}
 
 	case LayoutWideRightText:
+		panelWidth := progressBarWidth(w, metrics.MaxTextLength) + 2*progressBarPad
 		return LayoutPosition{
-			StartCol: 1,
+			StartCol: (w - imageWidth - panelWidth) / 2,
 			StartRow: (h - imageHeight + 1) / 2,
 			Width:    imageWidth,
 			Height:   imageHeight,
@@ -392,19 +393,6 @@ func (p *PlayerPage) calculateNarrowImagePosition(w, imageWidth, imageHeight, h 
 	}
 }
 
-// updateWideTextFlag recomputes the TextTooLongForWide verdict from the actual
-// image width so the decision flips in both directions as the cover size
-// changes.
-//
-// updateWideTextFlag 根据实际图片宽度重新计算 TextTooLongForWide 判定，
-// 使结论随封面尺寸变化可以双向翻转。
-func (p *PlayerPage) updateWideTextFlag(metrics *LayoutMetrics, imageWidth int) {
-	if metrics.IsWideTerminal {
-		availableWidth := metrics.W - imageWidth
-		metrics.TextTooLongForWide = availableWidth < metrics.MaxTextLength+wideTextMinGap
-	}
-}
-
 // calculatePixelSize calculates the pixel size for image rendering.
 //
 // calculatePixelSize 计算图片渲染的像素尺寸。
@@ -416,11 +404,13 @@ func (p *PlayerPage) calculatePixelSize(metrics *LayoutMetrics, layout LayoutTyp
 	}
 
 	if layout == LayoutWideRightText {
-		return (w - wideTextPanelWidth) * p.cellW, (h - 1) * p.cellH
+		bar := progressBarWidth(w, metrics.MaxTextLength)
+		coverCols := min(bar, w-bar-2*progressBarPad)
+		return coverCols * p.cellW, (h - 1) * p.cellH
 	}
 
 	if layout == LayoutNarrow || layout == LayoutSwitchNarrow {
-		return narrowProgressBarWidth(w, metrics.MaxTextLength) * p.cellW, narrowImageHeightBudget(h) * p.cellH
+		return progressBarWidth(w, metrics.MaxTextLength) * p.cellW, narrowImageHeightBudget(h) * p.cellH
 	}
 
 	return w * p.cellW, (h - 2) * p.cellH
@@ -477,7 +467,7 @@ func (p *PlayerPage) renderWithLayout() {
 	layout := p.determineLayout(&metrics)
 
 	if coverImg != nil && layoutUsesImage(layout) {
-		scaledImg, imageWidthInChars, imageHeightInChars := p.scaleCoverForLayout(normImg, &metrics, &layout)
+		scaledImg, imageWidthInChars, imageHeightInChars := p.scaleCoverForLayout(normImg, &metrics, layout)
 
 		pos := p.calculateImagePosition(layout, &metrics, imageWidthInChars, imageHeightInChars)
 		startCol, startRow := pos.StartCol, pos.StartRow
@@ -553,13 +543,10 @@ func layoutUsesImage(layout LayoutType) bool {
 }
 
 // scaleCoverForLayout scales the normalized cover to the pixel budget of the
-// current layout and converts the result back to character cells. The image
-// width feeds the layout verdict, so whenever that verdict flips the cover is
-// scaled again with the new budget until both agree.
+// given layout and converts the result back to character cells.
 //
-// scaleCoverForLayout 将归一化封面缩放到当前布局的像素预算并换算回字符单元格。
-// 图片宽度会参与布局判定，因此判定翻转时按新预算重新缩放，直到两者一致。
-func (p *PlayerPage) scaleCoverForLayout(normImg image.Image, metrics *LayoutMetrics, layout *LayoutType) (image.Image, int, int) {
+// scaleCoverForLayout 将归一化封面缩放到给定布局的像素预算并换算回字符单元格。
+func (p *PlayerPage) scaleCoverForLayout(normImg image.Image, metrics *LayoutMetrics, layout LayoutType) (image.Image, int, int) {
 	if p.cellW == 0 {
 		p.cellW = 1
 	}
@@ -567,36 +554,24 @@ func (p *PlayerPage) scaleCoverForLayout(normImg image.Image, metrics *LayoutMet
 		p.cellH = 1
 	}
 
-	var scaledImg image.Image
-	var imageWidthInChars, imageHeightInChars int
+	pixelW, pixelH := p.calculatePixelSize(metrics, layout)
+	if pixelW < minImagePixels {
+		pixelW = minImagePixels
+	}
+	if pixelH < minImagePixels {
+		pixelH = minImagePixels
+	}
 
-	for range 3 {
-		pixelW, pixelH := p.calculatePixelSize(metrics, *layout)
-		if pixelW < minImagePixels {
-			pixelW = minImagePixels
-		}
-		if pixelH < minImagePixels {
-			pixelH = minImagePixels
-		}
+	scaledImg := resize.Thumbnail(uint(pixelW), uint(pixelH), normImg, resize.Lanczos3)
+	finalImgW, finalImgH := scaledImg.Bounds().Dx(), scaledImg.Bounds().Dy()
 
-		scaledImg = resize.Thumbnail(uint(pixelW), uint(pixelH), normImg, resize.Lanczos3)
-		finalImgW, finalImgH := scaledImg.Bounds().Dx(), scaledImg.Bounds().Dy()
-
-		imageWidthInChars = max(finalImgW/p.cellW, 1)
-		imageHeightInChars = max(finalImgH/p.cellH, 1)
-		if imageWidthInChars > metrics.W {
-			imageWidthInChars = metrics.W
-		}
-		if imageHeightInChars > metrics.H {
-			imageHeightInChars = metrics.H
-		}
-
-		p.updateWideTextFlag(metrics, imageWidthInChars)
-		next := p.determineLayout(metrics)
-		if next == *layout {
-			break
-		}
-		*layout = next
+	imageWidthInChars := max(finalImgW/p.cellW, 1)
+	imageHeightInChars := max(finalImgH/p.cellH, 1)
+	if imageWidthInChars > metrics.W {
+		imageWidthInChars = metrics.W
+	}
+	if imageHeightInChars > metrics.H {
+		imageHeightInChars = metrics.H
 	}
 
 	return scaledImg, imageWidthInChars, imageHeightInChars
