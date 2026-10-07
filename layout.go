@@ -43,10 +43,15 @@ const (
 	wideTextPanelWidth    = 30
 	wideTextMinGap        = 10
 	narrowVirtualWidth    = 80
-	narrowImageTextGap    = 5
+	narrowSongTextRows    = 3
+	narrowBlockFixedRows  = 4
 	narrowMinTextRows     = 5
-	progressBarPad         = 5
+	narrowMinGap          = 4
+	narrowMaxGap          = 7
+	progressBarPad        = 5
+	textProgressBarPad    = 7
 	minProgressBarWidth   = 10
+	progressBarTextScale  = 4
 	minImagePixels        = 10
 	textOnlyBlockHeight   = 5
 	switchTextBlockHeight = 7
@@ -112,9 +117,6 @@ type LayoutMetrics struct {
 	H int
 
 	// Text metrics / 文本指标
-	Title         string
-	Artist        string
-	Album         string
 	MaxTextLength int
 
 	// Layout flags / 布局标志
@@ -132,23 +134,50 @@ type LayoutPosition struct {
 	Height   int
 }
 
+// songTextWidth returns the display width of the widest song metadata line.
+//
+// songTextWidth 返回歌曲元数据中最宽一行的显示宽度。
+func songTextWidth(flacPath string) int {
+	title, artist, album := getSongMetadata(flacPath)
+	return max(max(runewidth.StringWidth(title), runewidth.StringWidth(artist)), runewidth.StringWidth(album))
+}
+
+// cappedProgressBarWidth applies the metadata based cap to a progress bar
+// width: the bar never outgrows progressBarTextScale times the widest song
+// text and never drops below the minimum width, so it keeps its proportion
+// on terminals of any size.
+//
+// cappedProgressBarWidth 将基于元数据的封顶应用到进度条宽度：进度条最宽不超过
+// 歌曲文字最大宽度的 progressBarTextScale 倍，且不小于最小进度条宽度，
+// 从而在任意尺寸的终端上保持比例。
+func cappedProgressBarWidth(base, maxTextWidth int) int {
+	width := min(base, max(progressBarTextScale*maxTextWidth, minProgressBarWidth))
+	return max(width, minProgressBarWidth)
+}
+
+// narrowProgressBarWidth returns the progress bar width for the narrow
+// layouts: the virtual column band minus its side padding, capped by the song
+// metadata.
+//
+// narrowProgressBarWidth 返回窄屏布局的进度条宽度，即虚拟列宽减去两侧留白，
+// 并受歌曲元数据封顶。
+func narrowProgressBarWidth(w, maxTextWidth int) int {
+	base := max(min(narrowVirtualWidth, w)-2*progressBarPad, minProgressBarWidth)
+	return cappedProgressBarWidth(base, maxTextWidth)
+}
+
 // collectMetrics gathers all metrics needed for layout determination.
 //
 // collectMetrics 收集布局判断所需的所有指标。
 func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
-	title, artist, album := getSongMetadata(p.flacPath)
-	maxTextLength := max(max(runewidth.StringWidth(title), runewidth.StringWidth(artist)), runewidth.StringWidth(album))
-
 	showNothing := w < minLayoutWidth || h < minLayoutHeight
 	showTextOnly := h < minImageLayoutHeight
 	wide := isWideTerminal(w, h) && !showNothing && !showTextOnly
 
+	maxTextLength := songTextWidth(p.flacPath)
 	metrics := LayoutMetrics{
 		W:              w,
 		H:              h,
-		Title:          title,
-		Artist:         artist,
-		Album:          album,
 		MaxTextLength:  maxTextLength,
 		IsWideTerminal: wide,
 	}
@@ -161,6 +190,21 @@ func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 	}
 
 	return metrics
+}
+
+// narrowCoverTooSmall reports whether the cover would shrink below three
+// fifths of the progress bar width in the narrow layouts, where the metadata
+// block squeezes it. Callers then fall back to the cover-only layout so a
+// tiny cover with text never reaches the screen.
+//
+// narrowCoverTooSmall 报告窄屏布局下封面是否会缩到进度条宽度的五分之三以下，
+// 即被元数据块挤小时的情况。调用方随即回退到只显示封面的布局，
+// 避免小封面配文字的版面上屏。
+func (p *PlayerPage) narrowCoverTooSmall(w, h, maxTextWidth int) bool {
+	barWidth := narrowProgressBarWidth(w, maxTextWidth)
+	heightCols := narrowImageHeightBudget(h) * p.cellH / p.cellW
+	coverCols := min(barWidth, heightCols)
+	return coverCols*5 < barWidth*3
 }
 
 // determineLayout determines the layout type based on metrics. The user
@@ -206,6 +250,9 @@ func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 		if w < metrics.MaxTextLength {
 			return LayoutInfoOnly
 		}
+		if p.narrowCoverTooSmall(w, h, metrics.MaxTextLength) {
+			return LayoutInfoOnly
+		}
 		if metrics.IsWideTerminal {
 			return LayoutSwitchNarrow
 		}
@@ -225,6 +272,10 @@ func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 			return LayoutWideRightText
 		}
 		return LayoutWideImageOnly
+	}
+
+	if p.narrowCoverTooSmall(w, h, metrics.MaxTextLength) {
+		return LayoutInfoOnly
 	}
 
 	return LayoutNarrow
@@ -285,47 +336,53 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 	}
 }
 
-// narrowBaseRows computes the info row and the progress row for the narrow
-// layouts from the row just below the image and the terminal height, before
-// the centering shift is applied.
+// narrowImageHeightBudget returns the tallest the cover may grow in the
+// narrow layouts so the gaps around the song text can still reach their
+// minimum.
 //
-// narrowBaseRows 根据图片下方首行与终端高度，计算窄屏布局的信息行与进度条行
-// （尚未应用居中偏移）。
-func narrowBaseRows(imageBottomRow, h int) (int, int) {
-	availableRows := h - imageBottomRow
-	infoRow := imageBottomRow + availableRows/3
-	progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
-	return infoRow, progressRow
+// narrowImageHeightBudget 返回窄屏布局封面允许的最大高度，
+// 保证歌曲文字上下的间隔仍能达到最小值。
+func narrowImageHeightBudget(h int) int {
+	return h - narrowBlockFixedRows - 2*narrowMinGap - 1
+}
+
+// narrowRows computes the first row of the cover and the rows of the song
+// text and the progress bar for the narrow layouts. Cover, text and progress
+// bar form one block that sits centered, with the extra row on top when the
+// whitespace count is odd; the whitespace around the song text stays equal so
+// the text reads as the middle of the composition, and it grows with the
+// terminal only between narrowMinGap and narrowMaxGap, so tall terminals pile
+// the extra rows into the surrounding whitespace instead of stretching the
+// block. When the terminal cannot spare the minimum the gap gives way down to
+// what fits.
+//
+// narrowRows 计算窄屏布局封面起始行以及歌曲文字与进度条的行号。封面、文字与
+// 进度条组成一个整体垂直居中，留白总数为奇数时上面多一行；歌曲文字上下的空白
+// 保持相等，使文字成为版面的中心，且只在 narrowMinGap 到 narrowMaxGap 之间随
+// 终端增大，高终端的多余行数进入上下留白而不是拉伸版面。终端空间不足时，
+// 间隔向下让步到刚好放得下的程度。
+func narrowRows(imageHeight, h int) (int, int, int) {
+	free := max(h-imageHeight-narrowBlockFixedRows, 0)
+	gapPair := 5 * free / 7
+	gapUp := max(min((gapPair-1)/2, narrowMaxGap), min(narrowMinGap, (free-1)/2))
+	gapLow := gapUp + 1
+	blank := free - gapUp - gapLow
+	startRow := blank - blank/2 + 1
+	infoRow := startRow + imageHeight + gapUp
+	progressRow := infoRow + narrowSongTextRows + gapLow
+	return startRow, infoRow, progressRow
 }
 
 // calculateNarrowImagePosition places the image for the narrow layouts. The
-// text block sits one third down the rows left below the image; when that gap
-// grows past narrowImageTextGap rows the image is pulled up against the text,
-// then the whole composition shifts so the whitespace above and below it stays
-// even. The applied shift is stored in layoutShift so the text drawing steps
-// offset their rows by exactly the same amount.
+// rows come straight from the centered composition, so the cover never needs
+// a corrective shift afterwards.
 //
-// calculateNarrowImagePosition 为窄屏布局计算图片位置。文字块位于图片下方剩余
-// 行数的三分之一处；当间隔超过 narrowImageTextGap 行时图片上移贴近文字，随后
-// 整体偏移使上下留白均匀。实际偏移量存入 layoutShift，供文字绘制步骤按完全
-// 相同的量偏移各自的行。
+// calculateNarrowImagePosition 为窄屏布局计算图片位置。各行直接取自居中的版面，
+// 封面事后不再需要修正偏移。
 func (p *PlayerPage) calculateNarrowImagePosition(w, imageWidth, imageHeight, h int) LayoutPosition {
-	p.layoutShift = 0
 	startRow := 2
-	imageBottomRow := startRow + imageHeight
-	infoRow, progressRow := narrowBaseRows(imageBottomRow, h)
-	if infoRow-imageBottomRow > narrowImageTextGap {
-		startRow = max(infoRow-1-imageHeight, 2)
-		imageBottomRow = startRow + imageHeight
-		_, progressRow = narrowBaseRows(imageBottomRow, h)
-		shift := (startRow - (h - progressRow)) / 2
-		if shift > 0 {
-			if startRow-shift < 2 {
-				shift = startRow - 2
-			}
-			p.layoutShift = shift
-			startRow -= shift
-		}
+	if h-(startRow+imageHeight) >= narrowMinTextRows {
+		startRow, _, _ = narrowRows(imageHeight, h)
 	}
 	return LayoutPosition{
 		StartCol: (w - imageWidth) / 2,
@@ -362,6 +419,10 @@ func (p *PlayerPage) calculatePixelSize(metrics *LayoutMetrics, layout LayoutTyp
 		return (w - wideTextPanelWidth) * p.cellW, (h - 1) * p.cellH
 	}
 
+	if layout == LayoutNarrow || layout == LayoutSwitchNarrow {
+		return narrowProgressBarWidth(w, metrics.MaxTextLength) * p.cellW, narrowImageHeightBudget(h) * p.cellH
+	}
+
 	return w * p.cellW, (h - 2) * p.cellH
 }
 
@@ -388,7 +449,7 @@ func (p *PlayerPage) renderTextByLayout(layout LayoutType, w, h int) {
 	case LayoutNarrow, LayoutSwitchNarrow:
 		imageBottomRow := p.imageTop + p.imageHeight
 		if h-imageBottomRow >= narrowMinTextRows {
-			p.updateNarrowStatus(imageBottomRow, w, h)
+			p.updateNarrowStatus(w, h)
 		}
 
 	case LayoutSwitchText:

@@ -54,7 +54,6 @@ type PlayerPage struct {
 	overrideLayout                        LayoutType // Override layout (-1=none). / 覆盖布局（-1=无）。
 	currentLayout                         LayoutType
 	lastLayoutSwitchTime                  time.Time // Debounce for layout switching. / 布局切换防抖。
-	layoutShift                           int       // Vertical shift for layout centering. / 布局居中的垂直偏移。
 
 	// Per-song cover cache: decoded image, 960x960 normalized version and
 	// dominant color, keyed by song path to avoid re-decoding on every redraw.
@@ -1046,18 +1045,14 @@ func (p *PlayerPage) drawSongInfo(infoRow, centerCol, maxTextWidth int) {
 
 // updateNarrowStatus renders text and progress for the narrow layouts. The
 // content is centered inside a virtual column band so the auto narrow layout
-// and the narrow override place elements identically; rows come from
-// narrowBaseRows and carry the same layoutShift that moved the image.
+// and the narrow override place elements identically; rows come from the same
+// narrowRows composition that placed the cover.
 //
 // updateNarrowStatus 为窄屏布局渲染文本和进度条。内容在虚拟列宽内居中，
-// 自动窄屏布局与窄屏覆盖模式的元素位置完全一致；行号来自 narrowBaseRows
-// 并应用与移动图片相同的 layoutShift。
-func (p *PlayerPage) updateNarrowStatus(imageBottomRow, w, h int) {
-	infoRow, progressRow := narrowBaseRows(imageBottomRow, h)
-	if p.layoutShift > 0 {
-		infoRow += 1 - p.layoutShift
-		progressRow -= p.layoutShift + 1
-	}
+// 自动窄屏布局与窄屏覆盖模式的元素位置完全一致；行号来自放置封面的同一
+// narrowRows 版面。
+func (p *PlayerPage) updateNarrowStatus(w, h int) {
+	_, infoRow, progressRow := narrowRows(p.imageHeight, h)
 
 	virtualWidth := min(narrowVirtualWidth, w)
 	offset := (w - virtualWidth) / 2
@@ -1065,8 +1060,8 @@ func (p *PlayerPage) updateNarrowStatus(imageBottomRow, w, h int) {
 
 	p.drawSongInfo(infoRow, centerCol, virtualWidth-2)
 
-	progressBarStartCol := offset + progressBarPad
-	progressBarWidth := max(virtualWidth-2*progressBarPad, minProgressBarWidth)
+	progressBarWidth := narrowProgressBarWidth(w, songTextWidth(p.flacPath))
+	progressBarStartCol := centerCol - progressBarWidth/2
 
 	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, p.getColorCode())
 }
@@ -1082,12 +1077,16 @@ func textBlockStartRow(h, contentHeight int) int {
 	return blank - blank/2 + 1
 }
 
+// updateTextOnlyMode renders the centered text block and the progress bar for
+// the text-only layout.
+//
+// updateTextOnlyMode 为纯文本布局渲染居中的文本块与进度条。
 func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 	infoRow := textBlockStartRow(h, textOnlyBlockHeight)
 	p.drawSongInfo(infoRow, w/2, w-2)
 
-	progressBarStartCol := progressBarPad
-	progressBarWidth := max(w-2*progressBarPad, minProgressBarWidth)
+	progressBarWidth := cappedProgressBarWidth(max(w-2*progressBarPad, minProgressBarWidth), songTextWidth(p.flacPath))
+	progressBarStartCol := (w - progressBarWidth) / 2
 
 	p.drawProgressBar(infoRow+textOnlyBlockHeight-1, progressBarStartCol, progressBarWidth, p.getColorCode())
 }
@@ -1095,21 +1094,20 @@ func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 // updateSwitchTextMode renders centered text and progress bar for switch layout.
 //
 // updateSwitchTextMode 为切换布局渲染居中的文本和进度条。
+// updateSwitchTextMode renders centered text and progress bar for the text
+// layout the O key cycles to.
+//
+// updateSwitchTextMode 为 O 键循环到的文本布局渲染居中的文字与进度条。
 func (p *PlayerPage) updateSwitchTextMode(w, h int) {
 	infoRow := textBlockStartRow(h, switchTextBlockHeight)
 	p.drawSongInfo(infoRow, w/2, w-2)
 
-	var progressBarStartCol, progressBarWidth int
+	base := max(w-2*textProgressBarPad, minProgressBarWidth)
 	if isWideTerminal(w, h) {
-		progressBarStartCol = w / 4
-		progressBarWidth = w / 2
-	} else {
-		progressBarStartCol = 7
-		progressBarWidth = w - 14
+		base = w / 2
 	}
-	if progressBarWidth < minProgressBarWidth {
-		progressBarWidth = minProgressBarWidth
-	}
+	progressBarWidth := cappedProgressBarWidth(base, songTextWidth(p.flacPath))
+	progressBarStartCol := (w - progressBarWidth) / 2
 
 	p.drawProgressBar(infoRow+switchTextBlockHeight-1, progressBarStartCol, progressBarWidth, p.getColorCode())
 }
