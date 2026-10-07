@@ -46,8 +46,8 @@ const (
 	narrowSongTextRows    = 3
 	narrowBlockFixedRows  = 4
 	narrowMinTextRows     = 5
-	narrowMinGap          = 4
-	narrowMaxGap          = 7
+	narrowMinGap          = 5
+	narrowMaxGap          = 8
 	progressBarPad        = 5
 	textProgressBarPad    = 7
 	minProgressBarWidth   = 10
@@ -365,7 +365,7 @@ func narrowImageHeightBudget(h int) int {
 func narrowRows(imageHeight, h int) (int, int, int) {
 	free := max(h-imageHeight-narrowBlockFixedRows, 0)
 	gapPair := 5 * free / 7
-	gapUp := max(min((gapPair-1)/2, narrowMaxGap), min(narrowMinGap, (free-1)/2))
+	gapUp := max(min((gapPair+1)/2, narrowMaxGap), min(narrowMinGap, (free-1)/2))
 	gapLow := gapUp + 1
 	blank := free - gapUp - gapLow
 	startRow := blank - blank/2 + 1
