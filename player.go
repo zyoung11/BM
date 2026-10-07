@@ -50,6 +50,7 @@ type PlayerPage struct {
 	volumeDisplayTimer                    int
 	rateDisplayTimer                      int
 	notifDisplayTimer                     int
+	layoutIndicatorTicks                  int
 	overrideLayout                        LayoutType // Override layout (-1=none). / 覆盖布局（-1=无）。
 	currentLayout                         LayoutType
 	lastLayoutSwitchTime                  time.Time // Debounce for layout switching. / 布局切换防抖。
@@ -235,22 +236,33 @@ func (p *PlayerPage) HandleKey(key rune) (Page, bool, error) {
 	return nil, false, nil
 }
 
-// HandleSignal handles system signals, like window resizing.
+// HandleSignal handles system signals, like window resizing. A resize waits
+// a short moment before redrawing so the terminal settles and the size read
+// by the renderer reflects the final dimensions.
 //
-// HandleSignal 处理系统信号，例如窗口大小调整。
+// HandleSignal 处理系统信号，例如窗口大小调整。窗口尺寸变化后先等待片刻再
+// 重绘，让终端稳定下来，使渲染时读到的尺寸反映最终结果。
 func (p *PlayerPage) HandleSignal(sig os.Signal) error {
 	if sig == syscall.SIGWINCH {
+		time.Sleep(50 * time.Millisecond)
 		p.View()
 	}
 	return nil
 }
 
-// View renders the player UI to the screen.
+// View renders the player UI to the screen. While the layout indicator is
+// active the screen carries the indicator alone instead of the regular
+// player content.
 //
-// View 将播放器UI渲染到屏幕上。
+// View 将播放器UI渲染到屏幕上。布局指示器生效期间屏幕上只显示指示器，
+// 不显示常规播放器内容。
 func (p *PlayerPage) View() {
 	p.app.beginFrame()
 	defer p.app.endFrame()
+	if p.layoutIndicatorTicks > 0 {
+		p.showLayoutIndicator()
+		return
+	}
 	if p.flacPath == "" {
 		p.displayEmptyState()
 		return
@@ -276,16 +288,12 @@ func (p *PlayerPage) displayEmptyState() {
 
 	msg := "PlayList is empty"
 	msg2 := "Add songs from the Library tab"
-	msgX := (w - len(msg)) / 2
-	msg2X := (w - len(msg2)) / 2
+	msgX := (w - runewidth.StringWidth(msg)) / 2
+	msg2X := (w - runewidth.StringWidth(msg2)) / 2
 	centerRow := h / 2
 
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow-1, msgX, msg)
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow+1, msg2X, msg2)
-
-	footer := ""
-	footerX := (w - len(footer)) / 2
-	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
 }
 
 // cycleLayout cycles through the available layout overrides.
@@ -319,20 +327,22 @@ func (p *PlayerPage) cycleLayout() {
 	if err := SaveOverrideLayout(int(nextLayout)); err != nil {
 		l.Warnf("Could not save layout: %v\n\n无法保存布局: %v", err, err)
 	}
-	p.showLayoutIndicator()
+	p.layoutIndicatorTicks = layoutIndicatorTicks
 	p.View()
 }
 
-// showLayoutIndicator displays the current layout mode briefly.
+// showLayoutIndicator draws the current layout mode name in the middle of an
+// otherwise blank screen. The name stays alone on screen until the indicator
+// ticks counted down by Tick run out and View restores the regular content.
 //
-// showLayoutIndicator 短暂显示当前布局模式。
+// showLayoutIndicator 在空白屏幕中央显示当前布局模式名称。在 Tick 递减的
+// 指示器计时结束前，名称单独停留在屏幕上；计时结束后 View 恢复常规内容。
 func (p *PlayerPage) showLayoutIndicator() {
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		w, h = 80, 24
 	}
 
-	p.app.beginFrame()
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 
 	var layoutStr string
@@ -349,13 +359,9 @@ func (p *PlayerPage) showLayoutIndicator() {
 		layoutStr = "auto"
 	}
 
-	msgX := (w - len(layoutStr)) / 2
+	msgX := (w - runewidth.StringWidth(layoutStr)) / 2
 	centerRow := h / 2
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow, msgX, layoutStr)
-	p.app.endFrame()
-
-	time.Sleep(500 * time.Millisecond)
-	p.lastLayoutSwitchTime = time.Now()
 }
 
 // Tick is called periodically by the main loop to update dynamic elements like timers and progress bars.
@@ -370,6 +376,13 @@ func (p *PlayerPage) Tick() {
 	}
 	if p.notifDisplayTimer > 0 {
 		p.notifDisplayTimer--
+	}
+	if p.layoutIndicatorTicks > 0 {
+		p.layoutIndicatorTicks--
+		if p.layoutIndicatorTicks == 0 {
+			p.View()
+		}
+		return
 	}
 
 	if p.flacPath == "" {
@@ -954,7 +967,7 @@ func (p *PlayerPage) refreshCellSize() {
 // updateStatus 使用 renderWithLayout 选定的布局重绘动态文本与进度条，
 // 保证周期性刷新与首次绘制的位置完全一致。
 func (p *PlayerPage) updateStatus() {
-	if p.app.currentPageIndex != 0 || p.flacPath == "" {
+	if p.app.currentPageIndex != 0 || p.flacPath == "" || p.layoutIndicatorTicks > 0 {
 		return
 	}
 
@@ -963,79 +976,63 @@ func (p *PlayerPage) updateStatus() {
 		return
 	}
 
-	if w < 23 || h < 5 {
+	if w < minLayoutWidth || h < minLayoutHeight {
 		return
 	}
 
-	metrics := LayoutMetrics{W: w, H: h}
-	p.renderTextByLayout(p.currentLayout, &metrics)
+	p.renderTextByLayout(p.currentLayout, w, h)
 }
 
+// updateRightPanel renders the song info and the progress bar in the panel
+// right of the cover for the wide layout. Both share the horizontal center of
+// the panel, and overflowing text is shortened with an ellipsis.
+//
+// updateRightPanel 为宽屏布局在封面右侧的面板中渲染歌曲信息与进度条。
+// 两者共享面板的水平中心，过长文本以省略号截断。
 func (p *PlayerPage) updateRightPanel(w int) {
-	if p.imageHeight < 5 {
+	if p.imageHeight < rightPanelMinHeight {
 		return
 	}
-
-	title, artist, album := getSongMetadata(p.flacPath)
-
-	titleWidth := runewidth.StringWidth(title)
-	artistWidth := runewidth.StringWidth(artist)
-	albumWidth := runewidth.StringWidth(album)
 
 	availableWidth := w - p.imageRightEdge
 	centerCol := p.imageRightEdge + availableWidth/2
 
 	partHeight := p.imageHeight / 3
-	artistRow := p.imageTop + partHeight + partHeight/2
-	titleRow := artistRow - 1
-	albumRow := artistRow + 1
+	titleRow := p.imageTop + partHeight + partHeight/2 - 1
+	albumRow := titleRow + 2
 	progressRow := p.imageTop + (2 * partHeight) + partHeight/2
 
 	if progressRow-albumRow < 1 {
 		return
 	}
 	if titleRow < p.imageTop {
-		titleRow, artistRow, albumRow = p.imageTop, p.imageTop+1, p.imageTop+2
+		titleRow = p.imageTop
 	}
 	if progressRow >= p.imageTop+p.imageHeight {
 		progressRow = p.imageTop + p.imageHeight - 1
 	}
 
-	colorCode := p.getColorCode()
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", titleRow, centerCol-titleWidth/2, colorCode, title)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", artistRow, centerCol-artistWidth/2, colorCode, artist)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", albumRow, centerCol-albumWidth/2, colorCode, album)
+	p.drawSongInfo(titleRow, centerCol, availableWidth-2)
 
-	progressBarStartCol := p.imageRightEdge + 5
-	progressBarWidth := w - progressBarStartCol - 2
-	if progressBarWidth < 10 {
-		return
-	}
+	progressBarWidth := max(availableWidth-2*progressBarPad, minProgressBarWidth)
+	progressBarStartCol := centerCol - progressBarWidth/2
 
-	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
+	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, p.getColorCode())
 }
 
-// updateBottomStatus renders text and progress for the auto narrow layout.
-// Matches updateSwitchNarrowMode: content is centered inside a virtual
-// column band so both layouts place elements identically.
+// drawSongInfo draws the centered title, artist and album lines starting at
+// infoRow. Strings wider than maxTextWidth are shortened with an ellipsis; a
+// non-positive value keeps them untouched.
 //
-// updateBottomStatus 为自动窄屏布局渲染文本和进度条。
-// 与 updateSwitchNarrowMode 保持一致：内容在虚拟列宽内居中，
-// 两种布局的元素位置完全相同。
-func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
+// drawSongInfo 从 infoRow 行开始绘制居中的标题、艺术家与专辑三行。
+// 宽度超过 maxTextWidth 的字符串以省略号截断；传入非正值则不截断。
+func (p *PlayerPage) drawSongInfo(infoRow, centerCol, maxTextWidth int) {
 	title, artist, album := getSongMetadata(p.flacPath)
-	availableRows := h - startRow
-	var infoRow, progressRow int
-	if p.layoutShift > 0 {
-		infoRow = startRow + availableRows/3 - p.layoutShift + 1
-		progressRow = startRow + 2*availableRows/3 + (h-(startRow+2*availableRows/3))/2 - p.layoutShift - 1
-	} else {
-		infoRow = startRow + availableRows/3
-		progressRow = startRow + 2*availableRows/3 + (h-(startRow+2*availableRows/3))/2
+	if maxTextWidth > 0 {
+		title = truncateToWidthFromStart(title, maxTextWidth)
+		artist = truncateToWidthFromStart(artist, maxTextWidth)
+		album = truncateToWidthFromStart(album, maxTextWidth)
 	}
-	virtualWidth := min(80, w)
-	offset := (w - virtualWidth) / 2
-	centerCol := offset + virtualWidth/2
 
 	colorCode := p.getColorCode()
 	titleWidth := runewidth.StringWidth(title)
@@ -1045,51 +1042,33 @@ func (p *PlayerPage) updateBottomStatus(startRow, w, h int) {
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, centerCol-titleWidth/2, colorCode, title)
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
 	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
-
-	progressBarStartCol := offset + 5
-	progressBarWidth := max(virtualWidth-10, 10)
-
-	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
 }
 
-// updateSwitchNarrowMode renders text and progress for switch narrow layout.
-// Limits max gap between image and info, and between album and progress to 5 rows.
-// Centers the content vertically.
+// updateNarrowStatus renders text and progress for the narrow layouts. The
+// content is centered inside a virtual column band so the auto narrow layout
+// and the narrow override place elements identically; rows come from
+// narrowBaseRows and carry the same layoutShift that moved the image.
 //
-// updateSwitchNarrowMode 为切换窄屏布局渲染文本和进度条。
-// 限制图片和信息之间、专辑和进度条之间的最大间隔为5行。
-// 内容垂直居中。
-func (p *PlayerPage) updateSwitchNarrowMode(imageBottomRow, w, h int) {
-	title, artist, album := getSongMetadata(p.flacPath)
-
-	colorCode := p.getColorCode()
-
-	virtualWidth := min(80, w)
-	offset := (w - virtualWidth) / 2
-
-	availableRows := h - imageBottomRow
-	var infoRow, progressRow int
+// updateNarrowStatus 为窄屏布局渲染文本和进度条。内容在虚拟列宽内居中，
+// 自动窄屏布局与窄屏覆盖模式的元素位置完全一致；行号来自 narrowBaseRows
+// 并应用与移动图片相同的 layoutShift。
+func (p *PlayerPage) updateNarrowStatus(imageBottomRow, w, h int) {
+	infoRow, progressRow := narrowBaseRows(imageBottomRow, h)
 	if p.layoutShift > 0 {
-		infoRow = imageBottomRow + availableRows/3 - p.layoutShift + 1
-		progressRow = imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2 - p.layoutShift - 1
-	} else {
-		infoRow = imageBottomRow + availableRows/3
-		progressRow = imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
+		infoRow += 1 - p.layoutShift
+		progressRow -= p.layoutShift + 1
 	}
 
+	virtualWidth := min(narrowVirtualWidth, w)
+	offset := (w - virtualWidth) / 2
 	centerCol := offset + virtualWidth/2
-	titleWidth := runewidth.StringWidth(title)
-	artistWidth := runewidth.StringWidth(artist)
-	albumWidth := runewidth.StringWidth(album)
 
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, centerCol-titleWidth/2, colorCode, title)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
+	p.drawSongInfo(infoRow, centerCol, virtualWidth-2)
 
-	progressBarStartCol := offset + 5
-	progressBarWidth := max(virtualWidth-10, 10)
+	progressBarStartCol := offset + progressBarPad
+	progressBarWidth := max(virtualWidth-2*progressBarPad, minProgressBarWidth)
 
-	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
+	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, p.getColorCode())
 }
 
 // textBlockStartRow returns the first row of a content block of the given
@@ -1104,64 +1083,35 @@ func textBlockStartRow(h, contentHeight int) int {
 }
 
 func (p *PlayerPage) updateTextOnlyMode(w, h int) {
-	title, artist, album := getSongMetadata(p.flacPath)
-	title = truncateToWidthFromStart(title, w-2)
-	artist = truncateToWidthFromStart(artist, w-2)
-	album = truncateToWidthFromStart(album, w-2)
-	centerCol := w / 2
+	infoRow := textBlockStartRow(h, textOnlyBlockHeight)
+	p.drawSongInfo(infoRow, w/2, w-2)
 
-	colorCode := p.getColorCode()
-	titleWidth := runewidth.StringWidth(title)
-	artistWidth := runewidth.StringWidth(artist)
-	albumWidth := runewidth.StringWidth(album)
+	progressBarStartCol := progressBarPad
+	progressBarWidth := max(w-2*progressBarPad, minProgressBarWidth)
 
-	infoRow := textBlockStartRow(h, 5)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, centerCol-titleWidth/2, colorCode, title)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
-
-	progressBarStartCol := 5
-	progressBarWidth := max(w-10, 10)
-	progressRow := infoRow + 4
-
-	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
+	p.drawProgressBar(infoRow+textOnlyBlockHeight-1, progressBarStartCol, progressBarWidth, p.getColorCode())
 }
 
 // updateSwitchTextMode renders centered text and progress bar for switch layout.
 //
 // updateSwitchTextMode 为切换布局渲染居中的文本和进度条。
 func (p *PlayerPage) updateSwitchTextMode(w, h int) {
-	title, artist, album := getSongMetadata(p.flacPath)
-	title = truncateToWidthFromStart(title, w-2)
-	artist = truncateToWidthFromStart(artist, w-2)
-	album = truncateToWidthFromStart(album, w-2)
-	centerCol := w / 2
+	infoRow := textBlockStartRow(h, switchTextBlockHeight)
+	p.drawSongInfo(infoRow, w/2, w-2)
 
-	colorCode := p.getColorCode()
-	titleWidth := runewidth.StringWidth(title)
-	artistWidth := runewidth.StringWidth(artist)
-	albumWidth := runewidth.StringWidth(album)
-
-	infoRow := textBlockStartRow(h, 7)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s\x1b[1m%s\x1b[0m", infoRow, centerCol-titleWidth/2, colorCode, title)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+1, centerCol-artistWidth/2, colorCode, artist)
-	fmt.Printf("\x1b[%d;%dH\x1b[K%s%s\x1b[0m", infoRow+2, centerCol-albumWidth/2, colorCode, album)
-
-	wide := isWideTerminal(w, h)
 	var progressBarStartCol, progressBarWidth int
-	if wide {
+	if isWideTerminal(w, h) {
 		progressBarStartCol = w / 4
 		progressBarWidth = w / 2
 	} else {
 		progressBarStartCol = 7
 		progressBarWidth = w - 14
 	}
-	if progressBarWidth < 10 {
-		progressBarWidth = 10
+	if progressBarWidth < minProgressBarWidth {
+		progressBarWidth = minProgressBarWidth
 	}
-	progressRow := infoRow + 6
 
-	p.drawProgressBar(progressRow, progressBarStartCol, progressBarWidth, colorCode)
+	p.drawProgressBar(infoRow+switchTextBlockHeight-1, progressBarStartCol, progressBarWidth, p.getColorCode())
 }
 
 func (p *PlayerPage) drawProgressBar(row, startCol, width int, colorCode string) {

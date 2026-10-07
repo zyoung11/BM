@@ -5,8 +5,8 @@ import (
 	"image"
 	"image/draw"
 	"os"
-	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/nfnt/resize"
 	"golang.org/x/term"
 )
@@ -29,13 +29,40 @@ const (
 	LayoutSwitchNarrow  // Switchable: image top, text bottom (centered)
 )
 
+// Thresholds shared by the layout choice and the drawing steps.
+//
+// 布局判定与绘制步骤共用的阈值。
+const (
+	minLayoutWidth        = 23
+	minLayoutHeight       = 5
+	minImageLayoutHeight  = 13
+	minSwitchTextHeight   = 10
+	wideTerminalMinWidth  = 100
+	wideTerminalAspect    = 2.2
+	wideTerminalMaxHeight = 20
+	wideTextPanelWidth    = 30
+	wideTextMinGap        = 10
+	narrowVirtualWidth    = 80
+	narrowImageTextGap    = 5
+	narrowMinTextRows     = 5
+	progressBarPad         = 5
+	minProgressBarWidth   = 10
+	minImagePixels        = 10
+	textOnlyBlockHeight   = 5
+	switchTextBlockHeight = 7
+	rightPanelMinHeight   = 5
+	layoutIndicatorTicks  = 2
+)
+
 // isWideTerminal checks if the current terminal is considered wide.
-// A terminal is wide if its width >= 100 and (width/height > 2.2 or height < 20).
+// A terminal is wide if its width reaches wideTerminalMinWidth and its aspect
+// ratio exceeds wideTerminalAspect, or when it is shorter than wideTerminalMaxHeight.
 //
 // isWideTerminal 检查当前终端是否被认为是宽终端。
-// 宽终端的条件是宽度 >= 100 且 (宽/高 > 2.2 或 高度 < 20)。
+// 宽终端的条件是宽度达到 wideTerminalMinWidth 且宽高比超过 wideTerminalAspect，
+// 或者高度低于 wideTerminalMaxHeight。
 func isWideTerminal(w, h int) bool {
-	return w >= 100 && (float64(w)/float64(h) > 2.2 || h < 20)
+	return w >= wideTerminalMinWidth && (float64(w)/float64(h) > wideTerminalAspect || h < wideTerminalMaxHeight)
 }
 
 // configLayoutToOverride converts a config layout value to an overrideLayout value.
@@ -90,10 +117,6 @@ type LayoutMetrics struct {
 	Album         string
 	MaxTextLength int
 
-	// Image metrics / 图片指标
-	ImageWidthInChars  int
-	ImageHeightInChars int
-
 	// Layout flags / 布局标志
 	IsWideTerminal     bool
 	TextTooLongForWide bool
@@ -114,10 +137,10 @@ type LayoutPosition struct {
 // collectMetrics 收集布局判断所需的所有指标。
 func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 	title, artist, album := getSongMetadata(p.flacPath)
-	maxTextLength := max(max(len(title), len(artist)), len(album))
+	maxTextLength := max(max(runewidth.StringWidth(title), runewidth.StringWidth(artist)), runewidth.StringWidth(album))
 
-	showNothing := w < 23 || h < 5
-	showTextOnly := h < 13
+	showNothing := w < minLayoutWidth || h < minLayoutHeight
+	showTextOnly := h < minImageLayoutHeight
 	wide := isWideTerminal(w, h) && !showNothing && !showTextOnly
 
 	metrics := LayoutMetrics{
@@ -131,8 +154,8 @@ func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 	}
 
 	if wide {
-		availableWidth := w - 30
-		if availableWidth < maxTextLength+10 {
+		availableWidth := w - wideTextPanelWidth
+		if availableWidth < maxTextLength+wideTextMinGap {
 			metrics.TextTooLongForWide = true
 		}
 	}
@@ -143,24 +166,23 @@ func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 // determineLayout determines the layout type based on metrics. The user
 // override picks the display mode; tiny terminals fall back to the protective
 // layouts of the auto mode, while text and image modes blank out instead.
+// Inside a terminal multiplexer images cannot be displayed reliably, so the
+// text layout the O key cycles to is forced regardless of the saved or
+// configured override.
 //
 // determineLayout 根据指标判断布局类型。用户覆盖值决定显示模式；
 // 过小的终端回退到自动模式的保护布局，文本或封面模式则显示为空白。
+// 终端复用器内无法可靠显示图像，无论保存或配置的覆盖值如何都强制为
+// O 键循环到的文本布局。
 func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 	w, h := metrics.W, metrics.H
 
-	if w < 23 || h < 5 {
+	if w < minLayoutWidth || h < minLayoutHeight {
 		return LayoutNothing
 	}
 
-	// Terminal multiplexers cannot display images reliably; force the same
-	// text layout the O key cycles to, regardless of the saved or configured
-	// override.
-	//
-	// 终端复用器无法可靠显示图像；无论保存或配置的覆盖值如何，都强制为
-	// O 键循环到的文本布局。
 	if p.app.forcedTextMode {
-		if h < 10 {
+		if h < minSwitchTextHeight {
 			return LayoutNothing
 		}
 		return LayoutSwitchText
@@ -168,17 +190,17 @@ func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 
 	switch p.overrideLayout {
 	case LayoutSwitchText:
-		if h < 10 {
+		if h < minSwitchTextHeight {
 			return LayoutNothing
 		}
 		return LayoutSwitchText
 	case LayoutSwitchImage:
-		if h < 13 {
+		if h < minImageLayoutHeight {
 			return LayoutNothing
 		}
 		return LayoutSwitchImage
 	case LayoutSwitchNarrow:
-		if h < 13 {
+		if h < minImageLayoutHeight {
 			return LayoutTextOnly
 		}
 		if w < metrics.MaxTextLength {
@@ -190,7 +212,7 @@ func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 		return LayoutNarrow
 	}
 
-	if h < 13 {
+	if h < minImageLayoutHeight {
 		return LayoutTextOnly
 	}
 
@@ -234,37 +256,8 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 			Height:   imageHeight,
 		}
 
-	case LayoutNarrow:
-		startRow := 2
-		imageBottomRow := startRow + imageHeight
-		availableRows := h - imageBottomRow
-		infoRow := imageBottomRow + availableRows/3
-		if infoRow-imageBottomRow > 5 {
-			startRow = max(infoRow-1-imageHeight, 2)
-			imageBottomRow = startRow + imageHeight
-			availableRows = h - imageBottomRow
-			progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
-			topGap := startRow
-			bottomGap := h - progressRow
-			shift := (topGap - bottomGap) / 2
-			p.layoutShift = shift
-			if shift > 0 {
-				startRow -= shift
-				if startRow < 2 {
-					startRow = 2
-				}
-			} else {
-				p.layoutShift = 0
-			}
-		} else {
-			p.layoutShift = 0
-		}
-		return LayoutPosition{
-			StartCol: (w - imageWidth) / 2,
-			StartRow: startRow,
-			Width:    imageWidth,
-			Height:   imageHeight,
-		}
+	case LayoutNarrow, LayoutSwitchNarrow:
+		return p.calculateNarrowImagePosition(w, imageWidth, imageHeight, h)
 
 	case LayoutWideImageOnly:
 		return LayoutPosition{
@@ -278,38 +271,6 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 		return LayoutPosition{
 			StartCol: (w - imageWidth) / 2,
 			StartRow: (h - imageHeight + 1) / 2,
-			Width:    imageWidth,
-			Height:   imageHeight,
-		}
-
-	case LayoutSwitchNarrow:
-		startRow := 2
-		imageBottomRow := startRow + imageHeight
-		availableRows := h - imageBottomRow
-		infoRow := imageBottomRow + availableRows/3
-		if infoRow-imageBottomRow > 5 {
-			startRow = max(infoRow-1-imageHeight, 2)
-			imageBottomRow = startRow + imageHeight
-			availableRows = h - imageBottomRow
-			progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
-			topGap := startRow
-			bottomGap := h - progressRow
-			shift := (topGap - bottomGap) / 2
-			p.layoutShift = shift
-			if shift > 0 {
-				startRow -= shift
-				if startRow < 2 {
-					startRow = 2
-				}
-			} else {
-				p.layoutShift = 0
-			}
-		} else {
-			p.layoutShift = 0
-		}
-		return LayoutPosition{
-			StartCol: (w - imageWidth) / 2,
-			StartRow: startRow,
 			Width:    imageWidth,
 			Height:   imageHeight,
 		}
@@ -324,18 +285,66 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 	}
 }
 
-// updateLayoutFlagsWithImage updates layout flags after image size is known.
+// narrowBaseRows computes the info row and the progress row for the narrow
+// layouts from the row just below the image and the terminal height, before
+// the centering shift is applied.
 //
-// updateLayoutFlagsWithImage 在图片尺寸已知后更新布局标志。
-func (p *PlayerPage) updateLayoutFlagsWithImage(metrics *LayoutMetrics, imageWidth, imageHeight int) {
-	metrics.ImageWidthInChars = imageWidth
-	metrics.ImageHeightInChars = imageHeight
+// narrowBaseRows 根据图片下方首行与终端高度，计算窄屏布局的信息行与进度条行
+// （尚未应用居中偏移）。
+func narrowBaseRows(imageBottomRow, h int) (int, int) {
+	availableRows := h - imageBottomRow
+	infoRow := imageBottomRow + availableRows/3
+	progressRow := imageBottomRow + 2*availableRows/3 + (h-(imageBottomRow+2*availableRows/3))/2
+	return infoRow, progressRow
+}
 
+// calculateNarrowImagePosition places the image for the narrow layouts. The
+// text block sits one third down the rows left below the image; when that gap
+// grows past narrowImageTextGap rows the image is pulled up against the text,
+// then the whole composition shifts so the whitespace above and below it stays
+// even. The applied shift is stored in layoutShift so the text drawing steps
+// offset their rows by exactly the same amount.
+//
+// calculateNarrowImagePosition 为窄屏布局计算图片位置。文字块位于图片下方剩余
+// 行数的三分之一处；当间隔超过 narrowImageTextGap 行时图片上移贴近文字，随后
+// 整体偏移使上下留白均匀。实际偏移量存入 layoutShift，供文字绘制步骤按完全
+// 相同的量偏移各自的行。
+func (p *PlayerPage) calculateNarrowImagePosition(w, imageWidth, imageHeight, h int) LayoutPosition {
+	p.layoutShift = 0
+	startRow := 2
+	imageBottomRow := startRow + imageHeight
+	infoRow, progressRow := narrowBaseRows(imageBottomRow, h)
+	if infoRow-imageBottomRow > narrowImageTextGap {
+		startRow = max(infoRow-1-imageHeight, 2)
+		imageBottomRow = startRow + imageHeight
+		_, progressRow = narrowBaseRows(imageBottomRow, h)
+		shift := (startRow - (h - progressRow)) / 2
+		if shift > 0 {
+			if startRow-shift < 2 {
+				shift = startRow - 2
+			}
+			p.layoutShift = shift
+			startRow -= shift
+		}
+	}
+	return LayoutPosition{
+		StartCol: (w - imageWidth) / 2,
+		StartRow: startRow,
+		Width:    imageWidth,
+		Height:   imageHeight,
+	}
+}
+
+// updateWideTextFlag recomputes the TextTooLongForWide verdict from the actual
+// image width so the decision flips in both directions as the cover size
+// changes.
+//
+// updateWideTextFlag 根据实际图片宽度重新计算 TextTooLongForWide 判定，
+// 使结论随封面尺寸变化可以双向翻转。
+func (p *PlayerPage) updateWideTextFlag(metrics *LayoutMetrics, imageWidth int) {
 	if metrics.IsWideTerminal {
 		availableWidth := metrics.W - imageWidth
-		if availableWidth < metrics.MaxTextLength+10 {
-			metrics.TextTooLongForWide = true
-		}
+		metrics.TextTooLongForWide = availableWidth < metrics.MaxTextLength+wideTextMinGap
 	}
 }
 
@@ -350,53 +359,40 @@ func (p *PlayerPage) calculatePixelSize(metrics *LayoutMetrics, layout LayoutTyp
 	}
 
 	if layout == LayoutWideRightText {
-		return (w - 30) * p.cellW, (h - 1) * p.cellH
+		return (w - wideTextPanelWidth) * p.cellW, (h - 1) * p.cellH
 	}
 
 	return w * p.cellW, (h - 2) * p.cellH
 }
 
-// renderTextByLayout renders text content based on layout type.
+// renderTextByLayout renders text content based on layout type. The layouts
+// that show only a cover draw no text at all.
 //
-// renderTextByLayout 根据布局类型渲染文本内容。
-func (p *PlayerPage) renderTextByLayout(layout LayoutType, metrics *LayoutMetrics) {
+// renderTextByLayout 根据布局类型渲染文本内容。只显示封面的布局不画任何文字。
+func (p *PlayerPage) renderTextByLayout(layout LayoutType, w, h int) {
 	if layout == LayoutNothing {
 		return
 	}
-
-	w, h := metrics.W, metrics.H
 
 	switch layout {
 	case LayoutTextOnly:
 		p.updateTextOnlyMode(w, h)
 
-	case LayoutInfoOnly:
-		// No text rendering for info-only layout
+	case LayoutInfoOnly, LayoutWideImageOnly, LayoutSwitchImage:
 
 	case LayoutWideRightText:
-		if p.imageRightEdge > 0 && w-p.imageRightEdge >= 30 {
+		if p.imageRightEdge > 0 && w-p.imageRightEdge >= wideTextPanelWidth {
 			p.updateRightPanel(w)
 		}
 
-	case LayoutNarrow:
+	case LayoutNarrow, LayoutSwitchNarrow:
 		imageBottomRow := p.imageTop + p.imageHeight
-		if h-imageBottomRow >= 5 {
-			p.updateBottomStatus(imageBottomRow, w, h)
+		if h-imageBottomRow >= narrowMinTextRows {
+			p.updateNarrowStatus(imageBottomRow, w, h)
 		}
-
-	case LayoutWideImageOnly:
-		// No text rendering for wide image-only layout
 
 	case LayoutSwitchText:
 		p.updateSwitchTextMode(w, h)
-
-	case LayoutSwitchImage:
-
-	case LayoutSwitchNarrow:
-		imageBottomRow := p.imageTop + p.imageHeight
-		if h-imageBottomRow >= 5 {
-			p.updateSwitchNarrowMode(imageBottomRow, w, h)
-		}
 	}
 }
 
@@ -404,7 +400,6 @@ func (p *PlayerPage) renderTextByLayout(layout LayoutType, metrics *LayoutMetric
 //
 // renderWithLayout 协调完整的渲染流程。
 func (p *PlayerPage) renderWithLayout() {
-	time.Sleep(50 * time.Millisecond)
 	p.refreshCellSize()
 
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
@@ -420,43 +415,11 @@ func (p *PlayerPage) renderWithLayout() {
 	metrics := p.collectMetrics(w, h)
 	layout := p.determineLayout(&metrics)
 
-	var imageWidthInChars, imageHeightInChars int
-	var startCol, startRow int
-
-	if coverImg != nil && layout != LayoutNothing && layout != LayoutTextOnly && layout != LayoutSwitchText {
-		pixelW, pixelH := p.calculatePixelSize(&metrics, layout)
-		if pixelW < 10 {
-			pixelW = 10
-		}
-		if pixelH < 10 {
-			pixelH = 10
-		}
-
-		scaledImg := resize.Thumbnail(uint(pixelW), uint(pixelH), normImg, resize.Lanczos3)
-		finalImgW, finalImgH := scaledImg.Bounds().Dx(), scaledImg.Bounds().Dy()
-
-		if p.cellW == 0 {
-			p.cellW = 1
-		}
-		if p.cellH == 0 {
-			p.cellH = 1
-		}
-
-		imageWidthInChars = max(finalImgW/p.cellW, 1)
-		imageHeightInChars = max(finalImgH/p.cellH, 1)
-
-		if imageWidthInChars > w {
-			imageWidthInChars = w
-		}
-		if imageHeightInChars > h {
-			imageHeightInChars = h
-		}
-
-		p.updateLayoutFlagsWithImage(&metrics, imageWidthInChars, imageHeightInChars)
-		layout = p.determineLayout(&metrics)
+	if coverImg != nil && layoutUsesImage(layout) {
+		scaledImg, imageWidthInChars, imageHeightInChars := p.scaleCoverForLayout(normImg, &metrics, &layout)
 
 		pos := p.calculateImagePosition(layout, &metrics, imageWidthInChars, imageHeightInChars)
-		startCol, startRow = pos.StartCol, pos.StartRow
+		startCol, startRow := pos.StartCol, pos.StartRow
 
 		if startCol < 1 {
 			startCol = 1
@@ -509,14 +472,73 @@ func (p *PlayerPage) renderWithLayout() {
 		p.imageRightEdge = 0
 	}
 
-	metrics.ImageWidthInChars = imageWidthInChars
-	metrics.ImageHeightInChars = imageHeightInChars
 	p.currentLayout = layout
-	p.renderTextByLayout(layout, &metrics)
+	p.renderTextByLayout(layout, w, h)
 
 	p.coverColorR = coverColorR
 	p.coverColorG = coverColorG
 	p.coverColorB = coverColorB
+}
+
+// layoutUsesImage reports whether the given layout renders the album cover.
+//
+// layoutUsesImage 报告给定布局是否渲染专辑封面。
+func layoutUsesImage(layout LayoutType) bool {
+	switch layout {
+	case LayoutNothing, LayoutTextOnly, LayoutSwitchText:
+		return false
+	}
+	return true
+}
+
+// scaleCoverForLayout scales the normalized cover to the pixel budget of the
+// current layout and converts the result back to character cells. The image
+// width feeds the layout verdict, so whenever that verdict flips the cover is
+// scaled again with the new budget until both agree.
+//
+// scaleCoverForLayout 将归一化封面缩放到当前布局的像素预算并换算回字符单元格。
+// 图片宽度会参与布局判定，因此判定翻转时按新预算重新缩放，直到两者一致。
+func (p *PlayerPage) scaleCoverForLayout(normImg image.Image, metrics *LayoutMetrics, layout *LayoutType) (image.Image, int, int) {
+	if p.cellW == 0 {
+		p.cellW = 1
+	}
+	if p.cellH == 0 {
+		p.cellH = 1
+	}
+
+	var scaledImg image.Image
+	var imageWidthInChars, imageHeightInChars int
+
+	for range 3 {
+		pixelW, pixelH := p.calculatePixelSize(metrics, *layout)
+		if pixelW < minImagePixels {
+			pixelW = minImagePixels
+		}
+		if pixelH < minImagePixels {
+			pixelH = minImagePixels
+		}
+
+		scaledImg = resize.Thumbnail(uint(pixelW), uint(pixelH), normImg, resize.Lanczos3)
+		finalImgW, finalImgH := scaledImg.Bounds().Dx(), scaledImg.Bounds().Dy()
+
+		imageWidthInChars = max(finalImgW/p.cellW, 1)
+		imageHeightInChars = max(finalImgH/p.cellH, 1)
+		if imageWidthInChars > metrics.W {
+			imageWidthInChars = metrics.W
+		}
+		if imageHeightInChars > metrics.H {
+			imageHeightInChars = metrics.H
+		}
+
+		p.updateWideTextFlag(metrics, imageWidthInChars)
+		next := p.determineLayout(metrics)
+		if next == *layout {
+			break
+		}
+		*layout = next
+	}
+
+	return scaledImg, imageWidthInChars, imageHeightInChars
 }
 
 // loadCoverImage loads the cover image from audio file or fallbacks.
