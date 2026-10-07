@@ -17,6 +17,11 @@ import (
 // 将被一行简短提示替代。
 const minHelpColumnWidth = 26
 
+// helpColumnGap is the horizontal gap kept between two help page columns.
+//
+// helpColumnGap 是帮助页两列之间保留的水平间距。
+const helpColumnGap = 4
+
 // helpDescriptions maps keymap actions to their English and Chinese labels on
 // the keyboard shortcuts help page, keyed by "<Section>.<Action>".
 //
@@ -344,11 +349,14 @@ func renderHelpLine(y, x, colWidth, keysWidth int, line helpLine) {
 		return
 	}
 	keys := truncateToWidthFromStart(line.row.keys, keysWidth)
-	nameWidth := max(colWidth-keysWidth-3, 1)
+	nameWidth := max(colWidth-keysWidth-2, 1)
+	if line.row.search {
+		nameWidth = max(nameWidth-1, 1)
+	}
 	name := truncateToWidthFromStart(line.row.name, nameWidth)
 	fmt.Printf("\x1b[%d;%dH\x1b[32m%s\x1b[0m", y, x, keys)
 	if line.row.search {
-		name += "\x1b[90m*\x1b[0m"
+		name += "\x1b[32m*\x1b[0m"
 	}
 	fmt.Printf("\x1b[%d;%dH%s", y, x+keysWidth+2, name)
 }
@@ -414,6 +422,24 @@ func wantsQuitConfirm(page Page) bool {
 //
 // handleOverlayKey 处理快捷键帮助页或退出确认提示打开时的按键。
 // 两个浮层均为模态并消费所有按键，返回值表示应用程序是否应退出。
+// pageIndexForKey returns the index of the page the key jumps to directly, or
+// -1 when the key is not one of the direct page shortcuts.
+//
+// pageIndexForKey 返回该按键直接跳转到的页面索引，
+// 若不是直达页面的快捷键则返回 -1。
+func pageIndexForKey(key rune) int {
+	if IsKey(key, GlobalConfig.Keymap.Global.SwitchToPlayer) {
+		return 0
+	}
+	if IsKey(key, GlobalConfig.Keymap.Global.SwitchToPlayList) {
+		return 1
+	}
+	if IsKey(key, GlobalConfig.Keymap.Global.SwitchToLibrary) {
+		return 2
+	}
+	return -1
+}
+
 func (a *App) handleOverlayKey(key rune) bool {
 	if a.confirmQuitOpen {
 		if key == KeyEnter {
@@ -424,6 +450,17 @@ func (a *App) handleOverlayKey(key rune) bool {
 			a.confirmQuitOpen = false
 		}
 		return false
+	}
+	if a.helpOpen {
+		if target := pageIndexForKey(key); target >= 0 {
+			a.helpOpen = false
+			if target == a.currentPageIndex {
+				a.pages[a.currentPageIndex].View()
+			} else {
+				a.switchToPage(target)
+			}
+			return false
+		}
 	}
 	if key == '\x1b' || IsKey(key, GlobalConfig.Keymap.Global.Quit) || IsKey(key, GlobalConfig.Keymap.Global.ShowHelp) {
 		a.pages[a.currentPageIndex].View()
@@ -459,15 +496,37 @@ func (a *App) drawHelpPage() {
 	columns := planHelpColumns(blocks, contentRows, w/minHelpColumnWidth)
 
 	if columns != nil {
-		colWidth := max(w/len(columns), 1)
+		keysWidths := make([]int, len(columns))
+		nameWidths := make([]int, len(columns))
 		for col, lines := range columns {
-			keysWidth := 0
 			for _, line := range lines {
-				keysWidth = max(keysWidth, runewidth.StringWidth(line.row.keys))
+				if line.blank || line.title != "" {
+					continue
+				}
+				keysWidths[col] = max(keysWidths[col], runewidth.StringWidth(line.row.keys))
+				nameWidth := runewidth.StringWidth(line.row.name)
+				if line.row.search {
+					nameWidth++
+				}
+				nameWidths[col] = max(nameWidths[col], nameWidth)
 			}
+		}
+
+		each := max((w-helpColumnGap*(len(columns)-1))/len(columns), 1)
+		widths := make([]int, len(columns))
+		totalWidth := 0
+		for col := range columns {
+			widths[col] = min(max(keysWidths[col]+2+nameWidths[col], 3), each)
+			totalWidth += widths[col]
+		}
+		totalWidth += helpColumnGap * (len(columns) - 1)
+
+		x := max((w-totalWidth)/2, 0) + 1
+		for col, lines := range columns {
 			for i, line := range lines {
-				renderHelpLine(3+i, 1+col*colWidth, colWidth, keysWidth, line)
+				renderHelpLine(3+i, x, widths[col], keysWidths[col], line)
 			}
+			x += widths[col] + helpColumnGap
 		}
 	} else {
 		msg := "Terminal too small to show the keymap"
@@ -488,7 +547,7 @@ func (a *App) drawHelpPage() {
 	hintX := max((w-runewidth.StringWidth(hint))/2, 0) + 1
 	if columns != nil {
 		legendX := max((w-runewidth.StringWidth(legend))/2, 0) + 1
-		fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h-1, legendX, legend)
+		fmt.Printf("\x1b[%d;%dH\x1b[32m*\x1b[0m\x1b[90m%s\x1b[0m", h-1, legendX, legend[1:])
 	}
 	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, hintX, hint)
 }
