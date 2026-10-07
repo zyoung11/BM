@@ -815,12 +815,8 @@ func (a *App) Run() error {
 				a.drawHelpPage()
 			} else if IsKey(key, GlobalConfig.Keymap.Global.CyclePages) {
 				a.switchToPage((a.currentPageIndex + 1) % len(a.pages))
-			} else if IsKey(key, GlobalConfig.Keymap.Global.SwitchToPlayer) {
-				a.switchToPage(0) // PlayerPage
-			} else if IsKey(key, GlobalConfig.Keymap.Global.SwitchToPlayList) {
-				a.switchToPage(1) // PlayListPage
-			} else if IsKey(key, GlobalConfig.Keymap.Global.SwitchToLibrary) {
-				a.switchToPage(2) // LibraryPage
+			} else if target := pageIndexForKey(key); target >= 0 {
+				a.switchToPage(target)
 			} else {
 				_, needsRedraw, err := currentPage.HandleKey(key)
 				if err != nil {
