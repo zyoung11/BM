@@ -993,7 +993,7 @@ func (p *PlayerPage) updateRightPanel(w int) {
 		return
 	}
 
-	bar := progressBarWidth(w, songTextWidth(p.flacPath))
+	bar := progressBarWidth(w)
 	panelWidth := bar + 2*progressBarPad
 	centerCol := p.imageRightEdge + panelWidth/2
 
@@ -1052,13 +1052,13 @@ func (p *PlayerPage) drawSongInfo(infoRow, centerCol, maxTextWidth int) {
 func (p *PlayerPage) updateNarrowStatus(w, h int) {
 	_, infoRow, progressRow := narrowRows(p.imageHeight, h)
 
-	virtualWidth := min(narrowVirtualWidth, w)
+	virtualWidth := min(GlobalConfig.App.ProgressBarWidth+2*progressBarPad, w)
 	offset := (w - virtualWidth) / 2
 	centerCol := offset + virtualWidth/2
 
 	p.drawSongInfo(infoRow, centerCol, virtualWidth-2)
 
-	bar := progressBarWidth(w, songTextWidth(p.flacPath))
+	bar := progressBarWidth(w)
 	progressBarStartCol := centerCol - bar/2
 
 	p.drawProgressBar(progressRow, progressBarStartCol, bar, p.getColorCode())
@@ -1083,7 +1083,7 @@ func (p *PlayerPage) updateTextOnlyMode(w, h int) {
 	infoRow := textBlockStartRow(h, textOnlyBlockHeight)
 	p.drawSongInfo(infoRow, w/2, w-2)
 
-	bar := cappedProgressBarWidth(max(w-2*progressBarPad, minProgressBarWidth), songTextWidth(p.flacPath))
+	bar := progressBarWidth(w)
 	progressBarStartCol := (w - bar) / 2
 
 	p.drawProgressBar(infoRow+textOnlyBlockHeight-1, progressBarStartCol, bar, p.getColorCode())
@@ -1100,11 +1100,7 @@ func (p *PlayerPage) updateSwitchTextMode(w, h int) {
 	infoRow := textBlockStartRow(h, switchTextBlockHeight)
 	p.drawSongInfo(infoRow, w/2, w-2)
 
-	base := max(w-2*textProgressBarPad, minProgressBarWidth)
-	if isWideTerminal(w, h) {
-		base = w / 2
-	}
-	bar := cappedProgressBarWidth(base, songTextWidth(p.flacPath))
+	bar := progressBarWidth(w)
 	progressBarStartCol := (w - bar) / 2
 
 	p.drawProgressBar(infoRow+switchTextBlockHeight-1, progressBarStartCol, bar, p.getColorCode())

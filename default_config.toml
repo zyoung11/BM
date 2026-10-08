@@ -43,6 +43,13 @@ default_play_mode = 3
 # 0 = 自动, 1 = 窄屏样式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。
 default_layout = 4
 
+# Progress bar width in columns - the shared width of the progress bar and the cover on the player page.
+# Shrinks on terminals too narrow for it.
+#
+# 进度条宽度（列）- 播放页进度条与封面共用的宽度。
+# 终端过窄时随终端收缩。
+progress_bar_width = 70
+
 # Session memory - how much state to restore on startup.
 # 0 = nothing, 1 = remember the music folder, 2 = also the playlist, 3 = also resume the last played song.
 #

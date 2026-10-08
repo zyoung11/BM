@@ -6,7 +6,6 @@ import (
 	"image/draw"
 	"os"
 
-	"github.com/mattn/go-runewidth"
 	"github.com/nfnt/resize"
 	"golang.org/x/term"
 )
@@ -41,17 +40,13 @@ const (
 	wideTerminalAspect    = 2.2
 	wideTerminalMaxHeight = 20
 	wideTextPanelWidth    = 30
-	wideTextMinGap        = 10
-	narrowVirtualWidth    = 80
 	narrowSongTextRows    = 3
 	narrowBlockFixedRows  = 4
 	narrowMinTextRows     = 5
 	narrowMinGap          = 5
 	narrowMaxGap          = 8
 	progressBarPad        = 5
-	textProgressBarPad    = 7
 	minProgressBarWidth   = 10
-	progressBarTextScale  = 4
 	minImagePixels        = 10
 	textOnlyBlockHeight   = 5
 	switchTextBlockHeight = 7
@@ -116,12 +111,8 @@ type LayoutMetrics struct {
 	W int
 	H int
 
-	// Text metrics / 文本指标
-	MaxTextLength int
-
 	// Layout flags / 布局标志
-	IsWideTerminal     bool
-	TextTooLongForWide bool
+	IsWideTerminal bool
 }
 
 // LayoutPosition holds the calculated position for image rendering.
@@ -134,36 +125,16 @@ type LayoutPosition struct {
 	Height   int
 }
 
-// songTextWidth returns the display width of the widest song metadata line.
+// progressBarWidth returns the progress bar width shared by every layout for
+// the given terminal width: the configured progress_bar_width shrunk on
+// terminals too narrow for it. The width never depends on the song metadata,
+// so a short song keeps the same bar and cover as a long one.
 //
-// songTextWidth 返回歌曲元数据中最宽一行的显示宽度。
-func songTextWidth(flacPath string) int {
-	title, artist, album := getSongMetadata(flacPath)
-	return max(max(runewidth.StringWidth(title), runewidth.StringWidth(artist)), runewidth.StringWidth(album))
-}
-
-// cappedProgressBarWidth applies the metadata based cap to a progress bar
-// width: the bar never outgrows progressBarTextScale times the widest song
-// text and never drops below the minimum width, so it keeps its proportion
-// on terminals of any size.
-//
-// cappedProgressBarWidth 将基于元数据的封顶应用到进度条宽度：进度条最宽不超过
-// 歌曲文字最大宽度的 progressBarTextScale 倍，且不小于最小进度条宽度，
-// 从而在任意尺寸的终端上保持比例。
-func cappedProgressBarWidth(base, maxTextWidth int) int {
-	width := min(base, max(progressBarTextScale*maxTextWidth, minProgressBarWidth))
-	return max(width, minProgressBarWidth)
-}
-
-// progressBarWidth returns the shared progress bar width for the narrow
-// layouts and the wide right-text layout: the virtual column band minus its
-// side padding, capped by the song metadata.
-//
-// progressBarWidth 返回窄屏布局与宽屏右文布局共用的进度条宽度，
-// 即虚拟列宽减去两侧留白，并受歌曲元数据封顶。
-func progressBarWidth(w, maxTextWidth int) int {
-	base := max(min(narrowVirtualWidth, w)-2*progressBarPad, minProgressBarWidth)
-	return cappedProgressBarWidth(base, maxTextWidth)
+// progressBarWidth 返回给定终端宽度下所有布局共用的进度条宽度，即配置项
+// progress_bar_width，终端过窄时随终端收缩。宽度不随歌曲元数据变化，
+// 短歌的进度条与封面和长歌保持一致。
+func progressBarWidth(w int) int {
+	return max(min(GlobalConfig.App.ProgressBarWidth, w-2*progressBarPad), minProgressBarWidth)
 }
 
 // collectMetrics gathers all metrics needed for layout determination.
@@ -174,22 +145,11 @@ func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 	showTextOnly := h < minImageLayoutHeight
 	wide := isWideTerminal(w, h) && !showNothing && !showTextOnly
 
-	maxTextLength := songTextWidth(p.flacPath)
-	metrics := LayoutMetrics{
+	return LayoutMetrics{
 		W:              w,
 		H:              h,
-		MaxTextLength:  maxTextLength,
 		IsWideTerminal: wide,
 	}
-
-	if wide {
-		panelWidth := progressBarWidth(w, maxTextLength) + 2*progressBarPad
-		if panelWidth < maxTextLength+wideTextMinGap {
-			metrics.TextTooLongForWide = true
-		}
-	}
-
-	return metrics
 }
 
 // narrowCoverTooSmall reports whether the cover would shrink below three
@@ -200,8 +160,8 @@ func (p *PlayerPage) collectMetrics(w, h int) LayoutMetrics {
 // narrowCoverTooSmall 报告窄屏布局下封面是否会缩到进度条宽度的五分之三以下，
 // 即被元数据块挤小时的情况。调用方随即回退到只显示封面的布局，
 // 避免小封面配文字的版面上屏。
-func (p *PlayerPage) narrowCoverTooSmall(w, h, maxTextWidth int) bool {
-	barWidth := progressBarWidth(w, maxTextWidth)
+func (p *PlayerPage) narrowCoverTooSmall(w, h int) bool {
+	barWidth := progressBarWidth(w)
 	heightCols := narrowImageHeightBudget(h) * p.cellH / p.cellW
 	coverCols := min(barWidth, heightCols)
 	return coverCols*5 < barWidth*3
@@ -247,10 +207,7 @@ func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 		if h < minImageLayoutHeight {
 			return LayoutTextOnly
 		}
-		if w < metrics.MaxTextLength {
-			return LayoutInfoOnly
-		}
-		if p.narrowCoverTooSmall(w, h, metrics.MaxTextLength) {
+		if p.narrowCoverTooSmall(w, h) {
 			return LayoutInfoOnly
 		}
 		if metrics.IsWideTerminal {
@@ -263,18 +220,11 @@ func (p *PlayerPage) determineLayout(metrics *LayoutMetrics) LayoutType {
 		return LayoutTextOnly
 	}
 
-	if w < metrics.MaxTextLength {
-		return LayoutInfoOnly
-	}
-
 	if metrics.IsWideTerminal {
-		if !metrics.TextTooLongForWide {
-			return LayoutWideRightText
-		}
-		return LayoutWideImageOnly
+		return LayoutWideRightText
 	}
 
-	if p.narrowCoverTooSmall(w, h, metrics.MaxTextLength) {
+	if p.narrowCoverTooSmall(w, h) {
 		return LayoutInfoOnly
 	}
 
@@ -300,7 +250,7 @@ func (p *PlayerPage) calculateImagePosition(layout LayoutType, metrics *LayoutMe
 		}
 
 	case LayoutWideRightText:
-		panelWidth := progressBarWidth(w, metrics.MaxTextLength) + 2*progressBarPad
+		panelWidth := progressBarWidth(w) + 2*progressBarPad
 		return LayoutPosition{
 			StartCol: (w - imageWidth - panelWidth) / 2,
 			StartRow: (h - imageHeight + 1) / 2,
@@ -404,13 +354,13 @@ func (p *PlayerPage) calculatePixelSize(metrics *LayoutMetrics, layout LayoutTyp
 	}
 
 	if layout == LayoutWideRightText {
-		bar := progressBarWidth(w, metrics.MaxTextLength)
+		bar := progressBarWidth(w)
 		coverCols := min(bar, w-bar-2*progressBarPad)
 		return coverCols * p.cellW, (h - 1) * p.cellH
 	}
 
 	if layout == LayoutNarrow || layout == LayoutSwitchNarrow {
-		return progressBarWidth(w, metrics.MaxTextLength) * p.cellW, narrowImageHeightBudget(h) * p.cellH
+		return progressBarWidth(w) * p.cellW, narrowImageHeightBudget(h) * p.cellH
 	}
 
 	return w * p.cellW, (h - 2) * p.cellH

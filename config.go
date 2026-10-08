@@ -96,6 +96,7 @@ type AppConfig struct {
 	ShuffleHistoryWindow int    `toml:"shuffle_history_window"`
 	MaxSearchDirs        int    `toml:"max_search_dirs"`
 	MinColumnWidth       int    `toml:"min_column_width"`
+	ProgressBarWidth     int    `toml:"progress_bar_width"`
 }
 
 // Keymap defines all the keybindings for the application, organized by page.
@@ -285,6 +286,9 @@ func LoadConfig() error {
 	if GlobalConfig.App.MinColumnWidth < 3 {
 		GlobalConfig.App.MinColumnWidth = 15
 	}
+	if GlobalConfig.App.ProgressBarWidth < 20 || GlobalConfig.App.ProgressBarWidth > 300 {
+		GlobalConfig.App.ProgressBarWidth = 70
+	}
 
 	resolveIconSet(GlobalConfig)
 
@@ -408,6 +412,7 @@ func updateConfigFile(configPath string) error {
 		{"[app]", "min_column_width", "min_column_width = 15", "# Minimum column width in the Library multi-column view - a column narrower than this\n# would cut too many file names short, so the view falls back to fewer columns instead.\n#\n# 媒体库多列视图的单列最小宽度 - 列宽低于该值时会截断过多文件名，\n# 此时改为显示更少的列。"},
 		{"[app]", "layout_debounce_ms", "layout_debounce_ms = 200", "# Layout switching debounce time (milliseconds) - prevents rapid layout switching.\n#\n# 布局切换防抖时间（毫秒）- 防止快速连续切换布局。"},
 		{"[app]", "default_layout", "default_layout = 4", "# Player page layout - the layout displayed when the program starts.\n# 0 = auto, 1 = narrow style, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).\n#\n# 播放页布局 - 程序启动时播放页显示的布局。\n# 0 = 自动, 1 = 窄屏样式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。"},
+		{"[app]", "progress_bar_width", "progress_bar_width = 70", "# Progress bar width in columns - the shared width of the progress bar and the cover on the player page.\n# Shrinks on terminals too narrow for it.\n#\n# 进度条宽度（列）- 播放页进度条与封面共用的宽度。\n# 终端过窄时随终端收缩。"},
 	}
 
 	for _, missing := range missingKeys {
