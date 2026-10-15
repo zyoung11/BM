@@ -97,6 +97,8 @@ type AppConfig struct {
 	MaxSearchDirs        int    `toml:"max_search_dirs"`
 	MinColumnWidth       int    `toml:"min_column_width"`
 	ProgressBarWidth     int    `toml:"progress_bar_width"`
+	LibraryRefreshMs     int    `toml:"library_refresh_ms"`
+	LibraryRefreshBgMs   int    `toml:"library_refresh_bg_ms"`
 }
 
 // Keymap defines all the keybindings for the application, organized by page.
@@ -390,7 +392,7 @@ func updateConfigFile(configPath string) error {
 		{"[app]", "max_history_size", "max_history_size = 100", "# Maximum number of history entries - limits the maximum number of playback history records.\n#\n# 最大历史记录数量 - 限制播放历史记录的最大条数"},
 		{"[app]", "switch_debounce_ms", "switch_debounce_ms = 50", "# Song switching debounce time (milliseconds) - prevents rapid continuous song switching, avoiding misoperation.\n#\n# 切歌防抖时间（毫秒）- 防止快速连续切歌，避免误操作"},
 		{"[app]", "default_page", "default_page = 3", "# Default starting page - the page displayed when the program starts.\n# 0 = Player page, 1 = PlayList page, 2 = Library page, 3 = memory (use saved page from last session).\n#\n# 默认启动页面 - 程序启动时显示的页面。\n# 0 = 播放器页面, 1 = 播放列表页面, 2 = 媒体库页面, 3 = 记忆（使用上次保存的页面）。"},
-		{"[app]", "default_play_mode", "default_play_mode = 3", "# Default play mode - the playback mode when the program starts.\n# 0 = repeat one, 1 = repeat all, 2 = random, 3 = memory (use saved play mode from last session).\n#\n# 默认播放模式 - 程序启动时的播放模式。\n# 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放, 3 = 记忆（使用上次保存的播放模式）。"},
+		{"[app]", "default_play_mode", "default_play_mode = 3", "# Default play mode - the playback mode when the program starts.\n# 0 = repeat one, 1 = repeat all, 2 = random, 3 = memory (use saved play mode from last session).\n# Memory falls back to repeat one when no play mode has been saved yet.\n#\n# 默认播放模式 - 程序启动时的播放模式。\n# 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放, 3 = 记忆（使用上次保存的播放模式）。\n# 记忆模式在尚未保存播放模式时使用单曲循环。"},
 		{"[app]", "session_memory", "session_memory = 3", "# Session memory - how much state to restore on startup.\n# 0 = nothing, 1 = remember the music folder, 2 = also the playlist, 3 = also resume the last played song.\n#\n# 会话记忆 - 启动时恢复多少状态。\n# 0 = 不记忆, 1 = 记住音乐文件夹, 2 = 同时记住播放列表, 3 = 同时继续播放上次的歌曲。"},
 		{"[app]", "confirm_quit_player", "confirm_quit_player = true", "# Whether to show a quit confirmation prompt on the Player page.\n# Press enter to quit and esc to close the prompt.\n#\n# 是否在播放器页面退出时显示确认提示。\n# 按 enter 退出程序，按 esc 关闭提示。"},
 		{"[app]", "confirm_quit_playlist", "confirm_quit_playlist = true", "# Whether to show a quit confirmation prompt on the PlayList page.\n# Press enter to quit and esc to close the prompt.\n#\n# 是否在播放列表页面退出时显示确认提示。\n# 按 enter 退出程序，按 esc 关闭提示。"},
@@ -413,6 +415,8 @@ func updateConfigFile(configPath string) error {
 		{"[app]", "layout_debounce_ms", "layout_debounce_ms = 200", "# Layout switching debounce time (milliseconds) - prevents rapid layout switching.\n#\n# 布局切换防抖时间（毫秒）- 防止快速连续切换布局。"},
 		{"[app]", "default_layout", "default_layout = 4", "# Player page layout - the layout displayed when the program starts.\n# 0 = auto, 1 = narrow style, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).\n#\n# 播放页布局 - 程序启动时播放页显示的布局。\n# 0 = 自动, 1 = 窄屏样式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。"},
 		{"[app]", "progress_bar_width", "progress_bar_width = 70", "# Progress bar width in columns - the shared width of the progress bar and the cover on the player page.\n# Shrinks on terminals too narrow for it.\n#\n# 进度条宽度（列）- 播放页进度条与封面共用的宽度。\n# 终端过窄时随终端收缩。"},
+		{"[app]", "library_refresh_ms", "library_refresh_ms = 500", "# Library auto-refresh interval (milliseconds) - how often the music folder is checked for added or removed songs while the Library page is shown.\n# 0 disables the check. Values between 1 and 49 are raised to the 50 millisecond floor.\n# The full library scan for the search index runs in the background, so very small intervals on huge libraries add disk reads.\n#\n# 媒体库自动刷新间隔（毫秒）- 显示媒体库页面时检查音乐文件夹新增或删除歌曲的频率。\n# 0 表示禁用检查。1 至 49 之间的取值提升为 50 毫秒下限。\n# 搜索索引的全库扫描在后台运行，超大媒体库使用过小的间隔会增加磁盘读取。"},
+		{"[app]", "library_refresh_bg_ms", "library_refresh_bg_ms = 5000", "# Library auto-refresh interval in background (milliseconds) - how often the music folder is checked for added or removed songs on every page other than the Library page.\n# The same 0 = disabled and 50 millisecond floor rules apply.\n#\n# 媒体库后台自动刷新间隔（毫秒）- 在媒体库以外的页面时检查音乐文件夹新增或删除歌曲的频率。\n# 同样适用 0 表示禁用和 50 毫秒下限的规则。"},
 	}
 
 	for _, missing := range missingKeys {

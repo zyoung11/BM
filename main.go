@@ -18,6 +18,13 @@ import (
 	"time"
 )
 
+// minLibraryRefreshMs is the hard floor for the configured library refresh
+// intervals. Configured values between 1 and 49 milliseconds are raised to it.
+//
+// minLibraryRefreshMs 是配置的媒体库刷新间隔的硬下限。
+// 1 至 49 毫秒之间的配置值提升为该下限。
+const minLibraryRefreshMs = 50
+
 // songExistsInPlaylist checks if a song exists in the current playlist.
 //
 // songExistsInPlaylist 检查歌曲是否存在于当前播放列表中。
@@ -116,6 +123,14 @@ type App struct {
 	quitChan        chan struct{} // Closed to request a graceful exit from Run. / 关闭以请求 Run 优雅退出。
 	sampleRate      beep.SampleRate
 
+	// pollTimer paces the library auto-refresh passes. Its interval is the
+	// configured library refresh time and depends on whether the library
+	// page is visible.
+	//
+	// pollTimer 控制媒体库自动刷新的节奏。间隔取配置的媒体库刷新时间，
+	// 并取决于媒体库页面是否可见。
+	pollTimer *time.Timer
+
 	// Play history. / 播放历史记录。
 	playHistory         []string // Stores up to 100 played songs. / 存储最多100首播放过的歌曲。
 	historyIndex        int      // Current position in the play history. / 在播放历史中的当前位置。
@@ -188,6 +203,7 @@ func (a *App) switchToPage(index int) {
 		newPage.Init()
 		newPage.View()
 		a.endFrame()
+		a.resetPollTimer()
 	}
 }
 
@@ -267,6 +283,147 @@ func (a *App) setPlaylist(pl []string) {
 // 该值由主线程在每次变更时发布。
 func (a *App) PlaylistLen() int {
 	return int(a.playlistLen.Load())
+}
+
+// libraryPage returns the library page wherever it sits in the page list.
+//
+// libraryPage 返回媒体库页面，无论它在页面列表中的哪个位置。
+func (a *App) libraryPage() (*Library, bool) {
+	for _, page := range a.pages {
+		if library, ok := page.(*Library); ok {
+			return library, true
+		}
+	}
+	return nil, false
+}
+
+// refreshCurrentView redraws the current page after background data changed,
+// unless an overlay owns the screen.
+//
+// refreshCurrentView 在后台数据变化后重绘当前页面；覆盖层占用屏幕时跳过。
+func (a *App) refreshCurrentView() {
+	if a.overlayOpen() {
+		return
+	}
+	a.pages[a.currentPageIndex].View()
+}
+
+// libraryPollDelay returns the delay until the next library auto-refresh
+// pass: the foreground interval on the library page and the background
+// interval elsewhere. A non-positive interval disables the pass.
+//
+// libraryPollDelay 返回距下一次媒体库自动刷新的等待时间：媒体库页面用前台间隔，
+// 其他页面用后台间隔。间隔取非正数时禁用该刷新。
+func (a *App) libraryPollDelay() time.Duration {
+	ms := GlobalConfig.App.LibraryRefreshBgMs
+	if _, ok := a.pages[a.currentPageIndex].(*Library); ok {
+		ms = GlobalConfig.App.LibraryRefreshMs
+	}
+	if ms <= 0 {
+		return 0
+	}
+	if ms < minLibraryRefreshMs {
+		ms = minLibraryRefreshMs
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+// resetPollTimer rearms the library auto-refresh timer with the interval that
+// matches the current page. A disabled interval leaves the timer stopped.
+//
+// resetPollTimer 按当前页面对应的间隔重新武装媒体库自动刷新定时器。
+// 间隔被禁用时定时器保持停止。
+func (a *App) resetPollTimer() {
+	if a.pollTimer == nil {
+		return
+	}
+	a.pollTimer.Stop()
+	if delay := a.libraryPollDelay(); delay > 0 {
+		a.pollTimer.Reset(delay)
+	}
+}
+
+// pollLibrary runs one auto-refresh pass: it drops playlist and history
+// entries whose files vanished, re-reads the visible library listings and
+// schedules a background rebuild of the search cache.
+//
+// pollLibrary 执行一次自动刷新：清除文件已消失的播放列表和播放历史条目，
+// 重读媒体库可见列表，并调度搜索缓存的后台重建。
+func (a *App) pollLibrary() {
+	changed := a.cleanupMissingPlaylistEntries()
+	if library, ok := a.pages[a.currentPageIndex].(*Library); ok {
+		if library.refreshBrowsing() {
+			changed = true
+		}
+	}
+	if library, ok := a.libraryPage(); ok {
+		library.scheduleGlobalCacheRefresh()
+	}
+	if changed {
+		a.refreshCurrentView()
+	}
+}
+
+// cleanupMissingPlaylistEntries removes playlist and history entries whose
+// files no longer exist on disk. When the playing song vanished, playback
+// switches to the next surviving song.
+//
+// cleanupMissingPlaylistEntries 清除播放列表和播放历史中文件已不存在的条目。
+// 正在播放的歌曲消失时，播放切换到下一首仍存在的歌曲。
+func (a *App) cleanupMissingPlaylistEntries() bool {
+	missing := make(map[string]bool)
+	for _, songPath := range a.Playlist {
+		if _, err := os.Stat(songPath); err != nil && os.IsNotExist(err) {
+			missing[songPath] = true
+		}
+	}
+	if len(missing) == 0 {
+		return false
+	}
+
+	playingPath := a.playingSongPath()
+	playingIndex := -1
+	for i, songPath := range a.Playlist {
+		if songPath == playingPath {
+			playingIndex = i
+			break
+		}
+	}
+	wasPlayingRemoved := playingIndex >= 0 && missing[playingPath]
+
+	keptBefore := 0
+	newPlaylist := make([]string, 0, len(a.Playlist))
+	for i, songPath := range a.Playlist {
+		if missing[songPath] {
+			continue
+		}
+		if playingIndex >= 0 && i < playingIndex {
+			keptBefore++
+		}
+		newPlaylist = append(newPlaylist, songPath)
+	}
+
+	a.setPlaylist(newPlaylist)
+	for songPath := range missing {
+		a.removeFromPlayHistory(songPath)
+	}
+	if err := SavePlaylist(a.Playlist, a.LibraryPath); err != nil {
+		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
+	}
+
+	if !wasPlayingRemoved {
+		return true
+	}
+	if len(a.Playlist) == 0 {
+		a.stopPlaybackAndClear()
+		return true
+	}
+	nextIndex := keptBefore
+	if nextIndex >= len(a.Playlist) {
+		nextIndex = len(a.Playlist) - 1
+	}
+	a.PlaySongWithSwitchAndRender(a.Playlist[nextIndex], false, false)
+	return true
 }
 
 // Quit requests a graceful exit of the Run loop. Safe to call from any
@@ -765,6 +922,10 @@ func (a *App) Run() error {
 	ticker := time.NewTicker(time.Second / 2)
 	defer ticker.Stop()
 
+	a.pollTimer = time.NewTimer(time.Hour)
+	defer a.pollTimer.Stop()
+	a.resetPollTimer()
+
 	fmt.Print("\x1b[2J\x1b[3J\x1b[H")
 	a.pages[a.currentPageIndex].Init()
 	a.pages[a.currentPageIndex].View()
@@ -850,6 +1011,13 @@ func (a *App) Run() error {
 			}
 			return nil
 
+		case <-a.pollTimer.C:
+			a.beginFrame()
+			a.pollLibrary()
+			a.redrawOverlay()
+			a.endFrame()
+			a.resetPollTimer()
+
 		case <-ticker.C:
 			a.beginFrame()
 			a.tickPlayback()
@@ -895,7 +1063,7 @@ func tryPageBack(page Page) bool {
 // and the AUR pkgver.
 //
 // version 是发布版本号，与 GitHub release tag 和 AUR pkgver 保持一致。
-const version = "v0.6.1"
+const version = "v0.6.2"
 
 func main() {
 	defer cleanupTempCoverFiles()
@@ -1144,7 +1312,7 @@ func runApplication(dirPath string, songPath string) error {
 		currentPageIndex:     0,
 		Playlist:             playlist,
 		LibraryPath:          dirPath,
-		playMode:             GlobalConfig.App.DefaultPlayMode,
+		playMode:             resolvePlayMode(GlobalConfig.App.DefaultPlayMode),
 		volume:               0,
 		linearVolume:         1.0,
 		playbackRate:         1.0,

@@ -31,9 +31,11 @@ default_page = 3
 
 # Default play mode - the playback mode when the program starts.
 # 0 = repeat one, 1 = repeat all, 2 = random, 3 = memory (use saved play mode from last session).
+# Memory falls back to repeat one when no play mode has been saved yet.
 #
 # 默认播放模式 - 程序启动时的播放模式。
 # 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放, 3 = 记忆（使用上次保存的播放模式）。
+# 记忆模式在尚未保存播放模式时使用单曲循环。
 default_play_mode = 3
 
 # Player page layout - the layout displayed when the program starts.
@@ -181,6 +183,22 @@ max_search_dirs = 15
 # 媒体库多列视图的单列最小宽度 - 列宽低于该值时会截断过多文件名，
 # 此时改为显示更少的列。
 min_column_width = 15
+
+# Library auto-refresh interval (milliseconds) - how often the music folder is checked for added or removed songs while the Library page is shown.
+# 0 disables the check. Values between 1 and 49 are raised to the 50 millisecond floor.
+# The full library scan for the search index runs in the background, so very small intervals on huge libraries add disk reads.
+#
+# 媒体库自动刷新间隔（毫秒）- 显示媒体库页面时检查音乐文件夹新增或删除歌曲的频率。
+# 0 表示禁用检查。1 至 49 之间的取值提升为 50 毫秒下限。
+# 搜索索引的全库扫描在后台运行，超大媒体库使用过小的间隔会增加磁盘读取。
+library_refresh_ms = 500
+
+# Library auto-refresh interval in background (milliseconds) - how often the music folder is checked for added or removed songs on every page other than the Library page.
+# The same 0 = disabled and 50 millisecond floor rules apply.
+#
+# 媒体库后台自动刷新间隔（毫秒）- 在媒体库以外的页面时检查音乐文件夹新增或删除歌曲的频率。
+# 同样适用 0 表示禁用和 50 毫秒下限的规则。
+library_refresh_bg_ms = 5000
 
 # Keymap settings - defines all keybindings for the application.
 #

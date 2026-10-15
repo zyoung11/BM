@@ -334,19 +334,32 @@ func SavePlayMode(playMode int) error {
 //
 // LoadPlayMode 从 storage.json 文件加载播放模式。
 // 如果没有保存播放模式，则返回配置中的默认播放模式。
+// resolvePlayMode maps a play mode setting to a runtime play mode. The
+// value 3 (memory) and any other out-of-range value fall back to repeat one,
+// so a missing saved mode never disables auto-advance.
+//
+// resolvePlayMode 将播放模式设置映射为运行时播放模式。取值 3（记忆）及
+// 其他越界取值回退为单曲循环，保证缺少已保存模式时自动推进不会失效。
+func resolvePlayMode(mode int) int {
+	if mode < 0 || mode > 2 {
+		return 0
+	}
+	return mode
+}
+
 func LoadPlayMode() (int, error) {
 	storageData, err := loadStorageData()
 	if err != nil {
-		return GlobalConfig.App.DefaultPlayMode, fmt.Errorf("could not load storage data for play mode: %v\n\n无法加载播放模式的存储数据: %v", err, err)
+		return resolvePlayMode(GlobalConfig.App.DefaultPlayMode), fmt.Errorf("could not load storage data for play mode: %v\n\n无法加载播放模式的存储数据: %v", err, err)
 	}
 
 	if storageData.PlayMode == nil {
-		return GlobalConfig.App.DefaultPlayMode, nil
+		return resolvePlayMode(GlobalConfig.App.DefaultPlayMode), nil
 	}
 
 	// If saved mode is 3 (should not happen, but handle it), return default
 	if *storageData.PlayMode == 3 {
-		return GlobalConfig.App.DefaultPlayMode, nil
+		return resolvePlayMode(GlobalConfig.App.DefaultPlayMode), nil
 	}
 
 	return *storageData.PlayMode, nil
