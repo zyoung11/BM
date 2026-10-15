@@ -329,6 +329,7 @@ func (p *PlayList) HandleSignal(sig os.Signal) error {
 //
 // View 渲染播放列表。
 func (p *PlayList) View() {
+	p.filterPlaylist()
 	p.app.beginFrame()
 	defer p.app.endFrame()
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))

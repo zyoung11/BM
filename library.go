@@ -85,7 +85,15 @@ type Library struct {
 	searchEngine      *search.Engine
 	searchDirCount    int             // Number of dirs in filtered results, for separator. / 筛选结果中目录数量，用于分割线。
 	dirSelectionCache map[string]bool // Cache for directory partial selection state. / 目录部分选择状态的缓存。
-	lastRemoveTime    time.Time       // Debounce mechanism for removing currently playing song. / 移除当前播放歌曲的防抖机制。
+
+	// cacheRefreshing marks that a background rebuild of the global cache is
+	// in flight, so at most one runs at a time.
+	//
+	// cacheRefreshing 表示全局缓存的后台重建正在进行，
+	// 保证同一时间至多运行一次。
+	cacheRefreshing bool
+
+	lastRemoveTime time.Time // Debounce mechanism for removing currently playing song. / 移除当前播放歌曲的防抖机制。
 }
 
 // NewLibrary creates a new instance of Library.
@@ -157,6 +165,16 @@ func (p *Library) ensureGlobalCache() {
 	if p.globalFileCache != nil {
 		return
 	}
+	p.globalFileCache, p.searchEngine = buildGlobalCache(p.initialPath)
+}
+
+// buildGlobalCache walks the library tree and collects every audio file and
+// every directory that contains audio, together with a search index built
+// from them.
+//
+// buildGlobalCache 遍历媒体库树，收集全部音频文件和含音频的目录，
+// 并返回基于它们构建的搜索索引。
+func buildGlobalCache(root string) ([]string, *search.Engine) {
 
 	allAudioFiles := make(map[string]bool)
 	dirWithAudio := make(map[string]bool)
@@ -203,7 +221,7 @@ func (p *Library) ensureGlobalCache() {
 				for {
 					tempPath = filepath.Dir(tempPath)
 					absTemp, errT := filepath.Abs(tempPath)
-					absInitial, errI := filepath.Abs(p.initialPath)
+					absInitial, errI := filepath.Abs(root)
 					if errT != nil || errI != nil || absTemp < absInitial {
 						break
 					}
@@ -216,7 +234,7 @@ func (p *Library) ensureGlobalCache() {
 		}
 	}
 
-	walk(p.initialPath)
+	walk(root)
 
 	cache := make([]string, 0, len(allAudioFiles)+len(dirWithAudio))
 	for path := range allAudioFiles {
@@ -225,8 +243,150 @@ func (p *Library) ensureGlobalCache() {
 	for path := range dirWithAudio {
 		cache = append(cache, path)
 	}
+	engine := search.New()
+	engine.BuildFromPaths(cache)
+	return cache, engine
+}
+
+// refreshBrowsing re-reads the visible directory listings after files changed
+// on disk, keeps the cursor on the same entry and reports whether anything
+// visible changed. Search results are refreshed together with the global
+// cache instead.
+//
+// refreshBrowsing 在磁盘文件变化后重读可见的目录列表，光标保持在原条目上，
+// 返回可见内容是否有变化。搜索结果改随全局缓存一起刷新。
+func (p *Library) refreshBrowsing() bool {
+	if p.searchQuery != "" {
+		return false
+	}
+
+	if !dirExists(p.currentPath) {
+		for !dirExists(p.currentPath) && p.popColumn() {
+		}
+		if !dirExists(p.currentPath) {
+			return false
+		}
+		p.scanDirectory(p.currentPath)
+		p.previewEntriesCache = nil
+		return true
+	}
+
+	oldName := entryNameAt(p.entries, p.cursor)
+	newEntries := readLibraryEntries(p.currentPath)
+	changed := !entriesEqual(p.entries, newEntries)
+	if changed {
+		p.entries = newEntries
+		p.cursor = indexOfEntryName(newEntries, oldName, p.cursor)
+		p.offset = min(p.offset, p.cursor)
+		p.previewEntriesCache = nil
+	}
+
+	for i := range p.columns {
+		col := &p.columns[i]
+		if col.isSearch || !dirExists(col.path) {
+			continue
+		}
+		colName := entryNameAt(col.entries, col.cursor)
+		colEntries := readLibraryEntries(col.path)
+		if entriesEqual(col.entries, colEntries) {
+			continue
+		}
+		col.entries = colEntries
+		col.cursor = indexOfEntryName(colEntries, colName, col.cursor)
+		col.offset = min(col.offset, col.cursor)
+		changed = true
+		p.previewEntriesCache = nil
+	}
+
+	return changed
+}
+
+// scheduleGlobalCacheRefresh rebuilds the global cache in a background
+// goroutine. At most one rebuild runs at a time and the result is applied on
+// the main thread through the action queue.
+//
+// scheduleGlobalCacheRefresh 在后台 goroutine 中重建全局缓存。同一时间至多
+// 运行一次重建，结果经操作队列在主线程应用。
+func (p *Library) scheduleGlobalCacheRefresh() {
+	if p.cacheRefreshing {
+		return
+	}
+	p.cacheRefreshing = true
+	root := p.initialPath
+	go func() {
+		cache, engine := buildGlobalCache(root)
+		select {
+		case p.app.actionQueue <- func() { p.applyGlobalCache(cache, engine) }:
+		case <-p.app.quitChan:
+		}
+	}()
+}
+
+// applyGlobalCache swaps in a rebuilt global cache, refreshes the search
+// results and drops stale paths from saved search state. The page is redrawn
+// only when something visible changed.
+//
+// applyGlobalCache 换入重建的全局缓存，刷新搜索结果，并清除保存的搜索状态中
+// 已失效的路径。仅在可见内容变化时重绘页面。
+func (p *Library) applyGlobalCache(cache []string, engine *search.Engine) {
+	p.cacheRefreshing = false
 	p.globalFileCache = cache
-	p.searchEngine.BuildFromPaths(cache)
+	p.searchEngine = engine
+
+	changed := false
+	if p.searchQuery != "" {
+		cursorPath := ""
+		if p.searchCursor >= 0 && p.searchCursor < len(p.filteredSongPaths) {
+			cursorPath = p.filteredSongPaths[p.searchCursor]
+		}
+		oldResults := p.filteredSongPaths
+		p.filterSongs()
+		if cursorPath != "" {
+			if idx := slices.Index(p.filteredSongPaths, cursorPath); idx >= 0 {
+				p.searchCursor = idx
+			}
+		}
+		p.clampSearchCursor()
+		if !slices.Equal(oldResults, p.filteredSongPaths) {
+			changed = true
+		}
+	}
+
+	for i := range p.searchReturns {
+		pruned := filterExistingPaths(p.searchReturns[i].results)
+		if len(pruned) != len(p.searchReturns[i].results) {
+			changed = true
+		}
+		p.searchReturns[i].results = pruned
+	}
+	for i := range p.columns {
+		col := &p.columns[i]
+		if !col.isSearch {
+			continue
+		}
+		pruned := filterExistingPaths(col.items)
+		if len(pruned) != len(col.items) {
+			changed = true
+		}
+		col.items = pruned
+		col.dirCount = 0
+		for _, item := range col.items {
+			if dirExists(item) {
+				col.dirCount++
+			}
+		}
+		if col.cursor >= len(col.items) {
+			col.cursor = max(len(col.items)-1, 0)
+		}
+		if col.cursor < 0 {
+			col.cursor = 0
+		}
+		col.offset = min(col.offset, col.cursor)
+	}
+
+	if changed {
+		p.app.refreshCurrentView()
+	}
 }
 
 // filterSongs updates filteredSongPaths based on the searchQuery.
@@ -1237,4 +1397,75 @@ func (p *Library) Tick() {}
 func isAudioFile(filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
 	return ext == ".flac" || ext == ".mp3" || ext == ".wav" || ext == ".ogg"
+}
+
+// dirExists reports whether the path is an existing directory.
+//
+// dirExists 判断路径是否为存在的目录。
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// entryNameAt returns the entry name at the index, or an empty string when the
+// index is out of range.
+//
+// entryNameAt 返回索引处的条目名；索引越界时返回空字符串。
+func entryNameAt(entries []LibraryEntry, index int) string {
+	if index >= 0 && index < len(entries) {
+		return entries[index].entry.Name()
+	}
+	return ""
+}
+
+// indexOfEntryName returns the position of the named entry. When the name is
+// empty or the entry is gone, it falls back to the fallback index clamped
+// into range.
+//
+// indexOfEntryName 返回命名条目的位置。名字为空或条目消失时，
+// 回退到钳制在范围内的 fallback 索引。
+func indexOfEntryName(entries []LibraryEntry, name string, fallback int) int {
+	if name != "" {
+		for i, entry := range entries {
+			if entry.entry.Name() == name {
+				return i
+			}
+		}
+	}
+	if fallback >= len(entries) {
+		fallback = len(entries) - 1
+	}
+	if fallback < 0 {
+		fallback = 0
+	}
+	return fallback
+}
+
+// entriesEqual reports whether two listings hold the same entries in the same
+// order.
+//
+// entriesEqual 判断两个列表是否按相同顺序包含相同条目。
+func entriesEqual(a, b []LibraryEntry) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].isDir != b[i].isDir || a[i].entry.Name() != b[i].entry.Name() {
+			return false
+		}
+	}
+	return true
+}
+
+// filterExistingPaths keeps only the paths that still exist on disk.
+//
+// filterExistingPaths 只保留磁盘上仍存在的路径。
+func filterExistingPaths(paths []string) []string {
+	kept := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			kept = append(kept, path)
+		}
+	}
+	return kept
 }
