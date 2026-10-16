@@ -1345,6 +1345,17 @@ func readSongMetadata(flacPath string) (title, artist, album string) {
 	return title, artist, album
 }
 
+// analyzeCoverColor returns the cover color used for the player text. The
+// most frequent bright, saturated and non-white pixel wins. When no pixel
+// passes those filters, the perceptually grouped cover colors decide instead:
+// the black and gray families lose and the brightest common color of the
+// largest remaining family wins, so the text stays visible on a dark terminal.
+// A cover with only dark families falls back to the configured default color.
+//
+// analyzeCoverColor 返回播放页文字使用的封面颜色。取出现次数最多的
+// 偏亮、饱和、非白像素；无像素通过筛选时，改由感知分组决定：
+// 淘汰黑、灰两族，取剩余最大族中最亮的常见颜色，
+// 保证文字在深色终端上可见；封面仅剩暗色族时回退到配置的默认颜色。
 func analyzeCoverColor(img image.Image) (r, g, b int) {
 	bounds := img.Bounds()
 	colorCount := make(map[[3]int]int)
@@ -1353,33 +1364,242 @@ func analyzeCoverColor(img image.Image) (r, g, b int) {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			pr, pg, pb, _ := img.At(x, y).RGBA()
 			r8, g8, b8 := int(pr>>8), int(pg>>8), int(pb>>8)
-			brightness := 0.2126*float64(r8) + 0.7152*float64(g8) + 0.0722*float64(b8)
-			isBright := brightness > 160
-			isNotGray := math.Abs(float64(r8)-float64(g8)) > 25 || math.Abs(float64(g8)-float64(b8)) > 25
-			isNotWhite := !(r8 > 220 && g8 > 220 && b8 > 220)
-			if isBright && isNotGray && isNotWhite {
-				color := [3]int{r8, g8, b8}
-				colorCount[color]++
+			if isTextColorPixel(r8, g8, b8) {
+				colorCount[[3]int{r8, g8, b8}]++
 			}
 		}
 	}
 
+	if color, ok := mostFrequentColor(colorCount); ok {
+		return color[0], color[1], color[2]
+	}
+	if r8, g8, b8, ok := coverGroupColor(img); ok {
+		return r8, g8, b8
+	}
+	return GlobalConfig.App.DefaultColorR, GlobalConfig.App.DefaultColorG, GlobalConfig.App.DefaultColorB
+}
+
+// mostFrequentColor returns the color with the largest count and reports
+// whether the map holds any color at all.
+//
+// mostFrequentColor 返回计数最大的颜色，并报告映射中是否存在颜色。
+func mostFrequentColor(counts map[[3]int]int) ([3]int, bool) {
 	maxCount := 0
-	var dominantColor [3]int
-	for color, count := range colorCount {
+	var dominant [3]int
+	found := false
+	for color, count := range counts {
 		if count > maxCount {
 			maxCount = count
-			dominantColor = color
+			dominant = color
+			found = true
+		}
+	}
+	return dominant, found
+}
+
+// colorLuma returns the Rec.709 brightness of an RGB triple.
+//
+// colorLuma 返回 RGB 三元组的 Rec.709 亮度。
+func colorLuma(r8, g8, b8 int) float64 {
+	return 0.2126*float64(r8) + 0.7152*float64(g8) + 0.0722*float64(b8)
+}
+
+// coverColorQuantize is the per-channel step that colors round to before
+// counting inside a group, so near-identical shades share one candidate.
+//
+// coverColorQuantize 是族内颜色计数前的逐通道取整步长，
+// 使相近的色阶共享一个候选色。
+const coverColorQuantize = 16
+
+// coverBlackLuma, coverWhiteLuma and coverGraySpread classify a color into
+// its perceptual group. Below coverBlackLuma the color is black. At low
+// channel spread the color is gray, or white when its brightness reaches
+// coverWhiteLuma. Everything else belongs to one of the eight hue families.
+//
+// coverBlackLuma、coverWhiteLuma、coverGraySpread 把颜色归入感知族。
+// 亮度低于 coverBlackLuma 归为黑；通道差低于 coverGraySpread 归为灰，
+// 亮度达到 coverWhiteLuma 则归为白；其余归入八个色相族之一。
+const (
+	coverBlackLuma  = 30.0
+	coverWhiteLuma  = 220.0
+	coverGraySpread = 25
+)
+
+// The hue family boundaries in degrees: red below coverHueOrange and above
+// coverHueRed, then orange, yellow, green, cyan, blue, purple and pink.
+//
+// 色相族的边界（度）：低于 coverHueOrange 或高于 coverHueRed 归红，
+// 其余依次为橙、黄、绿、青、蓝、紫、粉。
+const (
+	coverHueOrange = 15.0
+	coverHueYellow = 45.0
+	coverHueGreen  = 70.0
+	coverHueCyan   = 165.0
+	coverHueBlue   = 200.0
+	coverHuePurple = 255.0
+	coverHuePink   = 290.0
+	coverHueRed    = 345.0
+)
+
+// coverBrightShare is the denominator of the smallest pixel share a color
+// needs inside the winning group before its brightness can win: at least one
+// coverBrightShare-th of the group, so single noise pixels never decide the
+// result.
+//
+// coverBrightShare 是胜出族内颜色凭亮度胜出所需最小像素占比的分母：
+// 颜色至少要占该族的 1/coverBrightShare，保证单个噪声像素无法决定结果。
+const coverBrightShare = 128
+
+// quantizeChannel rounds a channel value to the nearest multiple of the
+// counting step, clamped to the RGB range.
+//
+// quantizeChannel 把通道值取整到计数步长的最近倍数，并限制在 RGB 范围内。
+func quantizeChannel(v int) int {
+	q := int(math.Round(float64(v)/coverColorQuantize)) * coverColorQuantize
+	return min(max(q, 0), 255)
+}
+
+// coverColorGroup names the perceptual group of a color: black, white, gray
+// or one of the eight hue families red, orange, yellow, green, cyan, blue,
+// purple and pink.
+//
+// coverColorGroup 给出颜色的感知族名：黑、白、灰，
+// 或红、橙、黄、绿、青、蓝、紫、粉八个色相族之一。
+func coverColorGroup(r8, g8, b8 int) string {
+	luma := colorLuma(r8, g8, b8)
+	if luma < coverBlackLuma {
+		return "black"
+	}
+	maxC := max(r8, g8, b8)
+	minC := min(r8, g8, b8)
+	spread := maxC - minC
+	if spread <= coverGraySpread {
+		if luma >= coverWhiteLuma {
+			return "white"
+		}
+		return "gray"
+	}
+	var hue float64
+	switch maxC {
+	case r8:
+		hue = 60 * math.Mod(float64(g8-b8)/float64(spread)+6, 6)
+	case g8:
+		hue = 60 * (float64(b8-r8)/float64(spread) + 2)
+	default:
+		hue = 60 * (float64(r8-g8)/float64(spread) + 4)
+	}
+	switch {
+	case hue < coverHueOrange || hue >= coverHueRed:
+		return "red"
+	case hue < coverHueYellow:
+		return "orange"
+	case hue < coverHueGreen:
+		return "yellow"
+	case hue < coverHueCyan:
+		return "green"
+	case hue < coverHueBlue:
+		return "cyan"
+	case hue < coverHuePurple:
+		return "blue"
+	case hue < coverHuePink:
+		return "purple"
+	default:
+		return "pink"
+	}
+}
+
+// coverGroupColor groups every cover color into its perceptual family, drops
+// the black and gray families, and returns the brightest common color of the
+// largest remaining family. Grouping sums the votes of one gradient, so a
+// small solid region such as text cannot win, and picking the brightest
+// common color keeps the text readable on a dark terminal. A black and white
+// cover thus yields white. It reports false when only dark families are left.
+//
+// coverGroupColor 把封面每个颜色归入感知族，淘汰黑、灰两族，
+// 返回剩余最大族中最亮的常见颜色。分组把同一渐变的票数累加，
+// 使文字这类小块纯色无法胜出；取最亮的常见颜色则保证文字在深色终端上可读。
+// 因此黑白封面取到白色。仅剩暗色族时返回 false。
+func coverGroupColor(img image.Image) (int, int, int, bool) {
+	bounds := img.Bounds()
+	colors := make(map[[3]int]int)
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			pr, pg, pb, _ := img.At(x, y).RGBA()
+			colors[[3]int{int(pr >> 8), int(pg >> 8), int(pb >> 8)}]++
 		}
 	}
 
-	if maxCount > 0 {
-		return dominantColor[0], dominantColor[1], dominantColor[2]
+	totals := make(map[string]int)
+	sums := make(map[string][3]int)
+	buckets := make(map[string]map[[3]int]int)
+	for color, count := range colors {
+		group := coverColorGroup(color[0], color[1], color[2])
+		if group == "black" || group == "gray" {
+			continue
+		}
+		totals[group] += count
+		s := sums[group]
+		sums[group] = [3]int{s[0] + color[0]*count, s[1] + color[1]*count, s[2] + color[2]*count}
+		if buckets[group] == nil {
+			buckets[group] = make(map[[3]int]int)
+		}
+		key := [3]int{quantizeChannel(color[0]), quantizeChannel(color[1]), quantizeChannel(color[2])}
+		buckets[group][key] += count
 	}
 
-	// Fallback to the configured default color when no suitable color is found
-	// 当没有找到合适的颜色时，回退到配置的默认颜色
-	return GlobalConfig.App.DefaultColorR, GlobalConfig.App.DefaultColorG, GlobalConfig.App.DefaultColorB
+	winner := ""
+	winnerTotal := 0
+	bestLuma := -1.0
+	for group, total := range totals {
+		s := sums[group]
+		luma := colorLuma(s[0]/total, s[1]/total, s[2]/total)
+		if total > winnerTotal || (total == winnerTotal && luma > bestLuma) {
+			winner = group
+			winnerTotal = total
+			bestLuma = luma
+		}
+	}
+	if winner == "" {
+		return 0, 0, 0, false
+	}
+
+	bestKey := [3]int{}
+	bestCount := 0
+	bestLuma = -1.0
+	anyKey := [3]int{}
+	anyLuma := -1.0
+	found := false
+	for key, count := range buckets[winner] {
+		luma := colorLuma(key[0], key[1], key[2])
+		if !found || luma > anyLuma {
+			anyKey = key
+			anyLuma = luma
+			found = true
+		}
+		if count*coverBrightShare < winnerTotal {
+			continue
+		}
+		if luma > bestLuma || (luma == bestLuma && count > bestCount) {
+			bestKey = key
+			bestCount = count
+			bestLuma = luma
+		}
+	}
+	if bestLuma < 0 {
+		bestKey = anyKey
+	}
+	return bestKey[0], bestKey[1], bestKey[2], true
+}
+
+// isTextColorPixel reports whether the pixel passes the bright, saturated and
+// non-white filter of analyzeCoverColor.
+//
+// isTextColorPixel 判断像素是否通过 analyzeCoverColor 的偏亮、饱和、非白筛选。
+func isTextColorPixel(r8, g8, b8 int) bool {
+	isBright := colorLuma(r8, g8, b8) > 160
+	isNotGray := math.Abs(float64(r8)-float64(g8)) > 25 || math.Abs(float64(g8)-float64(b8)) > 25
+	isNotWhite := !(r8 > 220 && g8 > 220 && b8 > 220)
+	return isBright && isNotGray && isNotWhite
 }
 
 // decodeAudioFile decodes an audio file based on its extension.
