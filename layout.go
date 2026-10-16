@@ -473,12 +473,12 @@ func (p *PlayerPage) renderWithLayout() {
 		p.imageRightEdge = 0
 	}
 
-	p.currentLayout = layout
-	p.renderTextByLayout(layout, w, h)
-
 	p.coverColorR = coverColorR
 	p.coverColorG = coverColorG
 	p.coverColorB = coverColorB
+
+	p.currentLayout = layout
+	p.renderTextByLayout(layout, w, h)
 }
 
 // layoutUsesImage reports whether the given layout renders the album cover.
