@@ -19,6 +19,7 @@ type StorageData struct {
 	Volume         *float64 `json:"volume,omitempty"`
 	PlaybackRate   *float64 `json:"playback_rate,omitempty"`
 	PlayMode       *int     `json:"play_mode,omitempty"`
+	Sort           *int     `json:"sort,omitempty"`
 	Page           *int     `json:"page,omitempty"`
 	OverrideLayout *int     `json:"override_layout,omitempty"`
 }
@@ -305,6 +306,50 @@ func LoadPlayHistory(libraryPath string) ([]string, error) {
 	}
 
 	return absolutePlayHistory, nil
+}
+
+// resolveSortMode maps a sort mode setting to a runtime sort mode. The
+// value 3 (memory) and any other out-of-range value fall back to the default
+// sort.
+//
+// resolveSortMode 将排序方式设置映射为运行时排序方式。取值 3（记忆）及
+// 其他越界取值回退为默认排序。
+func resolveSortMode(mode int) int {
+	if mode < 0 || mode > 2 {
+		return 0
+	}
+	return mode
+}
+
+// SaveSort saves the library sort mode to the storage.json file.
+//
+// SaveSort 将媒体库排序方式保存到 storage.json 文件。
+func SaveSort(sort int) error {
+	storageData, err := loadStorageData()
+	if err != nil {
+		return fmt.Errorf("could not load storage data for sort: %v\n\n无法加载排序方式的存储数据: %v", err, err)
+	}
+	sortMode := resolveSortMode(sort)
+	storageData.Sort = &sortMode
+	if err := saveStorageData(storageData); err != nil {
+		return fmt.Errorf("could not save sort data: %v\n\n无法保存排序方式数据: %v", err, err)
+	}
+	return nil
+}
+
+// LoadSort returns the saved library sort mode, or the default sort when
+// nothing has been saved yet.
+//
+// LoadSort 返回已保存的媒体库排序方式；尚未保存时返回默认排序。
+func LoadSort() (int, error) {
+	storageData, err := loadStorageData()
+	if err != nil {
+		return 0, fmt.Errorf("could not load storage data for sort: %v\n\n无法加载排序方式的存储数据: %v", err, err)
+	}
+	if storageData.Sort == nil {
+		return 0, nil
+	}
+	return resolveSortMode(*storageData.Sort), nil
 }
 
 // SavePlayMode saves the current play mode to the storage.json file.

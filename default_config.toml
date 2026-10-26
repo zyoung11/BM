@@ -355,6 +355,13 @@ library_refresh_bg_ms = 5000
     #
     # 进入搜索模式。
     Search = ["/", "f"]
+
+    # Toggle the sort mode of the browsing lists - cycles default, modified time and selected.
+    # Does not affect search results.
+    #
+    # 切换浏览列表的排序方式 - 在默认、按修改时间、按选中之间循环。
+    # 不影响搜索结果。
+    Sort = [","]
     
     # Search mode keybindings.
     #

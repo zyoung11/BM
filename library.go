@@ -86,6 +86,17 @@ type Library struct {
 	searchDirCount    int             // Number of dirs in filtered results, for separator. / 筛选结果中目录数量，用于分割线。
 	dirSelectionCache map[string]bool // Cache for directory partial selection state. / 目录部分选择状态的缓存。
 
+	// sortMode is the active sort order of the browsing lists:
+	// 0 = default, 1 = modified time newest first, 2 = selected first.
+	//
+	// sortMode 是浏览列表的排序方式：0 = 默认，1 = 按修改时间新的在上，2 = 选中的在上。
+	sortMode int
+	// sortDisplayTimer counts down the ticks the sort mode stays visible in
+	// the footer instead of the path.
+	//
+	// sortDisplayTimer 倒计时排序方式在页脚代替路径显示的剩余 tick 数。
+	sortDisplayTimer int
+
 	// cacheRefreshing marks that a background rebuild of the global cache is
 	// in flight, so at most one runs at a time.
 	//
@@ -104,6 +115,7 @@ func NewLibrary(app *App) *Library {
 		app:               app,
 		currentPath:       ".",
 		initialPath:       ".",
+		sortMode:          initialSortMode(),
 		selected:          make(map[string]bool),
 		pathHistory:       make(map[string]browsePosition),
 		dirSelectionCache: make(map[string]bool),
@@ -125,12 +137,136 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 		app:               app,
 		currentPath:       filepath.Clean(startPath),
 		initialPath:       filepath.Clean(startPath),
+		sortMode:          initialSortMode(),
 		selected:          selectedSongs,
 		pathHistory:       make(map[string]browsePosition),
 		dirSelectionCache: make(map[string]bool),
 		lastRemoveTime:    time.Time{},
 		searchEngine:      search.New(),
 	}
+}
+
+// sortDisplayTicks is how many ticks the sort mode stays visible in the
+// footer instead of the path.
+//
+// sortDisplayTicks 是排序方式在页脚代替路径显示的 tick 数。
+const sortDisplayTicks = 10
+
+// initialSortMode resolves the sort mode used at startup: the memory mode
+// restores the saved choice, anything else uses the configured mode.
+//
+// initialSortMode 解析启动时的排序方式：记忆模式恢复已保存的选择，
+// 其他取值直接使用配置的模式。
+func initialSortMode() int {
+	if GlobalConfig.App.DefaultSort == 3 {
+		saved, err := LoadSort()
+		if err != nil {
+			l.Warnf("could not load saved sort: %v\n\n警告: 无法加载已保存的排序方式: %v", err, err)
+		} else {
+			return saved
+		}
+	}
+	return resolveSortMode(GlobalConfig.App.DefaultSort)
+}
+
+// sortModeName returns the footer name of a sort mode.
+//
+// sortModeName 返回排序方式在页脚显示的名称。
+func sortModeName(mode int) string {
+	switch mode {
+	case 1:
+		return "time"
+	case 2:
+		return "selected"
+	}
+	return "default"
+}
+
+// sortEntries sorts one directory listing by the active sort mode.
+// Directories always stay above files. Inside each group the default order
+// is by name, the time order puts the newest modification first and the
+// selected order puts entries with any selected song first.
+//
+// sortEntries 按当前排序方式排列一个目录的条目。目录始终在文件上方。
+// 组内默认按名称排序；按时间排序时修改时间新的在前；
+// 按选中排序时含任意选中歌曲的条目在前。
+func (p *Library) sortEntries(path string, entries []LibraryEntry) {
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].isDir != entries[j].isDir {
+			return entries[i].isDir
+		}
+		nameI := strings.ToLower(entries[i].entry.Name())
+		nameJ := strings.ToLower(entries[j].entry.Name())
+		if p.sortMode == 1 {
+			timeI := entries[i].info.ModTime()
+			timeJ := entries[j].info.ModTime()
+			if !timeI.Equal(timeJ) {
+				return timeI.After(timeJ)
+			}
+		}
+		if p.sortMode == 2 {
+			selI := p.entrySelected(path, entries[i])
+			selJ := p.entrySelected(path, entries[j])
+			if selI != selJ {
+				return selI
+			}
+		}
+		return nameI < nameJ
+	})
+}
+
+// entrySelected reports whether the entry counts as selected for the
+// selected sort: a file is selected when it is in the playlist, a directory
+// when any song under it is.
+//
+// entrySelected 报告条目在按选中排序时是否算已选：文件在播放列表中即已选，
+// 目录下有任意歌曲已选即算已选。
+func (p *Library) entrySelected(path string, entry LibraryEntry) bool {
+	fullPath := filepath.Join(path, entry.entry.Name())
+	if !entry.isDir {
+		return p.selected[fullPath]
+	}
+	if cached, ok := p.dirSelectionCache[fullPath]; ok {
+		return cached
+	}
+	selected := p.dirHasSelection(fullPath)
+	p.dirSelectionCache[fullPath] = selected
+	return selected
+}
+
+// resortEntries re-applies the sort mode to the visible listings and keeps
+// the cursors inside range.
+//
+// resortEntries 对可见列表重新应用排序方式，并把光标保持在范围内。
+func (p *Library) resortEntries() {
+	p.sortEntries(p.currentPath, p.entries)
+	p.cursor = min(p.cursor, max(len(p.entries)-1, 0))
+	p.offset = min(p.offset, p.cursor)
+	for i := range p.columns {
+		col := &p.columns[i]
+		if col.isSearch {
+			continue
+		}
+		p.sortEntries(col.path, col.entries)
+		col.cursor = min(col.cursor, max(len(col.entries)-1, 0))
+		col.offset = min(col.offset, col.cursor)
+	}
+	p.previewEntriesCache = nil
+}
+
+// cycleSortMode switches to the next sort mode, remembers the choice for the
+// memory mode and shows the new mode in the footer.
+//
+// cycleSortMode 切换到下一个排序方式，为记忆模式保存该选择，并在页脚显示新模式。
+func (p *Library) cycleSortMode() {
+	name := entryNameAt(p.entries, p.cursor)
+	p.sortMode = (p.sortMode + 1) % 3
+	if err := SaveSort(p.sortMode); err != nil {
+		l.Warnf("failed to save sort mode: %v\n\n警告: 保存排序方式失败: %v", err, err)
+	}
+	p.resortEntries()
+	p.cursor = indexOfEntryName(p.entries, name, p.cursor)
+	p.sortDisplayTimer = sortDisplayTicks
 }
 
 // scanDirectory reads the contents of a directory, filters for audio files and directories,
@@ -151,6 +287,7 @@ func (p *Library) scanDirectory(path string) {
 	}
 
 	p.entries = readLibraryEntries(path)
+	p.sortEntries(path, p.entries)
 	p.cursor = min(saved.cursor, max(len(p.entries)-1, 0))
 	p.offset = min(saved.offset, p.cursor)
 	if p.cursor >= p.offset+max(len(p.entries), 1) {
@@ -273,6 +410,7 @@ func (p *Library) refreshBrowsing() bool {
 
 	oldName := entryNameAt(p.entries, p.cursor)
 	newEntries := readLibraryEntries(p.currentPath)
+	p.sortEntries(p.currentPath, newEntries)
 	changed := !entriesEqual(p.entries, newEntries)
 	if changed {
 		p.entries = newEntries
@@ -288,6 +426,7 @@ func (p *Library) refreshBrowsing() bool {
 		}
 		colName := entryNameAt(col.entries, col.cursor)
 		colEntries := readLibraryEntries(col.path)
+		p.sortEntries(col.path, colEntries)
 		if entriesEqual(col.entries, colEntries) {
 			continue
 		}
@@ -505,6 +644,10 @@ func (p *Library) handleSearchInput(key rune) {
 //
 // handleDirViewInput 处理目录浏览视图中的按键。
 func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
+	if IsKey(key, GlobalConfig.Keymap.Library.Sort) {
+		p.cycleSortMode()
+		return nil, false, nil
+	}
 	if IsKey(key, GlobalConfig.Keymap.Library.Search) {
 		p.isSearching = true
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavUp) {
@@ -971,6 +1114,7 @@ func (p *Library) toggleSelection(path string) {
 	// Clear cache on selection change
 	p.dirSelectionCache = make(map[string]bool)
 	p.previewEntriesCache = nil
+	p.resortEntries()
 	if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
 		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
@@ -1053,6 +1197,7 @@ func (p *Library) addSongsToPlaylistBatch(songPaths []string) {
 	p.app.setPlaylist(newPlaylist)
 	p.dirSelectionCache = make(map[string]bool)
 	p.previewEntriesCache = nil
+	p.resortEntries()
 	if err := SavePlaylist(p.app.Playlist, p.initialPath); err != nil {
 		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
@@ -1114,6 +1259,7 @@ func (p *Library) removeSongsFromPlaylistBatch(songPaths []string) {
 
 	p.dirSelectionCache = make(map[string]bool)
 	p.previewEntriesCache = nil
+	p.resortEntries()
 	p.app.setPlaylist(newPlaylist)
 	for _, songPath := range songPaths {
 		p.app.removeFromPlayHistory(songPath)
@@ -1226,7 +1372,11 @@ func (p *Library) View() {
 	if p.isSearching || p.searchQuery != "" {
 		buf.WriteString(p.drawSearchFooter(w, h, fmt.Sprintf("Search: %s", p.searchQuery)))
 	} else {
-		buf.WriteString(p.drawPathFooter(w, h, fmt.Sprintf("Path: %s", p.rootDisplayPath())))
+		footer := fmt.Sprintf("Path: %s", p.rootDisplayPath())
+		if p.sortDisplayTimer > 0 {
+			footer = "Sort: " + sortModeName(p.sortMode)
+		}
+		buf.WriteString(p.drawPathFooter(w, h, footer))
 	}
 
 	buf.WriteString(p.renderColumns(w, listHeight))
@@ -1389,7 +1539,18 @@ func (p *Library) drawScrollbar(listHeight, totalItems, currentOffset int) strin
 // Tick for Library does nothing, as it's event-driven.
 //
 // Library的Tick方法不执行任何操作，因为它是事件驱动的。
-func (p *Library) Tick() {}
+// Tick counts down the sort mode footer and restores the path display when
+// the countdown ends.
+//
+// Tick 递减排序方式页脚的倒计时，倒计时结束时恢复路径显示。
+func (p *Library) Tick() {
+	if p.sortDisplayTimer > 0 {
+		p.sortDisplayTimer--
+		if p.sortDisplayTimer == 0 {
+			p.View()
+		}
+	}
+}
 
 // isAudioFile checks if a file has a supported audio extension.
 //
