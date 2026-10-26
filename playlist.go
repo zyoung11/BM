@@ -33,6 +33,19 @@ type PlayList struct {
 	searchEngine  *search.Engine
 	indexSnapshot []string // Playlist content the search index was built from. / 搜索索引构建时所用的播放列表快照。
 
+	// nameDisplayMode is the active song name display mode of the playlist:
+	// 0 = default, 1 = hide extension, 2 = align, 3 = title first, 4 = title
+	// first with align.
+	//
+	// nameDisplayMode 是播放列表的歌曲名显示模式：0 = 默认，1 = 隐藏后缀，
+	// 2 = 对齐，3 = 歌名在前，4 = 歌名在前且对齐。
+	nameDisplayMode int
+	// nameDisplayTimer counts down the ticks the name display mode stays
+	// visible in the footer.
+	//
+	// nameDisplayTimer 倒计时歌曲名显示模式在页脚显示的剩余 tick 数。
+	nameDisplayTimer int
+
 	// Debounce mechanism to prevent accidental rapid removal of the current song.
 	// 防抖机制，防止快速连续移除当前播放歌曲。
 	lastRemoveTime time.Time
@@ -49,7 +62,31 @@ func NewPlayList(app *App) *PlayList {
 		viewPlaylist:    make([]string, 0),
 		originalIndices: make([]int, 0),
 		searchEngine:    search.New(),
+		nameDisplayMode: initialNameDisplayMode(false),
 	}
+}
+
+// cycleNameDisplayMode switches to the next song name display mode and
+// remembers the choice for the memory mode.
+//
+// cycleNameDisplayMode 切换到下一个歌曲名显示模式，并为记忆模式保存该选择。
+func (p *PlayList) cycleNameDisplayMode() {
+	p.nameDisplayMode = (p.nameDisplayMode + 1) % nameDisplayMemory
+	if err := SaveNameDisplay(false, p.nameDisplayMode); err != nil {
+		l.Warnf("failed to save name display mode: %v\n\n警告: 保存歌曲名显示模式失败: %v", err, err)
+	}
+	p.nameDisplayTimer = nameDisplayTicks
+}
+
+// trackNames returns the base names of the visible playlist.
+//
+// trackNames 返回可见播放列表的基础名列表。
+func (p *PlayList) trackNames() []string {
+	names := make([]string, 0, len(p.viewPlaylist))
+	for _, trackPath := range p.viewPlaylist {
+		names = append(names, filepath.Base(trackPath))
+	}
+	return names
 }
 
 // Init prepares the initial view for the playlist.
@@ -181,7 +218,9 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 	}
 
 	needRedraw := true
-	if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
+	if IsKey(key, GlobalConfig.Keymap.Playlist.NameDisplay) {
+		p.cycleNameDisplayMode()
+	} else if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
 		if p.searchQuery != "" {
 			p.mapCursorToFullList()
 			p.searchQuery = ""
@@ -354,12 +393,15 @@ func (p *PlayList) View() {
 	} else {
 		footer = ""
 	}
+	if p.nameDisplayTimer > 0 {
+		footer = "Name: " + nameDisplayModeName(p.nameDisplayMode)
+	}
 	if len(footer) > w {
 		footer = "..." + footer[len(footer)-w+3:]
 	}
 	footerX := max((w-len(footer))/2, 1)
 	fmt.Printf("\x1b[%d;1H\x1b[K", h)
-	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", h, footerX, footer)
+	fmt.Printf("\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, footerX, footer)
 	if p.isSearching {
 		cursorX := footerX + len("Search: ") + len(p.searchQuery)
 		if cursorX <= w {
@@ -434,6 +476,7 @@ func (p *PlayList) drawTrackListRow(w, screenRow, trackIndex int) {
 
 	trackPath := p.viewPlaylist[trackIndex]
 	trackName := filepath.Base(trackPath)
+	trackName = displaySongName(trackName, p.nameDisplayMode, nameDisplayPad(p.nameDisplayMode, p.trackNames()))
 
 	style := "\x1b[32m"
 	if trackPath == p.app.currentSongPath {
@@ -492,4 +535,15 @@ func (p *PlayList) tryFastCursorMove(oldCursor int) bool {
 // Tick for PlayList does nothing, as it's event-driven.
 //
 // PlayList的Tick方法不执行任何操作，因为它是事件驱动的。
-func (p *PlayList) Tick() {}
+// Tick counts down the name display footer and restores the normal footer
+// when the countdown ends.
+//
+// Tick 递减歌曲名显示页脚的倒计时，倒计时结束时恢复普通页脚。
+func (p *PlayList) Tick() {
+	if p.nameDisplayTimer > 0 {
+		p.nameDisplayTimer--
+		if p.nameDisplayTimer == 0 {
+			p.View()
+		}
+	}
+}

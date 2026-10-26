@@ -38,6 +38,37 @@ default_page = 3
 # 记忆模式在尚未保存播放模式时使用单曲循环。
 default_play_mode = 3
 
+# Default sort mode - the sort order of the Library browsing lists when the program starts.
+# 0 = default (directories first, by name), 1 = modified time with the newest on top, 2 = selected on top, 3 = memory (use saved sort from last session).
+# Memory falls back to the default sort when no sort mode has been saved yet.
+# The sort mode can be changed at runtime from the Library page and the memory mode keeps that choice.
+#
+# 默认排序方式 - 程序启动时媒体库浏览列表的排序。
+# 0 = 默认（目录在前，按名称）, 1 = 按修改时间新的在上, 2 = 选中的在上, 3 = 记忆（使用上次保存的排序方式）。
+# 记忆模式在尚未保存排序方式时使用默认排序。
+# 排序方式可在媒体库页面运行时切换，记忆模式会沿用该选择。
+default_sort = 3
+
+# Default song name display mode of the Library lists - how song file names are shown in the browsing lists and the search results.
+# 0 = default (file name as is), 1 = hide the file extension, 2 = force align, 3 = hide the extension with the title before the artist, 4 = hide the extension with the title before the artist and force align, 5 = memory (use saved mode from last session).
+# Force align pads the first name field so the separator and the second field start in the same column in every listing.
+# Names without a " - " separator are always shown unchanged. The mode can be changed at runtime and the memory mode keeps that choice.
+# The Library and the PlayList keep separate settings and their search results follow their page.
+#
+# 媒体库列表的默认歌曲名显示模式 - 浏览列表和搜索结果中歌曲文件名的显示方式。
+# 0 = 默认（原文件名）, 1 = 隐藏文件后缀, 2 = 强制对齐, 3 = 隐藏后缀且歌名在前歌手在后, 4 = 隐藏后缀且歌名在前歌手在后并强制对齐, 5 = 记忆（使用上次保存的模式）。
+# 强制对齐会填充第一个名称字段，使分隔符和第二个字段在每个列表内各列对齐。
+# 不含 " - " 分隔符的名称始终原样显示。模式可在运行时切换，记忆模式会沿用该选择。
+# 媒体库与播放列表各自独立设置，搜索结果跟随所在页面。
+default_name_display_library = 5
+
+# Default song name display mode of the PlayList - see default_name_display_library for the mode values.
+# The PlayList keeps its own setting and its search results follow it.
+#
+# 播放列表的默认歌曲名显示模式 - 模式取值见 default_name_display_library。
+# 播放列表独立设置，其搜索结果跟随该设置。
+default_name_display_playlist = 5
+
 # Player page layout - the layout displayed when the program starts.
 # 0 = auto, 1 = narrow style, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).
 #
@@ -362,6 +393,13 @@ library_refresh_bg_ms = 5000
     # 切换浏览列表的排序方式 - 在默认、按修改时间、按选中之间循环。
     # 不影响搜索结果。
     Sort = [","]
+
+    # Toggle the song name display mode - cycles default, hide extension, force align, title first and title first with align.
+    # Names without a " - " separator are always shown unchanged.
+    #
+    # 切换歌曲名显示模式 - 在默认、隐藏后缀、强制对齐、歌名在前、歌名在前且对齐之间循环。
+    # 不含 " - " 分隔符的名称始终原样显示。
+    NameDisplay = ["."]
     
     # Search mode keybindings.
     #
@@ -407,6 +445,13 @@ library_refresh_bg_ms = 5000
     #
     # 播放选中的歌曲。
     PlaySong = ["enter"]
+
+    # Toggle the song name display mode - cycles default, hide extension, force align, title first and title first with align.
+    # Names without a " - " separator are always shown unchanged.
+    #
+    # 切换歌曲名显示模式 - 在默认、隐藏后缀、强制对齐、歌名在前、歌名在前且对齐之间循环。
+    # 不含 " - " 分隔符的名称始终原样显示。
+    NameDisplay = ["."]
 
     # Enter search mode.
     #

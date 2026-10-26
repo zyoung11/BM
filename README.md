@@ -33,6 +33,8 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 ![](images/image2.png)
 
 - **Filesystem browsing**: Multi-column directory navigation, with the status line showing the path from your music folder root
+- **Sorting**: Cycle three sort orders on the fly — default name order, newest modified time first, selected songs first, with directories always above files
+- **Song name display**: Cycle five song name styles on the fly — hide the extension, swap the artist and title, and force-align the separator and fields in columns, with separate settings for the Library and the PlayList
 - **Fuzzy search**: Supports Chinese and English fuzzy matching, and directories in the results open like ordinary folders
 - **Playlist**: Dynamic playlist management
 - **Corrupted file detection**: Automatically marks unplayable files
@@ -49,6 +51,8 @@ BM is a modern terminal music player written in Go, featuring a rich set of func
 - **Key mappings**: Fully customizable all shortcuts
 - **Quit behavior**: Confirmation prompts toggle per page, prompts and help text come in English or Chinese
 - **Playback modes**: Single repeat, list repeat, shuffle with sliding window (avoid frequent repeats)
+- **Sorting behavior**: Configurable sort shortcut and default sort order with memory mode
+- **Name display behavior**: Configurable shortcut and default display mode with memory mode, kept separately for the Library and the PlayList, with search results following their page
 - **Startup behavior**: Configurable default page with memory mode, auto-play
 - **Image protocol**: Auto-detection or manual specification of terminal image protocol
 - **Player icons**: Customizable play/pause/progress bar/repeat mode icons per terminal type

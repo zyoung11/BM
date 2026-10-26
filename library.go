@@ -96,6 +96,18 @@ type Library struct {
 	//
 	// sortDisplayTimer 倒计时排序方式在页脚代替路径显示的剩余 tick 数。
 	sortDisplayTimer int
+	// nameDisplayMode is the active song name display mode of the browsing
+	// lists: 0 = default, 1 = hide extension, 2 = align, 3 = title first,
+	// 4 = title first with align.
+	//
+	// nameDisplayMode 是浏览列表的歌曲名显示模式：0 = 默认，1 = 隐藏后缀，
+	// 2 = 对齐，3 = 歌名在前，4 = 歌名在前且对齐。
+	nameDisplayMode int
+	// nameDisplayTimer counts down the ticks the name display mode stays
+	// visible in the footer instead of the path.
+	//
+	// nameDisplayTimer 倒计时歌曲名显示模式在页脚代替路径显示的剩余 tick 数。
+	nameDisplayTimer int
 
 	// cacheRefreshing marks that a background rebuild of the global cache is
 	// in flight, so at most one runs at a time.
@@ -116,6 +128,7 @@ func NewLibrary(app *App) *Library {
 		currentPath:       ".",
 		initialPath:       ".",
 		sortMode:          initialSortMode(),
+		nameDisplayMode:   initialNameDisplayMode(true),
 		selected:          make(map[string]bool),
 		pathHistory:       make(map[string]browsePosition),
 		dirSelectionCache: make(map[string]bool),
@@ -138,6 +151,7 @@ func NewLibraryWithPath(app *App, startPath string) *Library {
 		currentPath:       filepath.Clean(startPath),
 		initialPath:       filepath.Clean(startPath),
 		sortMode:          initialSortMode(),
+		nameDisplayMode:   initialNameDisplayMode(true),
 		selected:          selectedSongs,
 		pathHistory:       make(map[string]browsePosition),
 		dirSelectionCache: make(map[string]bool),
@@ -267,6 +281,21 @@ func (p *Library) cycleSortMode() {
 	p.resortEntries()
 	p.cursor = indexOfEntryName(p.entries, name, p.cursor)
 	p.sortDisplayTimer = sortDisplayTicks
+	p.nameDisplayTimer = 0
+}
+
+// cycleNameDisplayMode switches to the next song name display mode, remembers
+// the choice for the memory mode and shows the new mode in the footer.
+//
+// cycleNameDisplayMode 切换到下一个歌曲名显示模式，为记忆模式保存该选择，
+// 并在页脚显示新模式。
+func (p *Library) cycleNameDisplayMode() {
+	p.nameDisplayMode = (p.nameDisplayMode + 1) % nameDisplayMemory
+	if err := SaveNameDisplay(true, p.nameDisplayMode); err != nil {
+		l.Warnf("failed to save name display mode: %v\n\n警告: 保存歌曲名显示模式失败: %v", err, err)
+	}
+	p.nameDisplayTimer = nameDisplayTicks
+	p.sortDisplayTimer = 0
 }
 
 // scanDirectory reads the contents of a directory, filters for audio files and directories,
@@ -648,6 +677,10 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 		p.cycleSortMode()
 		return nil, false, nil
 	}
+	if IsKey(key, GlobalConfig.Keymap.Library.NameDisplay) {
+		p.cycleNameDisplayMode()
+		return nil, false, nil
+	}
 	if IsKey(key, GlobalConfig.Keymap.Library.Search) {
 		p.isSearching = true
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavUp) {
@@ -687,6 +720,10 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 //
 // handleSearchViewInput 处理搜索结果视图中的按键。
 func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
+	if IsKey(key, GlobalConfig.Keymap.Library.NameDisplay) {
+		p.cycleNameDisplayMode()
+		return nil, false, nil
+	}
 	if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.EscapeSearch) {
 		p.searchQuery = ""
 		p.filterSongs()
@@ -1373,7 +1410,9 @@ func (p *Library) View() {
 		buf.WriteString(p.drawSearchFooter(w, h, fmt.Sprintf("Search: %s", p.searchQuery)))
 	} else {
 		footer := fmt.Sprintf("Path: %s", p.rootDisplayPath())
-		if p.sortDisplayTimer > 0 {
+		if p.nameDisplayTimer > 0 {
+			footer = "Name: " + nameDisplayModeName(p.nameDisplayMode)
+		} else if p.sortDisplayTimer > 0 {
 			footer = "Sort: " + sortModeName(p.sortMode)
 		}
 		buf.WriteString(p.drawPathFooter(w, h, footer))
@@ -1468,11 +1507,14 @@ func truncateToWidthFromStart(text string, w int) string {
 // getDirEntryLine generates the display line and style for a directory entry.
 //
 // getDirEntryLine 为目录条目生成显示行和样式。
-func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCursor bool) (string, string) {
+func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, pad int, isCursor bool) (string, string) {
 	line := ""
 	style := "\x1b[0m"
 	isLink := libEntry.info.Mode()&os.ModeSymlink != 0
 	name := libEntry.entry.Name()
+	if !libEntry.isDir {
+		name = displaySongName(name, p.nameDisplayMode, pad)
+	}
 
 	if isLink {
 		name += "@"
@@ -1544,6 +1586,12 @@ func (p *Library) drawScrollbar(listHeight, totalItems, currentOffset int) strin
 //
 // Tick 递减排序方式页脚的倒计时，倒计时结束时恢复路径显示。
 func (p *Library) Tick() {
+	if p.nameDisplayTimer > 0 {
+		p.nameDisplayTimer--
+		if p.nameDisplayTimer == 0 {
+			p.View()
+		}
+	}
 	if p.sortDisplayTimer > 0 {
 		p.sortDisplayTimer--
 		if p.sortDisplayTimer == 0 {

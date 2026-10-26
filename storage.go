@@ -12,16 +12,18 @@ import (
 //
 // StorageData 保存存储在 storage.json 文件中的数据。
 type StorageData struct {
-	LibraryPath    string   `json:"library_path"`
-	Playlist       []string `json:"playlist"`
-	PlayHistory    []string `json:"play_history"`
-	CurrentSong    *string  `json:"current_song,omitempty"`
-	Volume         *float64 `json:"volume,omitempty"`
-	PlaybackRate   *float64 `json:"playback_rate,omitempty"`
-	PlayMode       *int     `json:"play_mode,omitempty"`
-	Sort           *int     `json:"sort,omitempty"`
-	Page           *int     `json:"page,omitempty"`
-	OverrideLayout *int     `json:"override_layout,omitempty"`
+	LibraryPath         string   `json:"library_path"`
+	Playlist            []string `json:"playlist"`
+	PlayHistory         []string `json:"play_history"`
+	CurrentSong         *string  `json:"current_song,omitempty"`
+	Volume              *float64 `json:"volume,omitempty"`
+	PlaybackRate        *float64 `json:"playback_rate,omitempty"`
+	PlayMode            *int     `json:"play_mode,omitempty"`
+	Sort                *int     `json:"sort,omitempty"`
+	NameDisplayLibrary  *int     `json:"name_display_library,omitempty"`
+	NameDisplayPlaylist *int     `json:"name_display_playlist,omitempty"`
+	Page                *int     `json:"page,omitempty"`
+	OverrideLayout      *int     `json:"override_layout,omitempty"`
 }
 
 // getStoragePath returns the absolute path to the storage file.
@@ -350,6 +352,49 @@ func LoadSort() (int, error) {
 		return 0, nil
 	}
 	return resolveSortMode(*storageData.Sort), nil
+}
+
+// SaveNameDisplay saves a song name display mode to the storage.json file.
+// The library and the playlist keep separate settings.
+//
+// SaveNameDisplay 将歌曲名显示模式保存到 storage.json 文件。
+// 媒体库与播放列表各自独立设置。
+func SaveNameDisplay(library bool, mode int) error {
+	storageData, err := loadStorageData()
+	if err != nil {
+		return fmt.Errorf("could not load storage data for name display: %v\n\n无法加载歌曲名显示模式的存储数据: %v", err, err)
+	}
+	value := resolveNameDisplayMode(mode)
+	if library {
+		storageData.NameDisplayLibrary = &value
+	} else {
+		storageData.NameDisplayPlaylist = &value
+	}
+	if err := saveStorageData(storageData); err != nil {
+		return fmt.Errorf("could not save name display data: %v\n\n无法保存歌曲名显示模式数据: %v", err, err)
+	}
+	return nil
+}
+
+// LoadNameDisplay returns the saved song name display mode for a page, or the
+// default display when nothing has been saved yet.
+//
+// LoadNameDisplay 返回页面已保存的歌曲名显示模式；尚未保存时返回默认显示。
+func LoadNameDisplay(library bool) (int, error) {
+	storageData, err := loadStorageData()
+	if err != nil {
+		return 0, fmt.Errorf("could not load storage data for name display: %v\n\n无法加载歌曲名显示模式的存储数据: %v", err, err)
+	}
+	if library {
+		if storageData.NameDisplayLibrary != nil {
+			return resolveNameDisplayMode(*storageData.NameDisplayLibrary), nil
+		}
+		return 0, nil
+	}
+	if storageData.NameDisplayPlaylist != nil {
+		return resolveNameDisplayMode(*storageData.NameDisplayPlaylist), nil
+	}
+	return 0, nil
 }
 
 // SavePlayMode saves the current play mode to the storage.json file.
