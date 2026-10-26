@@ -65,6 +65,7 @@ var helpDescriptions = map[string][2]string{
 	"Library.ToggleSelect":    {"Toggle selection", "切换选中"},
 	"Library.ToggleSelectAll": {"Toggle select all", "全选/取消全选"},
 	"Library.Search":          {"Search the library", "搜索媒体库"},
+	"Library.Sort":            {"Toggle sort mode", "切换排序方式"},
 	"Library.ConfirmSearch":   {"Confirm search", "确认搜索"},
 	"Library.EscapeSearch":    {"Exit search", "退出搜索"},
 	"Library.SearchBackspace": {"Delete search character", "删除搜索字符"},

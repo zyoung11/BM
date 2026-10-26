@@ -182,6 +182,7 @@ func (p *Library) previewColumn(listHeight int) *libraryColumn {
 	entries, ok := p.previewEntriesCache[path]
 	if !ok {
 		entries = readLibraryEntries(path)
+		p.sortEntries(path, entries)
 		p.previewEntriesCache[path] = entries
 	}
 	saved := p.pathHistory[path]
