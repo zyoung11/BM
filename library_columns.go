@@ -219,14 +219,16 @@ func truncateWithEllipsis(text string, width int) string {
 func (p *Library) columnContentWidth(col libraryColumn) int {
 	width := 1
 	if col.isSearch {
+		pad := nameDisplayPad(p.nameDisplayMode, itemBaseNames(col.items))
 		for i, item := range col.items {
-			line, _ := p.getSearchEntryLine(item, i == col.cursor)
+			line, _ := p.getSearchEntryLine(item, pad, i == col.cursor)
 			width = max(width, runewidth.StringWidth(line))
 		}
 	} else {
+		pad := nameDisplayPad(p.nameDisplayMode, entryNames(col.entries))
 		for i, libEntry := range col.entries {
 			fullPath := filepath.Join(col.path, libEntry.entry.Name())
-			line, _ := p.getDirEntryLine(libEntry, fullPath, i == col.cursor)
+			line, _ := p.getDirEntryLine(libEntry, fullPath, pad, i == col.cursor)
 			width = max(width, runewidth.StringWidth(line))
 		}
 	}
@@ -351,11 +353,12 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 // 预览列以此定位，横线下的长歌名不会推动预览位置。
 func (p *Library) searchFolderWidth(col libraryColumn) int {
 	width := 1
+	pad := nameDisplayPad(p.nameDisplayMode, itemBaseNames(col.items))
 	for i, item := range col.items {
 		if col.dirCount > 0 && i >= col.dirCount {
 			break
 		}
-		line, _ := p.getSearchEntryLine(item, i == col.cursor)
+		line, _ := p.getSearchEntryLine(item, pad, i == col.cursor)
 		width = max(width, runewidth.StringWidth(line))
 	}
 	return width
@@ -502,7 +505,8 @@ func (p *Library) drawColumnRow(geom columnGeometry, row int, dim bool) string {
 		if itemIdx < 0 || itemIdx >= len(col.items) {
 			return ""
 		}
-		line, style := p.getSearchEntryLine(col.items[itemIdx], itemIdx == col.cursor)
+		pad := nameDisplayPad(p.nameDisplayMode, itemBaseNames(col.items))
+		line, style := p.getSearchEntryLine(col.items[itemIdx], pad, itemIdx == col.cursor)
 		return drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, dim)
 	}
 	idx := col.offset + row
@@ -510,7 +514,8 @@ func (p *Library) drawColumnRow(geom columnGeometry, row int, dim bool) string {
 		return ""
 	}
 	fullPath := filepath.Join(col.path, col.entries[idx].entry.Name())
-	line, style := p.getDirEntryLine(col.entries[idx], fullPath, idx == col.cursor)
+	pad := nameDisplayPad(p.nameDisplayMode, entryNames(col.entries))
+	line, style := p.getDirEntryLine(col.entries[idx], fullPath, pad, idx == col.cursor)
 	return drawColumnCell(geom.x, geom.width, y, line, style, idx == col.cursor, dim)
 }
 
@@ -560,7 +565,8 @@ func (p *Library) redrawColumnRow(geom columnGeometry, entryIdx int) string {
 		return clearColumnCell(geom.x, geom.width, y)
 	}
 	fullPath := filepath.Join(col.path, col.entries[entryIdx].entry.Name())
-	line, style := p.getDirEntryLine(col.entries[entryIdx], fullPath, entryIdx == col.cursor)
+	pad := nameDisplayPad(p.nameDisplayMode, entryNames(col.entries))
+	line, style := p.getDirEntryLine(col.entries[entryIdx], fullPath, pad, entryIdx == col.cursor)
 	return drawColumnCell(geom.x, geom.width, y, line, style, entryIdx == col.cursor, false)
 }
 
@@ -579,14 +585,15 @@ func (p *Library) redrawSearchRow(geom columnGeometry, itemIdx int) string {
 	if itemIdx < 0 || itemIdx >= len(col.items) {
 		return clearColumnCell(geom.x, geom.width, y)
 	}
-	line, style := p.getSearchEntryLine(col.items[itemIdx], itemIdx == col.cursor)
+	pad := nameDisplayPad(p.nameDisplayMode, itemBaseNames(col.items))
+	line, style := p.getSearchEntryLine(col.items[itemIdx], pad, itemIdx == col.cursor)
 	return drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, false)
 }
 
 // getSearchEntryLine generates the display line and style for one search result.
 //
 // getSearchEntryLine 为单条搜索结果生成显示行和样式。
-func (p *Library) getSearchEntryLine(fullPath string, isCursor bool) (string, string) {
+func (p *Library) getSearchEntryLine(fullPath string, pad int, isCursor bool) (string, string) {
 	cleanInitial := filepath.Clean(p.initialPath)
 
 	info, err := os.Stat(fullPath)
@@ -607,7 +614,7 @@ func (p *Library) getSearchEntryLine(fullPath string, isCursor bool) (string, st
 			}
 		}
 	} else {
-		displayPath = filepath.Base(fullPath)
+		displayPath = displaySongName(filepath.Base(fullPath), p.nameDisplayMode, pad)
 	}
 
 	isSelected := p.selected[fullPath]

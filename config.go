@@ -70,36 +70,38 @@ type Config struct {
 //
 // AppConfig 保存应用程序级别的配置设置。
 type AppConfig struct {
-	MaxHistorySize       int    `toml:"max_history_size"`
-	SwitchDebounceMs     int    `toml:"switch_debounce_ms"`
-	LayoutDebounceMs     int    `toml:"layout_debounce_ms"`
-	DefaultPage          int    `toml:"default_page"`
-	DefaultPlayMode      int    `toml:"default_play_mode"`
-	DefaultSort          int    `toml:"default_sort"`
-	DefaultLayout        int    `toml:"default_layout"`
-	SessionMemory        int    `toml:"session_memory"`
-	ConfirmQuitPlayer    bool   `toml:"confirm_quit_player"`
-	ConfirmQuitPlaylist  bool   `toml:"confirm_quit_playlist"`
-	ConfirmQuitLibrary   bool   `toml:"confirm_quit_library"`
-	HelpLanguage         string `toml:"help_language"`
-	RememberVolume       bool   `toml:"remember_volume"`
-	RememberPlaybackRate bool   `toml:"remember_playback_rate"`
-	DefaultColorR        int    `toml:"default_color_r"`
-	DefaultColorG        int    `toml:"default_color_g"`
-	DefaultColorB        int    `toml:"default_color_b"`
-	ImageProtocol        string `toml:"image_protocol"`
-	EnableNotifications  bool   `toml:"enable_notifications"`
-	LibraryPath          string `toml:"library_path"`
-	Storage              string `toml:"storage"`
-	DefaultCoverPath     string `toml:"default_cover_path"`
-	EnableFolderCovers   bool   `toml:"enable_folder_covers"`
-	Icons                string `toml:"icons"`
-	ShuffleHistoryWindow int    `toml:"shuffle_history_window"`
-	MaxSearchDirs        int    `toml:"max_search_dirs"`
-	MinColumnWidth       int    `toml:"min_column_width"`
-	ProgressBarWidth     int    `toml:"progress_bar_width"`
-	LibraryRefreshMs     int    `toml:"library_refresh_ms"`
-	LibraryRefreshBgMs   int    `toml:"library_refresh_bg_ms"`
+	MaxHistorySize             int    `toml:"max_history_size"`
+	SwitchDebounceMs           int    `toml:"switch_debounce_ms"`
+	LayoutDebounceMs           int    `toml:"layout_debounce_ms"`
+	DefaultPage                int    `toml:"default_page"`
+	DefaultPlayMode            int    `toml:"default_play_mode"`
+	DefaultSort                int    `toml:"default_sort"`
+	DefaultNameDisplayLibrary  int    `toml:"default_name_display_library"`
+	DefaultNameDisplayPlaylist int    `toml:"default_name_display_playlist"`
+	DefaultLayout              int    `toml:"default_layout"`
+	SessionMemory              int    `toml:"session_memory"`
+	ConfirmQuitPlayer          bool   `toml:"confirm_quit_player"`
+	ConfirmQuitPlaylist        bool   `toml:"confirm_quit_playlist"`
+	ConfirmQuitLibrary         bool   `toml:"confirm_quit_library"`
+	HelpLanguage               string `toml:"help_language"`
+	RememberVolume             bool   `toml:"remember_volume"`
+	RememberPlaybackRate       bool   `toml:"remember_playback_rate"`
+	DefaultColorR              int    `toml:"default_color_r"`
+	DefaultColorG              int    `toml:"default_color_g"`
+	DefaultColorB              int    `toml:"default_color_b"`
+	ImageProtocol              string `toml:"image_protocol"`
+	EnableNotifications        bool   `toml:"enable_notifications"`
+	LibraryPath                string `toml:"library_path"`
+	Storage                    string `toml:"storage"`
+	DefaultCoverPath           string `toml:"default_cover_path"`
+	EnableFolderCovers         bool   `toml:"enable_folder_covers"`
+	Icons                      string `toml:"icons"`
+	ShuffleHistoryWindow       int    `toml:"shuffle_history_window"`
+	MaxSearchDirs              int    `toml:"max_search_dirs"`
+	MinColumnWidth             int    `toml:"min_column_width"`
+	ProgressBarWidth           int    `toml:"progress_bar_width"`
+	LibraryRefreshMs           int    `toml:"library_refresh_ms"`
+	LibraryRefreshBgMs         int    `toml:"library_refresh_bg_ms"`
 }
 
 // Keymap defines all the keybindings for the application, organized by page.
@@ -158,6 +160,7 @@ type LibraryKeymap struct {
 	ToggleSelectAll Key `toml:"ToggleSelectAll"`
 	Search          Key `toml:"Search"`
 	Sort            Key `toml:"Sort"`
+	NameDisplay     Key `toml:"NameDisplay"`
 
 	// Search mode keybindings
 	// 搜索模式按键绑定
@@ -179,11 +182,12 @@ type SearchModeKeymap struct {
 type PlaylistKeymap struct {
 	// Normal mode keybindings
 	// 普通模式按键绑定
-	NavUp      Key `toml:"NavUp"`
-	NavDown    Key `toml:"NavDown"`
-	RemoveSong Key `toml:"RemoveSong"`
-	PlaySong   Key `toml:"PlaySong"`
-	Search     Key `toml:"Search"`
+	NavUp       Key `toml:"NavUp"`
+	NavDown     Key `toml:"NavDown"`
+	RemoveSong  Key `toml:"RemoveSong"`
+	PlaySong    Key `toml:"PlaySong"`
+	Search      Key `toml:"Search"`
+	NameDisplay Key `toml:"NameDisplay"`
 
 	// Search mode keybindings
 	// 搜索模式按键绑定
@@ -387,6 +391,8 @@ func updateConfigFile(configPath string) error {
 		{"[keymap.global]", "ShowHelp", "    ShowHelp = [\"?\"]", "    # Show the keyboard shortcuts help page.\n    #\n    # 显示快捷键帮助页面。"},
 		{"[keymap.player]", "ToggleLayout", "    ToggleLayout = [\"o\"]", "    # Toggle layout mode (only works in wide/narrow mode).\n    #\n    # 切换布局模式（仅在宽/窄模式下有效）。"},
 		{"[keymap.library]", "Sort", "    Sort = [\",\"]", "    # Toggle the sort mode of the browsing lists - cycles default, modified time and selected.\n    # Does not affect search results.\n    #\n    # 切换浏览列表的排序方式 - 在默认、按修改时间、按选中之间循环。\n    # 不影响搜索结果。"},
+		{"[keymap.library]", "NameDisplay", "    NameDisplay = [\".\"]", "    # Toggle the song name display mode - cycles default, hide extension, force align, title first and title first with align.\n    # Names without a \" - \" separator are always shown unchanged.\n    #\n    # 切换歌曲名显示模式 - 在默认、隐藏后缀、强制对齐、歌名在前、歌名在前且对齐之间循环。\n    # 不含 \" - \" 分隔符的名称始终原样显示。"},
+		{"[keymap.playlist]", "NameDisplay", "    NameDisplay = [\".\"]", "    # Toggle the song name display mode - cycles default, hide extension, force align, title first and title first with align.\n    # Names without a \" - \" separator are always shown unchanged.\n    #\n    # 切换歌曲名显示模式 - 在默认、隐藏后缀、强制对齐、歌名在前、歌名在前且对齐之间循环。\n    # 不含 \" - \" 分隔符的名称始终原样显示。"},
 		{"[keymap.player]", "ToggleNotifications", "    ToggleNotifications = [\"n\"]", "    # Toggle desktop notifications for song changes (runtime only, the\n    # startup state comes from enable_notifications).\n    #\n    # 切换歌曲变更的桌面通知（仅运行时生效，启动状态来自 enable_notifications）。"},
 		{"[icons.default]", "notifications_on", "notifications_on = \"🕭\"", "# Song change notifications enabled icon.\n#\n# 歌曲变更通知开启图标。"},
 		{"[icons.default]", "notifications_off", "notifications_off = \"✗\"", "# Song change notifications disabled icon.\n#\n# 歌曲变更通知关闭图标。"},
@@ -397,6 +403,8 @@ func updateConfigFile(configPath string) error {
 		{"[app]", "default_page", "default_page = 3", "# Default starting page - the page displayed when the program starts.\n# 0 = Player page, 1 = PlayList page, 2 = Library page, 3 = memory (use saved page from last session).\n#\n# 默认启动页面 - 程序启动时显示的页面。\n# 0 = 播放器页面, 1 = 播放列表页面, 2 = 媒体库页面, 3 = 记忆（使用上次保存的页面）。"},
 		{"[app]", "default_play_mode", "default_play_mode = 3", "# Default play mode - the playback mode when the program starts.\n# 0 = repeat one, 1 = repeat all, 2 = random, 3 = memory (use saved play mode from last session).\n# Memory falls back to repeat one when no play mode has been saved yet.\n#\n# 默认播放模式 - 程序启动时的播放模式。\n# 0 = 单曲循环, 1 = 列表循环, 2 = 随机播放, 3 = 记忆（使用上次保存的播放模式）。\n# 记忆模式在尚未保存播放模式时使用单曲循环。"},
 		{"[app]", "default_sort", "default_sort = 3", "# Default sort mode - the sort order of the Library browsing lists when the program starts.\n# 0 = default (directories first, by name), 1 = modified time with the newest on top, 2 = selected on top, 3 = memory (use saved sort from last session).\n# Memory falls back to the default sort when no sort mode has been saved yet.\n# The sort mode can be changed at runtime from the Library page and the memory mode keeps that choice.\n#\n# 默认排序方式 - 程序启动时媒体库浏览列表的排序。\n# 0 = 默认（目录在前，按名称）, 1 = 按修改时间新的在上, 2 = 选中的在上, 3 = 记忆（使用上次保存的排序方式）。\n# 记忆模式在尚未保存排序方式时使用默认排序。\n# 排序方式可在媒体库页面运行时切换，记忆模式会沿用该选择。"},
+		{"[app]", "default_name_display_library", "default_name_display_library = 5", "# Default song name display mode of the Library lists - how song file names are shown in the browsing lists and the search results.\n# 0 = default (file name as is), 1 = hide the file extension, 2 = force align, 3 = hide the extension with the title before the artist, 4 = hide the extension with the title before the artist and force align, 5 = memory (use saved mode from last session).\n# Force align pads the first name field so the separator and the second field start in the same column in every listing.\n# Names without a \" - \" separator are always shown unchanged. The mode can be changed at runtime and the memory mode keeps that choice.\n# The Library and the PlayList keep separate settings and their search results follow their page.\n#\n# 媒体库列表的默认歌曲名显示模式 - 浏览列表和搜索结果中歌曲文件名的显示方式。\n# 0 = 默认（原文件名）, 1 = 隐藏文件后缀, 2 = 强制对齐, 3 = 隐藏后缀且歌名在前歌手在后, 4 = 隐藏后缀且歌名在前歌手在后并强制对齐, 5 = 记忆（使用上次保存的模式）。\n# 强制对齐会填充第一个名称字段，使分隔符和第二个字段在每个列表内各列对齐。\n# 不含 \" - \" 分隔符的名称始终原样显示。模式可在运行时切换，记忆模式会沿用该选择。\n# 媒体库与播放列表各自独立设置，搜索结果跟随所在页面。"},
+		{"[app]", "default_name_display_playlist", "default_name_display_playlist = 5", "# Default song name display mode of the PlayList - see default_name_display_library for the mode values.\n# The PlayList keeps its own setting and its search results follow it.\n#\n# 播放列表的默认歌曲名显示模式 - 模式取值见 default_name_display_library。\n# 播放列表独立设置，其搜索结果跟随该设置。"},
 		{"[app]", "session_memory", "session_memory = 3", "# Session memory - how much state to restore on startup.\n# 0 = nothing, 1 = remember the music folder, 2 = also the playlist, 3 = also resume the last played song.\n#\n# 会话记忆 - 启动时恢复多少状态。\n# 0 = 不记忆, 1 = 记住音乐文件夹, 2 = 同时记住播放列表, 3 = 同时继续播放上次的歌曲。"},
 		{"[app]", "confirm_quit_player", "confirm_quit_player = true", "# Whether to show a quit confirmation prompt on the Player page.\n# Press enter to quit and esc to close the prompt.\n#\n# 是否在播放器页面退出时显示确认提示。\n# 按 enter 退出程序，按 esc 关闭提示。"},
 		{"[app]", "confirm_quit_playlist", "confirm_quit_playlist = true", "# Whether to show a quit confirmation prompt on the PlayList page.\n# Press enter to quit and esc to close the prompt.\n#\n# 是否在播放列表页面退出时显示确认提示。\n# 按 enter 退出程序，按 esc 关闭提示。"},
