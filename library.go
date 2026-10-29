@@ -81,6 +81,7 @@ type Library struct {
 	// searchReturns 堆叠保存从搜索结果进入目录时暂存的搜索状态。
 	searchReturns     []searchReturnState
 	globalFileCache   []string // Cache of all audio file paths. / 所有音频文件路径的缓存。
+	globalDirSet      map[string]bool
 	filteredSongPaths []string // Results of the current search. / 当前搜索的结果。
 	searchEngine      *search.Engine
 	searchDirCount    int             // Number of dirs in filtered results, for separator. / 筛选结果中目录数量，用于分割线。
@@ -331,7 +332,7 @@ func (p *Library) ensureGlobalCache() {
 	if p.globalFileCache != nil {
 		return
 	}
-	p.globalFileCache, p.searchEngine = buildGlobalCache(p.initialPath)
+	p.globalFileCache, p.globalDirSet, p.searchEngine = buildGlobalCache(p.initialPath)
 }
 
 // buildGlobalCache walks the library tree and collects every audio file and
@@ -340,7 +341,7 @@ func (p *Library) ensureGlobalCache() {
 //
 // buildGlobalCache 遍历媒体库树，收集全部音频文件和含音频的目录，
 // 并返回基于它们构建的搜索索引。
-func buildGlobalCache(root string) ([]string, *search.Engine) {
+func buildGlobalCache(root string) ([]string, map[string]bool, *search.Engine) {
 
 	allAudioFiles := make(map[string]bool)
 	dirWithAudio := make(map[string]bool)
@@ -411,7 +412,7 @@ func buildGlobalCache(root string) ([]string, *search.Engine) {
 	}
 	engine := search.New()
 	engine.BuildFromPaths(cache)
-	return cache, engine
+	return cache, dirWithAudio, engine
 }
 
 // refreshBrowsing re-reads the visible directory listings after files changed
@@ -482,9 +483,9 @@ func (p *Library) scheduleGlobalCacheRefresh() {
 	p.cacheRefreshing = true
 	root := p.initialPath
 	go func() {
-		cache, engine := buildGlobalCache(root)
+		cache, dirSet, engine := buildGlobalCache(root)
 		select {
-		case p.app.actionQueue <- func() { p.applyGlobalCache(cache, engine) }:
+		case p.app.actionQueue <- func() { p.applyGlobalCache(cache, dirSet, engine) }:
 		case <-p.app.quitChan:
 		}
 	}()
@@ -496,9 +497,10 @@ func (p *Library) scheduleGlobalCacheRefresh() {
 //
 // applyGlobalCache 换入重建的全局缓存，刷新搜索结果，并清除保存的搜索状态中
 // 已失效的路径。仅在可见内容变化时重绘页面。
-func (p *Library) applyGlobalCache(cache []string, engine *search.Engine) {
+func (p *Library) applyGlobalCache(cache []string, dirSet map[string]bool, engine *search.Engine) {
 	p.cacheRefreshing = false
 	p.globalFileCache = cache
+	p.globalDirSet = dirSet
 	p.searchEngine = engine
 
 	changed := false
@@ -568,6 +570,7 @@ func (p *Library) filterSongs() {
 	}
 
 	p.ensureGlobalCache()
+	query := p.searchEngine.Prepare(p.searchQuery)
 	type scoredItem struct {
 		path     string
 		score    float64
@@ -577,15 +580,12 @@ func (p *Library) filterSongs() {
 	var scoredItems []scoredItem
 
 	for _, path := range p.globalFileCache {
-		score := p.searchEngine.Match(p.searchQuery, path)
+		score := p.searchEngine.ScorePrepared(query, path)
 		if score > 0 {
-			info, err := os.Stat(path)
-			isDir := err == nil && info.IsDir()
-
 			scoredItems = append(scoredItems, scoredItem{
 				path:     path,
 				score:    score,
-				isDir:    isDir,
+				isDir:    p.globalDirSet[path],
 				itemName: filepath.Base(path),
 			})
 		}
