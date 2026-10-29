@@ -118,9 +118,10 @@ func (p *PlayList) filterPlaylist() {
 
 		p.ensureSearchIndex()
 
+		query := p.searchEngine.Prepare(p.searchQuery)
 		for i, songPath := range p.app.Playlist {
 			songName := filepath.Base(songPath)
-			score := p.searchEngine.Match(p.searchQuery, songName)
+			score := p.searchEngine.ScorePrepared(query, songName)
 			if score > 0 {
 				scoredSongs = append(scoredSongs, scoredSong{
 					path:  songPath,

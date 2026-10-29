@@ -30,9 +30,10 @@ type libraryColumn struct {
 //
 // columnGeometry 描述单列在屏幕上的绘制位置。
 type columnGeometry struct {
-	x     int
-	width int
-	col   libraryColumn
+	x       int
+	width   int
+	col     libraryColumn
+	namePad int
 }
 
 // readLibraryEntries lists the browsable entries of a directory with
@@ -216,16 +217,14 @@ func truncateWithEllipsis(text string, width int) string {
 // 搜索列仅按文件夹条目计算宽度，分隔线下的长歌名在列内省略，
 // 避免把预览列推到最右侧。光标行的对称填充在绘制时从列宽内扣除，
 // 保证列宽与光标位置无关，下一列的位置保持不动。
-func (p *Library) columnContentWidth(col libraryColumn) int {
+func (p *Library) columnContentWidth(col libraryColumn, pad int) int {
 	width := 1
 	if col.isSearch {
-		pad := nameDisplayPad(p.nameDisplayMode, itemBaseNames(col.items))
 		for i, item := range col.items {
 			line, _ := p.getSearchEntryLine(item, pad, i == col.cursor)
 			width = max(width, runewidth.StringWidth(line))
 		}
 	} else {
-		pad := nameDisplayPad(p.nameDisplayMode, entryNames(col.entries))
 		for i, libEntry := range col.entries {
 			fullPath := filepath.Join(col.path, libEntry.entry.Name())
 			line, _ := p.getDirEntryLine(libEntry, fullPath, pad, i == col.cursor)
@@ -233,6 +232,16 @@ func (p *Library) columnContentWidth(col libraryColumn) int {
 		}
 	}
 	return width
+}
+
+// colNamePad returns the name alignment pad of one column.
+//
+// colNamePad 返回一列的名称对齐填充宽度。
+func (p *Library) colNamePad(col libraryColumn) int {
+	if col.isSearch {
+		return nameDisplayPad(p.nameDisplayMode, itemBaseNames(col.items))
+	}
+	return nameDisplayPad(p.nameDisplayMode, entryNames(col.entries))
 }
 
 // planColumns computes the geometry of the visible navigation columns and of
@@ -254,13 +263,17 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	cols := p.viewColumns()
 	minWidth := GlobalConfig.App.MinColumnWidth
 	full := make([]int, len(cols))
+	pads := make([]int, len(cols))
 	for i, col := range cols {
-		full[i] = p.columnContentWidth(col)
+		pads[i] = p.colNamePad(col)
+		full[i] = p.columnContentWidth(col, pads[i])
 	}
 	pcol := p.previewColumn(listHeight)
 	var pfull int
+	var ppad int
 	if pcol != nil {
-		pfull = p.columnContentWidth(*pcol)
+		ppad = p.colNamePad(*pcol)
+		pfull = p.columnContentWidth(*pcol, ppad)
 	}
 
 	avail := w - 1
@@ -268,7 +281,7 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	last := len(cols) - 1
 	for i, col := range cols {
 		if col.isSearch && i != last {
-			full[i] = p.searchFolderWidth(col)
+			full[i] = p.searchFolderWidth(col, pads[i])
 		}
 	}
 
@@ -319,7 +332,7 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	}
 	geoms := make([]columnGeometry, 0, len(placed))
 	for _, i := range slices.Backward(placed) {
-		geoms = append(geoms, columnGeometry{x: x, width: widths[i], col: cols[i]})
+		geoms = append(geoms, columnGeometry{x: x, width: widths[i], col: cols[i], namePad: pads[i]})
 		x += widths[i] + 1
 	}
 
@@ -328,7 +341,7 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 		lastGeom := geoms[len(geoms)-1]
 		previewX := lastGeom.x + lastGeom.width + 1
 		if lastGeom.col.isSearch {
-			previewX = lastGeom.x + p.searchFolderWidth(lastGeom.col) + 1
+			previewX = lastGeom.x + p.searchFolderWidth(lastGeom.col, lastGeom.namePad) + 1
 		}
 		previewAvail := avail - (previewX - 1)
 		previewWidth := 0
@@ -339,7 +352,7 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 			previewWidth = previewAvail
 		}
 		if previewWidth > 0 {
-			preview = &columnGeometry{x: previewX, width: previewWidth, col: *pcol}
+			preview = &columnGeometry{x: previewX, width: previewWidth, col: *pcol, namePad: ppad}
 		}
 	}
 	return geoms, preview
@@ -351,9 +364,8 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 //
 // searchFolderWidth 测量搜索列分隔线上方文件夹区的宽度。
 // 预览列以此定位，横线下的长歌名不会推动预览位置。
-func (p *Library) searchFolderWidth(col libraryColumn) int {
+func (p *Library) searchFolderWidth(col libraryColumn, pad int) int {
 	width := 1
-	pad := nameDisplayPad(p.nameDisplayMode, itemBaseNames(col.items))
 	for i, item := range col.items {
 		if col.dirCount > 0 && i >= col.dirCount {
 			break
@@ -505,8 +517,7 @@ func (p *Library) drawColumnRow(geom columnGeometry, row int, dim bool) string {
 		if itemIdx < 0 || itemIdx >= len(col.items) {
 			return ""
 		}
-		pad := nameDisplayPad(p.nameDisplayMode, itemBaseNames(col.items))
-		line, style := p.getSearchEntryLine(col.items[itemIdx], pad, itemIdx == col.cursor)
+		line, style := p.getSearchEntryLine(col.items[itemIdx], geom.namePad, itemIdx == col.cursor)
 		return drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, dim)
 	}
 	idx := col.offset + row
@@ -514,8 +525,7 @@ func (p *Library) drawColumnRow(geom columnGeometry, row int, dim bool) string {
 		return ""
 	}
 	fullPath := filepath.Join(col.path, col.entries[idx].entry.Name())
-	pad := nameDisplayPad(p.nameDisplayMode, entryNames(col.entries))
-	line, style := p.getDirEntryLine(col.entries[idx], fullPath, pad, idx == col.cursor)
+	line, style := p.getDirEntryLine(col.entries[idx], fullPath, geom.namePad, idx == col.cursor)
 	return drawColumnCell(geom.x, geom.width, y, line, style, idx == col.cursor, dim)
 }
 
@@ -565,8 +575,7 @@ func (p *Library) redrawColumnRow(geom columnGeometry, entryIdx int) string {
 		return clearColumnCell(geom.x, geom.width, y)
 	}
 	fullPath := filepath.Join(col.path, col.entries[entryIdx].entry.Name())
-	pad := nameDisplayPad(p.nameDisplayMode, entryNames(col.entries))
-	line, style := p.getDirEntryLine(col.entries[entryIdx], fullPath, pad, entryIdx == col.cursor)
+	line, style := p.getDirEntryLine(col.entries[entryIdx], fullPath, geom.namePad, entryIdx == col.cursor)
 	return drawColumnCell(geom.x, geom.width, y, line, style, entryIdx == col.cursor, false)
 }
 
@@ -585,8 +594,7 @@ func (p *Library) redrawSearchRow(geom columnGeometry, itemIdx int) string {
 	if itemIdx < 0 || itemIdx >= len(col.items) {
 		return clearColumnCell(geom.x, geom.width, y)
 	}
-	pad := nameDisplayPad(p.nameDisplayMode, itemBaseNames(col.items))
-	line, style := p.getSearchEntryLine(col.items[itemIdx], pad, itemIdx == col.cursor)
+	line, style := p.getSearchEntryLine(col.items[itemIdx], geom.namePad, itemIdx == col.cursor)
 	return drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, false)
 }
 
@@ -596,8 +604,7 @@ func (p *Library) redrawSearchRow(geom columnGeometry, itemIdx int) string {
 func (p *Library) getSearchEntryLine(fullPath string, pad int, isCursor bool) (string, string) {
 	cleanInitial := filepath.Clean(p.initialPath)
 
-	info, err := os.Stat(fullPath)
-	isDir := err == nil && info.IsDir()
+	isDir := p.globalDirSet[fullPath]
 
 	var displayPath string
 	if isDir {

@@ -13,10 +13,11 @@ import (
 //
 // Engine 提供基于分词的搜索，使用 BM25 评分和 BK-tree 模糊纠错。
 type Engine struct {
-	bkTree    *bkNode
-	termDF    map[string]int
-	totalDocs int
-	avgDocLen float64
+	bkTree     *bkNode
+	termDF     map[string]int
+	totalDocs  int
+	avgDocLen  float64
+	tokenCache map[string][]string
 }
 
 // New creates a new search engine.
@@ -33,6 +34,7 @@ func New() *Engine {
 // 索引基于文件名构建，使模糊纠错能匹配文件/目录名。
 func (e *Engine) BuildFromPaths(paths []string) {
 	e.termDF = make(map[string]int)
+	e.tokenCache = make(map[string][]string, len(paths))
 	e.totalDocs = len(paths)
 	totalLen := 0
 
@@ -41,6 +43,7 @@ func (e *Engine) BuildFromPaths(paths []string) {
 	for _, path := range paths {
 		name := filepath.Base(path)
 		tokens := tokenize(name)
+		e.tokenCache[path] = tokenize(path)
 		totalLen += len(tokens)
 		seen := make(map[string]bool)
 		for _, t := range tokens {
@@ -68,81 +71,134 @@ func (e *Engine) BuildFromPaths(paths []string) {
 	}
 }
 
-// Match scores a target string against a query.
-// At least one token must match. Multi-token queries get a coverage bonus.
-// Short queries (≤3 runes total) are handled by sequential character matching as the primary path.
+// PreparedQuery holds a search query split into tokens once, with the fuzzy
+// correction candidates resolved once per token. Scoring many targets then
+// repeats neither tokenization nor tree search.
 //
-// Match 对目标字符串按查询评分。至少需要一个 token 匹配。
-// 多词查询获得覆盖度奖励。短查询（≤3个字符）以字符级顺序匹配为主路径。
-func (e *Engine) Match(query, target string) float64 {
-	queryTokens := tokenize(query)
-	if len(queryTokens) == 0 {
+// PreparedQuery 保存一次拆分完成的搜索查询，每个词的模糊纠错候选也只解析一次。
+// 对大量目标评分时不再重复分词和树搜索。
+type PreparedQuery struct {
+	tokens  []string
+	runeLen int
+	fuzzy   []map[string]bool
+}
+
+// Prepare splits the query into tokens and resolves the fuzzy candidates of
+// each token against the index.
+//
+// Prepare 把查询拆成词，并针对索引解析每个词的模糊候选。
+func (e *Engine) Prepare(query string) *PreparedQuery {
+	tokens := tokenize(query)
+	q := &PreparedQuery{tokens: tokens, runeLen: utf8.RuneCountInString(query)}
+	if e.bkTree == nil || len(tokens) == 0 {
+		return q
+	}
+	q.fuzzy = make([]map[string]bool, len(tokens))
+	for i, token := range tokens {
+		set := make(map[string]bool)
+		for _, candidate := range e.bkTree.search(token, 2) {
+			if candidate != token {
+				set[candidate] = true
+			}
+		}
+		q.fuzzy[i] = set
+	}
+	return q
+}
+
+// cachedTokens returns the tokenized target, computing and caching it on
+// first use.
+//
+// cachedTokens 返回目标的分词结果，首次使用时计算并缓存。
+func (e *Engine) cachedTokens(target string) []string {
+	if tokens, ok := e.tokenCache[target]; ok {
+		return tokens
+	}
+	tokens := tokenize(target)
+	if e.tokenCache == nil {
+		e.tokenCache = make(map[string][]string)
+	}
+	e.tokenCache[target] = tokens
+	return tokens
+}
+
+// ScorePrepared scores one target against a prepared query. At least one
+// token must match. Multi-token queries get a coverage bonus.
+//
+// ScorePrepared 对单个目标按预备好的查询评分。至少需要一个词匹配。
+// 多词查询获得覆盖度奖励。
+func (e *Engine) ScorePrepared(q *PreparedQuery, target string) float64 {
+	if len(q.tokens) == 0 {
 		return 1.0
 	}
-
-	targetTokens := tokenize(target)
+	targetTokens := e.cachedTokens(target)
 	docLen := len(targetTokens)
-
-	queryRuneLen := utf8.RuneCountInString(query)
 
 	totalScore := 0.0
 	matchedCount := 0
-	for _, qt := range queryTokens {
-		bestScore := e.matchToken(qt, target, targetTokens, docLen, queryRuneLen)
-		if bestScore > 0 {
-			totalScore += bestScore
+	for i, qt := range q.tokens {
+		score := e.scoreToken(q, i, qt, target, targetTokens, docLen)
+		if score > 0 {
+			totalScore += score
 			matchedCount++
 		}
 	}
-
 	if matchedCount == 0 {
 		return 0
 	}
-
-	coverage := float64(matchedCount) / float64(len(queryTokens))
+	coverage := float64(matchedCount) / float64(len(q.tokens))
 	return totalScore * (0.6 + 0.4*coverage)
 }
 
-func (e *Engine) matchToken(queryToken, target string, targetTokens []string, docLen int, queryRuneLen int) float64 {
-	baseName := filepath.Base(target)
-	baseLower := strings.ToLower(baseName)
-
+// scoreToken scores one query token through the matcher stages: exact token,
+// token prefix, substring of the base name, sequential character match and
+// fuzzy correction. The fuzzy stage picks the best matching candidate.
+//
+// scoreToken 按级联为单个查询词评分：精确匹配、词前缀、基础名子串、
+// 字符顺序匹配，最后是模糊纠错。模糊级取匹配候选中的最高分。
+func (e *Engine) scoreToken(q *PreparedQuery, idx int, queryToken, target string, targetTokens []string, docLen int) float64 {
 	if slices.Contains(targetTokens, queryToken) {
-		tf := countIn(queryToken, targetTokens)
-		return e.bm25Score(queryToken, tf, docLen)
+		return e.bm25Score(queryToken, countIn(queryToken, targetTokens), docLen)
 	}
-
 	for _, tt := range targetTokens {
 		if strings.HasPrefix(tt, queryToken) {
 			return e.bm25Score(queryToken, 1, docLen) * 0.9
 		}
 	}
-
-	if strings.Contains(baseLower, queryToken) {
+	baseName := filepath.Base(target)
+	if strings.Contains(strings.ToLower(baseName), queryToken) {
 		return e.bm25Score(queryToken, 1, docLen) * 0.6
 	}
-
 	seqWeight := 0.7
-	if queryRuneLen <= 3 {
+	if q.runeLen <= 3 {
 		seqWeight = 0.8
 	}
 	if seqMatch(queryToken, baseName) {
 		return e.bm25Score(queryToken, 1, docLen) * seqWeight
 	}
-
-	if e.bkTree != nil {
-		candidates := e.bkTree.search(queryToken, 2)
-		for _, c := range candidates {
-			if c == queryToken {
-				continue
-			}
-			if slices.Contains(targetTokens, c) {
-				return e.bm25Score(c, 1, docLen) * 0.5
-			}
+	if q.fuzzy == nil {
+		return 0
+	}
+	best := 0.0
+	for _, tt := range targetTokens {
+		if tt == queryToken || !q.fuzzy[idx][tt] {
+			continue
+		}
+		if score := e.bm25Score(tt, 1, docLen) * 0.5; score > best {
+			best = score
 		}
 	}
+	return best
+}
 
-	return 0
+// Match scores a target string against a query. It prepares the query for a
+// single call; loops over many targets should call Prepare once and then
+// ScorePrepared per target.
+//
+// Match 对目标字符串按查询评分，为单次调用预备查询。
+// 对大量目标的循环应只调用一次 Prepare，再对每个目标调用 ScorePrepared。
+func (e *Engine) Match(query, target string) float64 {
+	return e.ScorePrepared(e.Prepare(query), target)
 }
 
 func (e *Engine) bm25Score(term string, tf, docLen int) float64 {
