@@ -330,6 +330,14 @@ func (p *PlayerPage) cycleLayout() {
 	p.View()
 }
 
+// layoutIndicatorSlot is the fixed display width the layout indicator text
+// is padded to, so the centered label neither shifts between modes nor sits
+// off center on even-width terminals.
+//
+// layoutIndicatorSlot 是布局指示文字填充到的固定显示宽度，
+// 使居中的标签在切换时不左右移动，在偶数宽度终端上也保持对称。
+const layoutIndicatorSlot = 6
+
 // showLayoutIndicator draws the current layout mode name in the middle of an
 // otherwise blank screen. The name stays alone on screen until the indicator
 // ticks counted down by Tick run out and View restores the regular content.
@@ -351,16 +359,20 @@ func (p *PlayerPage) showLayoutIndicator() {
 	case LayoutSwitchText:
 		layoutStr = "text"
 	case LayoutSwitchImage:
-		layoutStr = "image"
+		layoutStr = "cover"
 	case LayoutSwitchNarrow:
 		layoutStr = "narrow"
 	default:
 		layoutStr = "auto"
 	}
 
-	msgX := (w - runewidth.StringWidth(layoutStr)) / 2
+	slot := layoutStr
+	if pad := layoutIndicatorSlot - runewidth.StringWidth(slot); pad > 0 {
+		slot += strings.Repeat(" ", pad)
+	}
+	msgX := (w - layoutIndicatorSlot) / 2
 	centerRow := h / 2
-	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow, msgX, layoutStr)
+	fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow, msgX, slot)
 }
 
 // Tick is called periodically by the main loop to update dynamic elements like timers and progress bars.

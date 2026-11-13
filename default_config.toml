@@ -70,7 +70,7 @@ default_name_display_library = 5
 default_name_display_playlist = 5
 
 # Player page layout - the layout displayed when the program starts.
-# 0 = auto, 1 = narrow style, 2 = text only, 3 = image only, 4 = memory (use saved layout from last session).
+# 0 = auto, 1 = narrow style, 2 = text only, 3 = cover only, 4 = memory (use saved layout from last session).
 #
 # 播放页布局 - 程序启动时播放页显示的布局。
 # 0 = 自动, 1 = 窄屏样式, 2 = 仅文本, 3 = 仅封面, 4 = 记忆（使用上次保存的布局）。
