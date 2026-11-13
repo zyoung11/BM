@@ -25,8 +25,13 @@ type PlayList struct {
 	cursor int // The UI cursor on the viewPlaylist. / UI在viewPlaylist上的光标。
 	offset int
 
-	isSearching     bool
-	searchQuery     string
+	isSearching bool
+	searchQuery string
+	// searchInputPos is the caret position inside the search input, counted
+	// in runes.
+	//
+	// searchInputPos 是搜索输入框内的光标位置，以字符计。
+	searchInputPos  int
 	viewPlaylist    []string // The filtered playlist to be displayed. / 要显示的已过滤播放列表。
 	originalIndices []int    // Map from viewPlaylist index to app.Playlist index. / 从viewPlaylist索引到app.Playlist索引的映射。
 
@@ -189,30 +194,53 @@ func (p *PlayList) ensureSearchIndex() {
 // HandleKey 处理播放列表的用户输入。
 func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 	if p.isSearching {
+		runes := []rune(p.searchQuery)
+		if p.searchInputPos > len(runes) {
+			p.searchInputPos = len(runes)
+		}
 		if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.ConfirmSearch) {
 			p.isSearching = false
 		} else if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.EscapeSearch) {
 			p.isSearching = false
 			p.mapCursorToFullList()
 			p.searchQuery = ""
+			p.searchInputPos = 0
 			p.filterPlaylist()
 		} else if IsKey(key, GlobalConfig.Keymap.Playlist.SearchMode.SearchBackspace) {
-			if len(p.searchQuery) > 0 {
-				runes := []rune(p.searchQuery)
-				p.searchQuery = string(runes[:len(runes)-1])
+			if p.searchInputPos > 0 {
+				p.searchQuery = string(runes[:p.searchInputPos-1]) + string(runes[p.searchInputPos:])
+				p.searchInputPos--
 				p.cursor = 0
 				p.offset = 0
 				p.filterPlaylist()
 			}
-		} else if key == KeyArrowUp || key == KeyArrowDown || key == KeyArrowLeft || key == KeyArrowRight {
+		} else if key == KeyDelete {
+			if p.searchInputPos < len(runes) {
+				p.searchQuery = string(runes[:p.searchInputPos]) + string(runes[p.searchInputPos+1:])
+				p.cursor = 0
+				p.offset = 0
+				p.filterPlaylist()
+			}
+		} else if key == KeyArrowLeft {
+			if p.searchInputPos > 0 {
+				p.searchInputPos--
+			}
+		} else if key == KeyArrowRight {
+			if p.searchInputPos < len(runes) {
+				p.searchInputPos++
+			}
+		} else if key == KeyHome {
+			p.searchInputPos = 0
+		} else if key == KeyEnd {
+			p.searchInputPos = len(runes)
+		} else if key == KeyArrowUp || key == KeyArrowDown {
 			p.isSearching = false
-		} else {
-			if key >= 32 {
-				p.searchQuery += string(key)
-				p.cursor = 0
-				p.offset = 0
-				p.filterPlaylist()
-			}
+		} else if key >= 32 {
+			p.searchQuery = string(runes[:p.searchInputPos]) + string(key) + string(runes[p.searchInputPos:])
+			p.searchInputPos++
+			p.cursor = 0
+			p.offset = 0
+			p.filterPlaylist()
 		}
 		p.View()
 		return nil, false, nil
@@ -229,6 +257,7 @@ func (p *PlayList) HandleKey(key rune) (Page, bool, error) {
 		}
 	} else if IsKey(key, GlobalConfig.Keymap.Playlist.Search) {
 		p.isSearching = true
+		p.searchInputPos = len([]rune(p.searchQuery))
 	} else if IsKey(key, GlobalConfig.Keymap.Playlist.PlaySong) {
 		if len(p.viewPlaylist) > 0 && p.cursor >= 0 && p.cursor < len(p.viewPlaylist) {
 			songPath := p.viewPlaylist[p.cursor]
@@ -404,7 +433,9 @@ func (p *PlayList) View() {
 	fmt.Printf("\x1b[%d;1H\x1b[K", h)
 	fmt.Printf("\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, footerX, footer)
 	if p.isSearching {
-		cursorX := footerX + len("Search: ") + len(p.searchQuery)
+		runes := []rune(p.searchQuery)
+		pos := min(p.searchInputPos, len(runes))
+		cursorX := footerX + runewidth.StringWidth("Search: "+string(runes[:pos]))
 		if cursorX <= w {
 			fmt.Printf("\x1b[%d;%dH█", h, cursorX)
 		}

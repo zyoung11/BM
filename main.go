@@ -42,6 +42,9 @@ const (
 	KeyArrowRight
 	KeyEnter
 	KeyBackspace
+	KeyDelete
+	KeyHome
+	KeyEnd
 )
 
 // consumeCSISequence reads and discards a CSI (Control Sequence Introducer) escape
@@ -55,19 +58,30 @@ const (
 // 只有箭头键序列（以A/B/C/D结尾）会被转发；所有其他CSI序列会被静默丢弃，
 // 以防止ESC泄露为退出信号。
 func consumeCSISequence(keys chan rune, keyCh chan<- rune) {
+	var param strings.Builder
 	for {
 		select {
 		case b := <-keys:
+			if b >= '0' && b <= '9' {
+				param.WriteString(string(b))
+				continue
+			}
 			if b >= 0x40 && b <= 0x7E {
-				switch b {
-				case 'A':
+				switch {
+				case b == 'A':
 					keyCh <- KeyArrowUp
-				case 'B':
+				case b == 'B':
 					keyCh <- KeyArrowDown
-				case 'C':
+				case b == 'C':
 					keyCh <- KeyArrowRight
-				case 'D':
+				case b == 'D':
 					keyCh <- KeyArrowLeft
+				case b == '~' && param.String() == "3":
+					keyCh <- KeyDelete
+				case b == 'H' || (b == '~' && (param.String() == "1" || param.String() == "7")):
+					keyCh <- KeyHome
+				case b == 'F' || (b == '~' && (param.String() == "4" || param.String() == "8")):
+					keyCh <- KeyEnd
 				}
 				return
 			}
@@ -1063,7 +1077,7 @@ func tryPageBack(page Page) bool {
 // and the AUR pkgver.
 //
 // version 是发布版本号，与 GitHub release tag 和 AUR pkgver 保持一致。
-const version = "v0.6.5"
+const version = "v0.6.6"
 
 func main() {
 	defer cleanupTempCoverFiles()

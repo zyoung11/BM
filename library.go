@@ -67,6 +67,11 @@ type Library struct {
 	previewEntriesCache map[string][]LibraryEntry
 	isSearching         bool
 	searchQuery         string
+	// searchInputPos is the caret position inside the search input, counted
+	// in runes.
+	//
+	// searchInputPos 是搜索输入框内的光标位置，以字符计。
+	searchInputPos int
 	// searchCursor is the UI cursor on the search results.
 	//
 	// searchCursor 是搜索结果上的UI光标。
@@ -643,29 +648,52 @@ func (p *Library) Init() {
 //
 // handleSearchInput 处理搜索输入模式下的按键。
 func (p *Library) handleSearchInput(key rune) {
+	runes := []rune(p.searchQuery)
+	if p.searchInputPos > len(runes) {
+		p.searchInputPos = len(runes)
+	}
 	if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.ConfirmSearch) {
 		p.isSearching = false
 	} else if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.EscapeSearch) {
 		p.isSearching = false
 		p.searchQuery = ""
+		p.searchInputPos = 0
 		p.filterSongs()
 	} else if IsKey(key, GlobalConfig.Keymap.Library.SearchMode.SearchBackspace) {
-		if len(p.searchQuery) > 0 {
-			runes := []rune(p.searchQuery)
-			p.searchQuery = string(runes[:len(runes)-1])
+		if p.searchInputPos > 0 {
+			p.searchQuery = string(runes[:p.searchInputPos-1]) + string(runes[p.searchInputPos:])
+			p.searchInputPos--
 			p.searchCursor = 0
 			p.searchOffset = 0
 			p.filterSongs()
 		}
-	} else if key == KeyArrowUp || key == KeyArrowDown || key == KeyArrowLeft || key == KeyArrowRight {
+	} else if key == KeyDelete {
+		if p.searchInputPos < len(runes) {
+			p.searchQuery = string(runes[:p.searchInputPos]) + string(runes[p.searchInputPos+1:])
+			p.searchCursor = 0
+			p.searchOffset = 0
+			p.filterSongs()
+		}
+	} else if key == KeyArrowLeft {
+		if p.searchInputPos > 0 {
+			p.searchInputPos--
+		}
+	} else if key == KeyArrowRight {
+		if p.searchInputPos < len(runes) {
+			p.searchInputPos++
+		}
+	} else if key == KeyHome {
+		p.searchInputPos = 0
+	} else if key == KeyEnd {
+		p.searchInputPos = len(runes)
+	} else if key == KeyArrowUp || key == KeyArrowDown {
 		p.isSearching = false
-	} else {
-		if key >= 32 {
-			p.searchQuery += string(key)
-			p.searchCursor = 0
-			p.searchOffset = 0
-			p.filterSongs()
-		}
+	} else if key >= 32 {
+		p.searchQuery = string(runes[:p.searchInputPos]) + string(key) + string(runes[p.searchInputPos:])
+		p.searchInputPos++
+		p.searchCursor = 0
+		p.searchOffset = 0
+		p.filterSongs()
 	}
 }
 
@@ -683,6 +711,7 @@ func (p *Library) handleDirViewInput(key rune) (Page, bool, error) {
 	}
 	if IsKey(key, GlobalConfig.Keymap.Library.Search) {
 		p.isSearching = true
+		p.searchInputPos = len([]rune(p.searchQuery))
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavUp) {
 		if len(p.entries) > 0 {
 			oldCursor := p.cursor
@@ -729,6 +758,7 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 		p.filterSongs()
 	} else if IsKey(key, GlobalConfig.Keymap.Library.Search) {
 		p.isSearching = true
+		p.searchInputPos = len([]rune(p.searchQuery))
 	} else if IsKey(key, GlobalConfig.Keymap.Library.NavUp) {
 		if len(p.filteredSongPaths) > 0 {
 			oldCursor := p.searchCursor
@@ -1451,7 +1481,9 @@ func (p *Library) drawSearchFooter(w, h int, footerText string) string {
 	footerX := max((w-len(footerText))/2, 1)
 	out := fmt.Sprintf("\x1b[%d;1H\x1b[K\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, h, footerX, footerText)
 	if p.isSearching {
-		cursorX := footerX + len("Search: ") + len(p.searchQuery)
+		runes := []rune(p.searchQuery)
+		pos := min(p.searchInputPos, len(runes))
+		cursorX := footerX + runewidth.StringWidth("Search: "+string(runes[:pos]))
 		if cursorX <= w {
 			out += fmt.Sprintf("\x1b[%d;%dH█", h, cursorX)
 		}
