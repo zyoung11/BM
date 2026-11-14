@@ -1077,7 +1077,7 @@ func tryPageBack(page Page) bool {
 // and the AUR pkgver.
 //
 // version 是发布版本号，与 GitHub release tag 和 AUR pkgver 保持一致。
-const version = "v0.6.6"
+const version = "v0.6.7"
 
 func main() {
 	defer cleanupTempCoverFiles()
