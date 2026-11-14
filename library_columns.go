@@ -383,19 +383,27 @@ func clearColumnCell(x, width, y int) string {
 	return fmt.Sprintf("\x1b[%d;%dH%s", y, x, strings.Repeat(" ", width))
 }
 
+// cursorRowPad is the number of columns the cursor row extends past the name
+// on the right. It matches the icon column on the left, so the highlight stays
+// symmetric around every name and looks the same on selected and unselected
+// rows.
+//
+// cursorRowPad 是光标行在歌名右侧延伸的列数，与左侧图标列等宽，
+// 使高亮围绕每个名字保持对称，选中与未选中的行观感一致。
+const cursorRowPad = 2
+
 // drawColumnCell draws one cell inside a column, padding it with spaces so no
 // stale content survives without touching neighbouring columns. The entry name
-// is cut to the same width as anywhere else and the symmetric cursor padding
-// only fills whatever room is left, so the cursor never shortens the name.
+// is cut to the same width as anywhere else and the cursor highlight extends
+// cursorRowPad columns past the name, capped at the column width.
 //
-// drawColumnCell 绘制列内单元并用空格填充，清除旧内容且不影响相邻列。
-// 条目名与其他位置截断到相同宽度，光标行的对称填充只用剩余空间，
-// 保证光标不会让名字变短。
+// drawColumnCell 绘制列内单元，用空格补齐避免残留旧内容且不碰相邻列。
+// 条目名与其他地方截断到同一宽度，光标高亮在名字右侧延伸 cursorRowPad 列，
+// 不超过列宽。
 func drawColumnCell(x, width, y int, line, style string, isCursor, dim bool) string {
 	line = truncateWithEllipsis(line, width)
 	if isCursor {
-		leading := len(line) - len(strings.TrimLeft(line, " "))
-		line += strings.Repeat(" ", min(leading, width-runewidth.StringWidth(line)))
+		line += strings.Repeat(" ", min(cursorRowPad, width-runewidth.StringWidth(line)))
 	}
 	if dim {
 		style += "\x1b[2m"
