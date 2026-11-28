@@ -43,11 +43,16 @@ func resolveNameDisplayMode(mode int) int {
 
 // initialNameDisplayMode resolves the song name display mode used at startup:
 // the memory mode restores the saved choice, anything else uses the
-// configured mode. The library and the playlist keep separate settings.
+// configured mode. With the sync option on both pages share the Library
+// setting; otherwise each page keeps its own.
 //
 // initialNameDisplayMode 解析启动时的歌曲名显示模式：记忆模式恢复已保存的选择，
-// 其他取值直接使用配置的模式。媒体库与播放列表各自独立设置。
+// 其他取值直接使用配置的模式。同步选项开启时两个页面共用媒体库的设置；
+// 否则各页面使用自己的设置。
 func initialNameDisplayMode(library bool) int {
+	if GlobalConfig.App.SyncNameDisplay {
+		library = true
+	}
 	configured := GlobalConfig.App.DefaultNameDisplayPlaylist
 	if library {
 		configured = GlobalConfig.App.DefaultNameDisplayLibrary
@@ -78,6 +83,47 @@ func nameDisplayModeName(mode int) string {
 		return "title-first-align"
 	}
 	return "default"
+}
+
+// saveNameDisplay stores one song name display mode and logs a warning when
+// the storage file cannot be written.
+//
+// saveNameDisplay 保存一个歌曲名显示模式，存储文件写入失败时记录警告。
+func saveNameDisplay(library bool, mode int) {
+	if err := SaveNameDisplay(library, mode); err != nil {
+		l.Warnf("failed to save name display mode: %v\n\n警告: 保存歌曲名显示模式失败: %v", err, err)
+	}
+}
+
+// applyNameDisplayMode applies a new song name display mode to one page and
+// remembers it. With the sync option on both pages take the same mode and both
+// stored values follow; otherwise only the requesting page changes.
+//
+// applyNameDisplayMode 把新的歌曲名显示模式应用到一个页面并记住它。
+// 同步选项开启时两个页面取同一模式，两个存储值同时更新；
+// 否则只改变请求的页面。
+func (a *App) applyNameDisplayMode(library bool, mode int) {
+	if GlobalConfig.App.SyncNameDisplay {
+		if lp, ok := a.libraryPage(); ok {
+			lp.nameDisplayMode = mode
+		}
+		if pp, ok := a.playlistPage(); ok {
+			pp.nameDisplayMode = mode
+		}
+		saveNameDisplay(true, mode)
+		saveNameDisplay(false, mode)
+		return
+	}
+	if library {
+		if lp, ok := a.libraryPage(); ok {
+			lp.nameDisplayMode = mode
+		}
+	} else {
+		if pp, ok := a.playlistPage(); ok {
+			pp.nameDisplayMode = mode
+		}
+	}
+	saveNameDisplay(library, mode)
 }
 
 // songNameParts splits a file name into artist, title and extension around

@@ -291,15 +291,13 @@ func (p *Library) cycleSortMode() {
 }
 
 // cycleNameDisplayMode switches to the next song name display mode, remembers
-// the choice for the memory mode and shows the new mode in the footer.
+// the choice for the memory mode and shows the new mode in the footer. The
+// sync option keeps the PlayList on the same mode.
 //
 // cycleNameDisplayMode 切换到下一个歌曲名显示模式，为记忆模式保存该选择，
-// 并在页脚显示新模式。
+// 并在页脚显示新模式。同步选项开启时播放列表跟随同一模式。
 func (p *Library) cycleNameDisplayMode() {
-	p.nameDisplayMode = (p.nameDisplayMode + 1) % nameDisplayMemory
-	if err := SaveNameDisplay(true, p.nameDisplayMode); err != nil {
-		l.Warnf("failed to save name display mode: %v\n\n警告: 保存歌曲名显示模式失败: %v", err, err)
-	}
+	p.app.applyNameDisplayMode(true, (p.nameDisplayMode+1)%nameDisplayMemory)
 	p.nameDisplayTimer = nameDisplayTicks
 	p.sortDisplayTimer = 0
 }

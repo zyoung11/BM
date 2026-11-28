@@ -77,14 +77,13 @@ func NewPlayList(app *App) *PlayList {
 }
 
 // cycleNameDisplayMode switches to the next song name display mode and
-// remembers the choice for the memory mode.
+// remembers the choice for the memory mode. The sync option keeps the Library
+// on the same mode.
 //
 // cycleNameDisplayMode 切换到下一个歌曲名显示模式，并为记忆模式保存该选择。
+// 同步选项开启时媒体库跟随同一模式。
 func (p *PlayList) cycleNameDisplayMode() {
-	p.nameDisplayMode = (p.nameDisplayMode + 1) % nameDisplayMemory
-	if err := SaveNameDisplay(false, p.nameDisplayMode); err != nil {
-		l.Warnf("failed to save name display mode: %v\n\n警告: 保存歌曲名显示模式失败: %v", err, err)
-	}
+	p.app.applyNameDisplayMode(false, (p.nameDisplayMode+1)%nameDisplayMemory)
 	p.nameDisplayTimer = nameDisplayTicks
 }
 

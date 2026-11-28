@@ -311,6 +311,18 @@ func (a *App) libraryPage() (*Library, bool) {
 	return nil, false
 }
 
+// playlistPage returns the PlayList page when it is registered.
+//
+// playlistPage 返回已注册的播放列表页面。
+func (a *App) playlistPage() (*PlayList, bool) {
+	for _, page := range a.pages {
+		if playlist, ok := page.(*PlayList); ok {
+			return playlist, true
+		}
+	}
+	return nil, false
+}
+
 // refreshCurrentView redraws the current page after background data changed,
 // unless an overlay owns the screen.
 //

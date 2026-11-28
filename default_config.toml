@@ -69,6 +69,13 @@ default_name_display_library = 5
 # 播放列表独立设置，其搜索结果跟随该设置。
 default_name_display_playlist = 5
 
+# Sync the song name display mode between the Library and the PlayList - one mode drives both pages and switching on either page applies to both.
+# Set to false to keep separate modes, the Library setting drives the Library and the PlayList setting drives the PlayList.
+#
+# 同步媒体库与播放列表的歌曲名显示模式 - 一个模式驱动两个页面，在任一页面切换都同时生效。
+# 设为 false 时各自独立，媒体库用媒体库的设置，播放列表用播放列表的设置。
+sync_name_display = true
+
 # Player page layout - the layout displayed when the program starts.
 # 0 = auto, 1 = narrow style, 2 = text only, 3 = cover only, 4 = memory (use saved layout from last session).
 #
