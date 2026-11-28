@@ -179,26 +179,31 @@ func nameDisplayWidths(mode int, names []string) nameWidths {
 }
 
 // alignSeparatorCol returns the content column of the "-" separator in an
-// aligned row. The separator hugs the shorter name field so the longer field
-// takes all the remaining space: the second field reaches the right edge when
-// it is shorter, the first field hugs the separator when it is shorter, and
-// an equal pair splits the space evenly. A side that would fall below half of
-// the available space is kept at half so both fields stay visible. prefixW is
-// the display width of the row prefix.
+// aligned row. The remaining space goes to the longer name field but never
+// past what that field needs: the separator hugs the first field when both
+// fields fit, and the second field reaches the right edge when the first
+// field still needs more room. The first field hugs the separator when it is
+// shorter, and an equal pair splits the space evenly only when the two fields
+// compete for it. A side that would fall below half of the available space is
+// kept at half so both fields stay visible. prefixW is the display width of
+// the row prefix.
 //
-// alignSeparatorCol 返回对齐行 "-" 分隔符所在的内容列。分隔符贴靠较短的名称
-// 字段，把剩余空间全给较长的字段：第二字段较短时贴右缘，第一字段较短时紧贴
-// 分隔符，两者等长时对半。任一侧不足可用空间一半时保留一半，保证两个字段
-// 都可见。prefixW 是行前缀显示宽度。
+// alignSeparatorCol 返回对齐行 "-" 分隔符所在的内容列。剩余空间给较长的名称
+// 字段，但不超过该字段的需求：两个字段都放得下时分隔符紧贴第一字段，
+// 第一字段还需要更多空间时第二字段贴右缘。第一字段较短时紧贴分隔符，
+// 两者等长且争抢空间时才对半。任一侧不足可用空间一半时保留一半，
+// 保证两个字段都可见。prefixW 是行前缀显示宽度。
 func alignSeparatorCol(widths nameWidths, prefixW, contentW int) int {
 	available := contentW - prefixW - 3
 	halfBudget := available / 2
 	firstBudget := halfBudget
 	switch {
 	case widths.second < widths.first:
-		firstBudget = max(available-widths.second, halfBudget)
+		firstBudget = min(widths.first, max(available-widths.second, halfBudget))
 	case widths.second > widths.first:
 		firstBudget = min(widths.first, available-halfBudget)
+	default:
+		firstBudget = min(widths.first, halfBudget)
 	}
 	return prefixW + firstBudget + 1
 }
