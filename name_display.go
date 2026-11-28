@@ -101,39 +101,89 @@ func songNameParts(name string) (artist, title, ext string, ok bool) {
 	return artist, title, ext, true
 }
 
-// nameDisplayPad returns the display width the first name field is padded to
-// across the group. It is zero for modes without alignment and names without
-// a separator do not contribute.
+// nameWidths is the alignment information of one name group: the display
+// width of the widest first field and of the widest second field.
 //
-// nameDisplayPad 返回组内第一个名称字段的填充宽度。不对齐的模式返回 0，
-// 不含分隔符的名称不计入。
-func nameDisplayPad(mode int, names []string) int {
-	if mode != nameDisplayAlign && mode != nameDisplayTitleFirstAlign {
-		return 0
-	}
-	titleFirst := mode == nameDisplayTitleFirstAlign
-	pad := 0
-	for _, name := range names {
-		artist, title, _, ok := songNameParts(name)
-		if !ok {
-			continue
-		}
-		first := artist
-		if titleFirst {
-			first = title
-		}
-		pad = max(pad, runewidth.StringWidth(first))
-	}
-	return pad
+// nameWidths 是一个名称组的对齐信息：最宽第一字段与最宽第二字段的显示宽度。
+type nameWidths struct {
+	first  int
+	second int
 }
 
-// displaySongName formats one song name under the given mode. Names without a
-// separator are returned unchanged. The pad aligns the separator and the
-// second field across the group and is ignored by modes without alignment.
+// nameDisplayWidths measures the widest first and second display fields of the
+// group under the given mode. Only the aligned modes split names, every other
+// mode reports zero widths, and names without a separator do not contribute.
 //
-// displaySongName 按给定模式格式化一个歌曲名。不含分隔符的名称原样返回。
-// pad 使分隔符和第二个字段在组内对齐，不对齐的模式忽略该参数。
-func displaySongName(name string, mode int, pad int) string {
+// nameDisplayWidths 按给定模式测量组内最宽的第一与第二显示字段。只有对齐模式
+// 拆分名称，其他模式返回零宽度，不含分隔符的名称不计入。
+func nameDisplayWidths(mode int, names []string) nameWidths {
+	if mode != nameDisplayAlign && mode != nameDisplayTitleFirstAlign {
+		return nameWidths{}
+	}
+	var widths nameWidths
+	for _, name := range names {
+		first, second, aligned := nameDisplayRow(name, mode)
+		if !aligned {
+			continue
+		}
+		widths.first = max(widths.first, runewidth.StringWidth(first))
+		widths.second = max(widths.second, runewidth.StringWidth(second))
+	}
+	return widths
+}
+
+// alignSeparatorCol returns the content column of the "-" separator in an
+// aligned row. The separator hugs the shorter name field so the longer field
+// takes all the remaining space: the second field reaches the right edge when
+// it is shorter, the first field hugs the separator when it is shorter, and
+// an equal pair splits the space evenly. A side that would fall below half of
+// the available space is kept at half so both fields stay visible. prefixW is
+// the display width of the row prefix.
+//
+// alignSeparatorCol 返回对齐行 "-" 分隔符所在的内容列。分隔符贴靠较短的名称
+// 字段，把剩余空间全给较长的字段：第二字段较短时贴右缘，第一字段较短时紧贴
+// 分隔符，两者等长时对半。任一侧不足可用空间一半时保留一半，保证两个字段
+// 都可见。prefixW 是行前缀显示宽度。
+func alignSeparatorCol(widths nameWidths, prefixW, contentW int) int {
+	available := contentW - prefixW - 3
+	halfBudget := available / 2
+	firstBudget := halfBudget
+	switch {
+	case widths.second < widths.first:
+		firstBudget = max(available-widths.second, halfBudget)
+	case widths.second > widths.first:
+		firstBudget = min(widths.first, available-halfBudget)
+	}
+	return prefixW + firstBudget + 1
+}
+
+// nameDisplayRow formats one song name into row fields. The aligned modes
+// split the name into the two fields around the separator; every other mode
+// keeps the whole line in first. Names without a separator keep the whole
+// name in first under every mode.
+//
+// nameDisplayRow 把歌曲名格式化为行字段。对齐模式把名称拆成分隔符两侧的两个
+// 字段；其他模式整行放 first。不含分隔符的名称在任何模式下都整名放 first。
+func nameDisplayRow(name string, mode int) (first, second string, aligned bool) {
+	if mode != nameDisplayAlign && mode != nameDisplayTitleFirstAlign {
+		return displaySongName(name, mode), "", false
+	}
+	artist, title, ext, ok := songNameParts(name)
+	if !ok {
+		return name, "", false
+	}
+	if mode == nameDisplayTitleFirstAlign {
+		return title, artist, true
+	}
+	return artist, title + ext, true
+}
+
+// displaySongName formats one song name in one whole line for the modes
+// without alignment. Names without a separator are returned unchanged.
+//
+// displaySongName 为不对齐的模式把歌曲名格式化为整行文本。
+// 不含分隔符的名称原样返回。
+func displaySongName(name string, mode int) string {
 	if mode == nameDisplayDefault {
 		return name
 	}
@@ -141,19 +191,14 @@ func displaySongName(name string, mode int, pad int) string {
 	if !ok {
 		return name
 	}
-	hideExt := mode == nameDisplayNoExt || mode == nameDisplayTitleFirst || mode == nameDisplayTitleFirstAlign
-	titleFirst := mode == nameDisplayTitleFirst || mode == nameDisplayTitleFirstAlign
-	align := mode == nameDisplayAlign || mode == nameDisplayTitleFirstAlign
-
+	hideExt := mode == nameDisplayNoExt || mode == nameDisplayTitleFirst
+	titleFirst := mode == nameDisplayTitleFirst
 	if !hideExt {
 		title += ext
 	}
 	first, second := artist, title
 	if titleFirst {
 		first, second = title, artist
-	}
-	if align && pad > runewidth.StringWidth(first) {
-		first += strings.Repeat(" ", pad-runewidth.StringWidth(first))
 	}
 	return first + " - " + second
 }

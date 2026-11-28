@@ -1536,20 +1536,25 @@ func truncateToWidthFromStart(text string, w int) string {
 	return string(runes) + "..."
 }
 
-// getDirEntryLine generates the display line and style for a directory entry.
+// getDirEntryLine generates the display row and style for a directory entry.
 //
 // getDirEntryLine 为目录条目生成显示行和样式。
-func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, pad int, isCursor bool) (string, string) {
-	line := ""
+func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, isCursor bool) (rowText, string) {
 	style := "\x1b[0m"
 	isLink := libEntry.info.Mode()&os.ModeSymlink != 0
-	name := libEntry.entry.Name()
+	row := rowText{}
 	if !libEntry.isDir {
-		name = displaySongName(name, p.nameDisplayMode, pad)
+		row.first, row.second, row.aligned = nameDisplayRow(libEntry.entry.Name(), p.nameDisplayMode)
+	} else {
+		row.first = libEntry.entry.Name()
 	}
 
 	if isLink {
-		name += "@"
+		if row.aligned {
+			row.second += "@"
+		} else {
+			row.first += "@"
+		}
 	}
 
 	if libEntry.isDir {
@@ -1560,24 +1565,25 @@ func (p *Library) getDirEntryLine(libEntry LibraryEntry, fullPath string, pad in
 			isDirPartiallySelected = p.dirHasSelection(fullPath)
 			p.dirSelectionCache[fullPath] = isDirPartiallySelected
 		}
+		row.first += "/"
 		if isDirPartiallySelected {
-			line = "✓ " + name + "/"
+			row.prefix = "✓ "
 			style += "\x1b[32m"
 		} else {
-			line = "▸ " + name + "/"
+			row.prefix = "▸ "
 		}
 	} else {
 		if p.selected[fullPath] {
-			line = "✓ " + name
+			row.prefix = "✓ "
 			style += "\x1b[32m"
 		} else {
-			line = "  " + name
+			row.prefix = "  "
 		}
 	}
 	if isCursor {
 		style += "\x1b[7m"
 	}
-	return line, style
+	return row, style
 }
 
 // drawScrollbar draws a scrollbar on the right side of the screen.

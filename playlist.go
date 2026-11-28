@@ -50,6 +50,11 @@ type PlayList struct {
 	//
 	// nameDisplayTimer 倒计时歌曲名显示模式在页脚显示的剩余 tick 数。
 	nameDisplayTimer int
+	// nameWidths caches the name alignment widths of the current view. They are
+	// computed once per frame instead of once per row.
+	//
+	// nameWidths 缓存当前视图的名称对齐宽度。每帧计算一次，不逐行重算。
+	nameWidths nameWidths
 
 	// Debounce mechanism to prevent accidental rapid removal of the current song.
 	// 防抖机制，防止快速连续移除当前播放歌曲。
@@ -399,21 +404,24 @@ func (p *PlayList) HandleSignal(sig os.Signal) error {
 // View 渲染播放列表。
 func (p *PlayList) View() {
 	p.filterPlaylist()
+	p.nameWidths = nameDisplayWidths(p.nameDisplayMode, p.trackNames())
 	p.app.beginFrame()
 	defer p.app.endFrame()
+	var buf strings.Builder
+	defer func() { fmt.Print(buf.String()) }()
 	w, h, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
 		w, h = 80, 24
 	}
 
 	if !p.app.diffRender {
-		fmt.Print("\x1b[2J\x1b[3J\x1b[H")
+		buf.WriteString("\x1b[2J\x1b[3J\x1b[H")
 	}
 
 	title := "PlayList"
 	titleX := (w - len(title)) / 2
-	fmt.Printf("\x1b[1;1H\x1b[K\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
-	fmt.Printf("\x1b[2;1H\x1b[K")
+	fmt.Fprintf(&buf, "\x1b[1;1H\x1b[K\x1b[1;%dH\x1b[1m%s\x1b[0m", titleX, title)
+	buf.WriteString("\x1b[2;1H\x1b[K")
 
 	listHeight := h - 4
 
@@ -430,20 +438,20 @@ func (p *PlayList) View() {
 		footer = "..." + footer[len(footer)-w+3:]
 	}
 	footerX := max((w-len(footer))/2, 1)
-	fmt.Printf("\x1b[%d;1H\x1b[K", h)
-	fmt.Printf("\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, footerX, footer)
+	fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K", h)
+	fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[37m%s\x1b[0m", h, footerX, footer)
 	if p.isSearching {
 		runes := []rune(p.searchQuery)
 		pos := min(p.searchInputPos, len(runes))
 		cursorX := footerX + runewidth.StringWidth("Search: "+string(runes[:pos]))
 		if cursorX <= w {
-			fmt.Printf("\x1b[%d;%dH█", h, cursorX)
+			fmt.Fprintf(&buf, "\x1b[%d;%dH█", h, cursorX)
 		}
 	}
 
 	if len(p.viewPlaylist) == 0 {
 		for i := range listHeight {
-			fmt.Printf("\x1b[%d;1H\x1b[K", i+3)
+			fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K", i+3)
 		}
 		msg := "PlayList is empty"
 		if p.searchQuery != "" {
@@ -454,9 +462,9 @@ func (p *PlayList) View() {
 		msg2X := (w - len(msg2)) / 2
 		centerRow := h / 2
 
-		fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow-1, msgX, msg)
+		fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow-1, msgX, msg)
 		if p.searchQuery == "" {
-			fmt.Printf("\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow+1, msg2X, msg2)
+			fmt.Fprintf(&buf, "\x1b[%d;%dH\x1b[90m%s\x1b[0m", centerRow+1, msg2X, msg2)
 		}
 		return
 	}
@@ -469,10 +477,10 @@ func (p *PlayList) View() {
 	}
 
 	for i := range listHeight {
-		p.drawTrackListRow(w, i, p.offset+i)
+		p.drawTrackListRow(&buf, w, i, p.offset+i)
 	}
 
-	fmt.Printf("\x1b[%d;1H\x1b[K", h-1)
+	fmt.Fprintf(&buf, "\x1b[%d;1H\x1b[K", h-1)
 
 	totalItems := len(p.viewPlaylist)
 	thumbSize := 0
@@ -492,23 +500,23 @@ func (p *PlayList) View() {
 		} else if i >= thumbStart && i < thumbStart+thumbSize {
 			cell = "┃"
 		}
-		fmt.Printf("\x1b[%d;%dH%s", i+3, w, cell)
+		fmt.Fprintf(&buf, "\x1b[%d;%dH%s", i+3, w, cell)
 	}
 }
 
-// drawTrackListRow renders one playlist row, erasing the row first.
+// drawTrackListRow renders one playlist row into buf.
 //
-// drawTrackListRow 先擦除整行再渲染一行播放列表内容。
-func (p *PlayList) drawTrackListRow(w, screenRow, trackIndex int) {
+// drawTrackListRow 向 buf 渲染一行播放列表内容。
+func (p *PlayList) drawTrackListRow(buf *strings.Builder, w, screenRow, trackIndex int) {
 	y := screenRow + 3
 	if trackIndex < 0 || trackIndex >= len(p.viewPlaylist) {
-		fmt.Printf("\x1b[%d;1H\x1b[K", y)
+		fmt.Fprintf(buf, "\x1b[%d;1H\x1b[K", y)
 		return
 	}
 
 	trackPath := p.viewPlaylist[trackIndex]
-	trackName := filepath.Base(trackPath)
-	trackName = displaySongName(trackName, p.nameDisplayMode, nameDisplayPad(p.nameDisplayMode, p.trackNames()))
+	row := rowText{}
+	row.first, row.second, row.aligned = nameDisplayRow(filepath.Base(trackPath), p.nameDisplayMode)
 
 	style := "\x1b[32m"
 	if trackPath == p.app.currentSongPath {
@@ -521,18 +529,11 @@ func (p *PlayList) drawTrackListRow(w, screenRow, trackIndex int) {
 		style += "\x1b[7m"
 	}
 
-	prefix := "✓"
+	row.prefix = "✓ "
 	if p.app.IsFileCorrupted(trackPath) {
-		prefix = "⚠"
+		row.prefix = "⚠ "
 	}
-	line := fmt.Sprintf("%s %s", prefix, trackName)
-	if runewidth.StringWidth(line) > w-2 {
-		for runewidth.StringWidth(line) > w-2 && len(line) > 0 {
-			line = line[:len(line)-1]
-		}
-	}
-	fmt.Printf("\x1b[%d;1H%s%s\x1b[0m%s", y, style, line,
-		strings.Repeat(" ", max(w-1-runewidth.StringWidth(line), 0)))
+	buf.WriteString(drawColumnCell(1, w-2, y, row, style, trackIndex == p.cursor, false, p.nameWidths))
 }
 
 // tryFastCursorMove redraws only the old and new cursor rows after a cursor move
@@ -559,8 +560,10 @@ func (p *PlayList) tryFastCursorMove(oldCursor int) bool {
 		return false
 	}
 
-	p.drawTrackListRow(w, oldCursor-p.offset, oldCursor)
-	p.drawTrackListRow(w, p.cursor-p.offset, p.cursor)
+	var buf strings.Builder
+	p.drawTrackListRow(&buf, w, oldCursor-p.offset, oldCursor)
+	p.drawTrackListRow(&buf, w, p.cursor-p.offset, p.cursor)
+	fmt.Print(buf.String())
 	return true
 }
 

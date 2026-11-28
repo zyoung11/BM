@@ -30,10 +30,10 @@ type libraryColumn struct {
 //
 // columnGeometry 描述单列在屏幕上的绘制位置。
 type columnGeometry struct {
-	x       int
-	width   int
-	col     libraryColumn
-	namePad int
+	x          int
+	width      int
+	col        libraryColumn
+	nameWidths nameWidths
 }
 
 // readLibraryEntries lists the browsable entries of a directory with
@@ -217,31 +217,31 @@ func truncateWithEllipsis(text string, width int) string {
 // 搜索列仅按文件夹条目计算宽度，分隔线下的长歌名在列内省略，
 // 避免把预览列推到最右侧。光标行的对称填充在绘制时从列宽内扣除，
 // 保证列宽与光标位置无关，下一列的位置保持不动。
-func (p *Library) columnContentWidth(col libraryColumn, pad int) int {
+func (p *Library) columnContentWidth(col libraryColumn, widths nameWidths) int {
 	width := 1
 	if col.isSearch {
 		for i, item := range col.items {
-			line, _ := p.getSearchEntryLine(item, pad, i == col.cursor)
-			width = max(width, runewidth.StringWidth(line))
+			row, _ := p.getSearchEntryLine(item, i == col.cursor)
+			width = max(width, rowDisplayWidth(row, widths))
 		}
 	} else {
 		for i, libEntry := range col.entries {
 			fullPath := filepath.Join(col.path, libEntry.entry.Name())
-			line, _ := p.getDirEntryLine(libEntry, fullPath, pad, i == col.cursor)
-			width = max(width, runewidth.StringWidth(line))
+			row, _ := p.getDirEntryLine(libEntry, fullPath, i == col.cursor)
+			width = max(width, rowDisplayWidth(row, widths))
 		}
 	}
 	return width
 }
 
-// colNamePad returns the name alignment pad of one column.
+// colNameWidths returns the name alignment widths of one column.
 //
-// colNamePad 返回一列的名称对齐填充宽度。
-func (p *Library) colNamePad(col libraryColumn) int {
+// colNameWidths 返回一列的名称对齐宽度。
+func (p *Library) colNameWidths(col libraryColumn) nameWidths {
 	if col.isSearch {
-		return nameDisplayPad(p.nameDisplayMode, itemBaseNames(col.items))
+		return nameDisplayWidths(p.nameDisplayMode, itemBaseNames(col.items))
 	}
-	return nameDisplayPad(p.nameDisplayMode, entryNames(col.entries))
+	return nameDisplayWidths(p.nameDisplayMode, entryNames(col.entries))
 }
 
 // planColumns computes the geometry of the visible navigation columns and of
@@ -263,16 +263,16 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	cols := p.viewColumns()
 	minWidth := GlobalConfig.App.MinColumnWidth
 	full := make([]int, len(cols))
-	pads := make([]int, len(cols))
+	pads := make([]nameWidths, len(cols))
 	for i, col := range cols {
-		pads[i] = p.colNamePad(col)
+		pads[i] = p.colNameWidths(col)
 		full[i] = p.columnContentWidth(col, pads[i])
 	}
 	pcol := p.previewColumn(listHeight)
 	var pfull int
-	var ppad int
+	var ppad nameWidths
 	if pcol != nil {
-		ppad = p.colNamePad(*pcol)
+		ppad = p.colNameWidths(*pcol)
 		pfull = p.columnContentWidth(*pcol, ppad)
 	}
 
@@ -332,7 +332,7 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	}
 	geoms := make([]columnGeometry, 0, len(placed))
 	for _, i := range slices.Backward(placed) {
-		geoms = append(geoms, columnGeometry{x: x, width: widths[i], col: cols[i], namePad: pads[i]})
+		geoms = append(geoms, columnGeometry{x: x, width: widths[i], col: cols[i], nameWidths: pads[i]})
 		x += widths[i] + 1
 	}
 
@@ -341,7 +341,7 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 		lastGeom := geoms[len(geoms)-1]
 		previewX := lastGeom.x + lastGeom.width + 1
 		if lastGeom.col.isSearch {
-			previewX = lastGeom.x + p.searchFolderWidth(lastGeom.col, lastGeom.namePad) + 1
+			previewX = lastGeom.x + p.searchFolderWidth(lastGeom.col, lastGeom.nameWidths) + 1
 		}
 		previewAvail := avail - (previewX - 1)
 		previewWidth := 0
@@ -352,7 +352,7 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 			previewWidth = previewAvail
 		}
 		if previewWidth > 0 {
-			preview = &columnGeometry{x: previewX, width: previewWidth, col: *pcol, namePad: ppad}
+			preview = &columnGeometry{x: previewX, width: previewWidth, col: *pcol, nameWidths: ppad}
 		}
 	}
 	return geoms, preview
@@ -364,14 +364,14 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 //
 // searchFolderWidth 测量搜索列分隔线上方文件夹区的宽度。
 // 预览列以此定位，横线下的长歌名不会推动预览位置。
-func (p *Library) searchFolderWidth(col libraryColumn, pad int) int {
+func (p *Library) searchFolderWidth(col libraryColumn, widths nameWidths) int {
 	width := 1
 	for i, item := range col.items {
 		if col.dirCount > 0 && i >= col.dirCount {
 			break
 		}
-		line, _ := p.getSearchEntryLine(item, pad, i == col.cursor)
-		width = max(width, runewidth.StringWidth(line))
+		row, _ := p.getSearchEntryLine(item, i == col.cursor)
+		width = max(width, rowDisplayWidth(row, widths))
 	}
 	return width
 }
@@ -392,24 +392,92 @@ func clearColumnCell(x, width, y int) string {
 // 使高亮围绕每个名字保持对称，选中与未选中的行观感一致。
 const cursorRowPad = 2
 
+// rowText is the display text of one list row before layout. The aligned name
+// display modes split the song name into first and second; every other mode
+// keeps the whole line in first and leaves aligned unset.
+//
+// rowText 是一行列表显示文本布局前的结构。对齐显示模式把歌曲名拆成 first 与
+// second；其他模式整行放 first，aligned 留空。
+type rowText struct {
+	prefix  string
+	first   string
+	second  string
+	aligned bool
+}
+
+// rowDisplayWidth measures the display width one row needs without any
+// cutting. Aligned rows measure the padded first field plus the separator and
+// the second field.
+//
+// rowDisplayWidth 测量一行不截断所需的显示宽度。对齐行按填充后的第一字段加
+// 分隔符加第二字段测量。
+func rowDisplayWidth(row rowText, widths nameWidths) int {
+	if row.aligned {
+		return runewidth.StringWidth(row.prefix) + widths.first + 3 + runewidth.StringWidth(row.second)
+	}
+	return runewidth.StringWidth(row.prefix + row.first)
+}
+
+// alignMinColumns is the smallest column width where the aligned name display
+// keeps its two-field layout. Narrower columns fall back to whole-line
+// drawing so the fields do not collapse into ellipses.
+//
+// alignMinColumns 是对齐显示保持双字段布局的最小列宽。更窄的列回退到整行
+// 绘制，避免字段塌成省略号。
+const alignMinColumns = 10
+
+// drawAlignedColumnCell draws one aligned row: the first field fills the space
+// before the fixed separator column and the second field fills the rest of the
+// column, both cut with a tail ellipsis. The separator is placed by cursor
+// escape so unusual glyph widths in a name can never move it.
+//
+// drawAlignedColumnCell 绘制一行对齐内容：第一字段占固定分隔符列之前的空间，
+// 第二字段占列内剩余空间，两者都以尾部省略号截断。分隔符用光标转义定位，
+// 名称字形宽度异常也不会移动它。
+func drawAlignedColumnCell(x, width, y int, row rowText, style string, isCursor bool, widths nameWidths) string {
+	prefixW := runewidth.StringWidth(row.prefix)
+	sepCol := alignSeparatorCol(widths, prefixW, width)
+	head := row.prefix + truncateWithEllipsis(row.first, sepCol-prefixW-1)
+	tail := truncateWithEllipsis(row.second, width-sepCol-2)
+	var buf strings.Builder
+	fmt.Fprintf(&buf, "\x1b[%d;%dH%s%s", y, x, style, head)
+	if gap := sepCol - runewidth.StringWidth(head); gap > 0 {
+		buf.WriteString(strings.Repeat(" ", gap))
+	}
+	fmt.Fprintf(&buf, "\x1b[%d;%dH- %s", y, x+sepCol, tail)
+	used := sepCol + 2 + runewidth.StringWidth(tail)
+	end := width
+	if isCursor {
+		end = min(width, used+cursorRowPad)
+	}
+	buf.WriteString(strings.Repeat(" ", max(end-used, 0)))
+	buf.WriteString("\x1b[0m")
+	buf.WriteString(strings.Repeat(" ", max(width-end, 0)))
+	return buf.String()
+}
+
 // drawColumnCell draws one cell inside a column, padding it with spaces so no
-// stale content survives without touching neighbouring columns. The entry name
-// is cut to the same width as anywhere else and the cursor highlight extends
+// stale content survives without touching neighbouring columns. Aligned rows
+// draw the separator at the fixed column and cut both name fields with a tail
+// ellipsis; other rows keep whole-line drawing. The cursor highlight extends
 // cursorRowPad columns past the name, capped at the column width.
 //
 // drawColumnCell 绘制列内单元，用空格补齐避免残留旧内容且不碰相邻列。
-// 条目名与其他地方截断到同一宽度，光标高亮在名字右侧延伸 cursorRowPad 列，
-// 不超过列宽。
-func drawColumnCell(x, width, y int, line, style string, isCursor, dim bool) string {
-	line = truncateWithEllipsis(line, width)
-	if isCursor {
-		line += strings.Repeat(" ", min(cursorRowPad, width-runewidth.StringWidth(line)))
-	}
+// 对齐行把分隔符画在固定列，两个名称字段尾部省略号截断；
+// 其他行保持整行绘制。光标高亮在名字右侧延伸 cursorRowPad 列，不超过列宽。
+func drawColumnCell(x, width, y int, row rowText, style string, isCursor, dim bool, widths nameWidths) string {
 	if dim {
 		style += "\x1b[2m"
 	}
-	pad := max(width-runewidth.StringWidth(line), 0)
-	return fmt.Sprintf("\x1b[%d;%dH%s%s\x1b[0m%s", y, x, style, line, strings.Repeat(" ", pad))
+	if row.aligned && width >= alignMinColumns {
+		return drawAlignedColumnCell(x, width, y, row, style, isCursor, widths)
+	}
+	line := truncateWithEllipsis(row.prefix+row.first, width)
+	if isCursor {
+		line += strings.Repeat(" ", min(cursorRowPad, width-runewidth.StringWidth(line)))
+	}
+	padRight := max(width-runewidth.StringWidth(line), 0)
+	return fmt.Sprintf("\x1b[%d;%dH%s%s\x1b[0m%s", y, x, style, line, strings.Repeat(" ", padRight))
 }
 
 // ancestorOffset recenters an ancestor column on its remembered cursor entry.
@@ -525,16 +593,16 @@ func (p *Library) drawColumnRow(geom columnGeometry, row int, dim bool) string {
 		if itemIdx < 0 || itemIdx >= len(col.items) {
 			return ""
 		}
-		line, style := p.getSearchEntryLine(col.items[itemIdx], geom.namePad, itemIdx == col.cursor)
-		return drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, dim)
+		line, style := p.getSearchEntryLine(col.items[itemIdx], itemIdx == col.cursor)
+		return drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, dim, geom.nameWidths)
 	}
 	idx := col.offset + row
 	if idx < 0 || idx >= len(col.entries) {
 		return ""
 	}
 	fullPath := filepath.Join(col.path, col.entries[idx].entry.Name())
-	line, style := p.getDirEntryLine(col.entries[idx], fullPath, geom.namePad, idx == col.cursor)
-	return drawColumnCell(geom.x, geom.width, y, line, style, idx == col.cursor, dim)
+	line, style := p.getDirEntryLine(col.entries[idx], fullPath, idx == col.cursor)
+	return drawColumnCell(geom.x, geom.width, y, line, style, idx == col.cursor, dim, geom.nameWidths)
 }
 
 // redrawPreviewArea repaints the preview strip after a cursor move, leaving
@@ -583,8 +651,8 @@ func (p *Library) redrawColumnRow(geom columnGeometry, entryIdx int) string {
 		return clearColumnCell(geom.x, geom.width, y)
 	}
 	fullPath := filepath.Join(col.path, col.entries[entryIdx].entry.Name())
-	line, style := p.getDirEntryLine(col.entries[entryIdx], fullPath, geom.namePad, entryIdx == col.cursor)
-	return drawColumnCell(geom.x, geom.width, y, line, style, entryIdx == col.cursor, false)
+	line, style := p.getDirEntryLine(col.entries[entryIdx], fullPath, entryIdx == col.cursor)
+	return drawColumnCell(geom.x, geom.width, y, line, style, entryIdx == col.cursor, false, geom.nameWidths)
 }
 
 // redrawSearchRow repaints a single search result row inside the current
@@ -602,25 +670,24 @@ func (p *Library) redrawSearchRow(geom columnGeometry, itemIdx int) string {
 	if itemIdx < 0 || itemIdx >= len(col.items) {
 		return clearColumnCell(geom.x, geom.width, y)
 	}
-	line, style := p.getSearchEntryLine(col.items[itemIdx], geom.namePad, itemIdx == col.cursor)
-	return drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, false)
+	line, style := p.getSearchEntryLine(col.items[itemIdx], itemIdx == col.cursor)
+	return drawColumnCell(geom.x, geom.width, y, line, style, itemIdx == col.cursor, false, geom.nameWidths)
 }
 
-// getSearchEntryLine generates the display line and style for one search result.
+// getSearchEntryLine generates the display row and style for one search result.
 //
 // getSearchEntryLine 为单条搜索结果生成显示行和样式。
-func (p *Library) getSearchEntryLine(fullPath string, pad int, isCursor bool) (string, string) {
+func (p *Library) getSearchEntryLine(fullPath string, isCursor bool) (rowText, string) {
 	cleanInitial := filepath.Clean(p.initialPath)
 
 	isDir := p.globalDirSet[fullPath]
 
-	var displayPath string
+	row := rowText{}
 	if isDir {
 		cleanPath := filepath.Clean(fullPath)
+		displayPath := cleanPath
 		if rel, relErr := filepath.Rel(cleanInitial, cleanPath); relErr == nil && !strings.HasPrefix(rel, "..") {
 			displayPath = rel
-		} else {
-			displayPath = cleanPath
 		}
 		if displayPath == "." {
 			displayPath = filepath.Base(cleanInitial)
@@ -628,8 +695,9 @@ func (p *Library) getSearchEntryLine(fullPath string, pad int, isCursor bool) (s
 				displayPath = "(root)"
 			}
 		}
+		row.first = displayPath + "/"
 	} else {
-		displayPath = displaySongName(filepath.Base(fullPath), p.nameDisplayMode, pad)
+		row.first, row.second, row.aligned = nameDisplayRow(filepath.Base(fullPath), p.nameDisplayMode)
 	}
 
 	isSelected := p.selected[fullPath]
@@ -642,27 +710,21 @@ func (p *Library) getSearchEntryLine(fullPath string, pad int, isCursor bool) (s
 		}
 	}
 
-	line := ""
 	style := "\x1b[0m"
-	if isSelected {
+	switch {
+	case isSelected:
 		style += "\x1b[32m"
-		if isDir {
-			line = "✓ " + displayPath + "/"
-		} else {
-			line = "✓ " + displayPath
-		}
-	} else {
-		if isDir {
-			line = "▸ " + displayPath + "/"
-		} else {
-			line = "  " + displayPath
-		}
+		row.prefix = "✓ "
+	case isDir:
+		row.prefix = "▸ "
+	default:
+		row.prefix = "  "
 	}
 
 	if isCursor {
 		style += "\x1b[7m"
 	}
-	return line, style
+	return row, style
 }
 
 // dirHasSelection reports whether any song under the directory is selected.
