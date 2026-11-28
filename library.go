@@ -778,36 +778,7 @@ func (p *Library) handleSearchViewInput(key rune) (Page, bool, error) {
 			path := p.filteredSongPaths[p.searchCursor]
 			info, err := os.Stat(path)
 			if err == nil && info.IsDir() {
-				var songsInDir []string
-				var collectSongs func(string)
-				collectSongs = func(dirPath string) {
-					files, err := os.ReadDir(dirPath)
-					if err != nil {
-						return
-					}
-					for _, file := range files {
-						entryPath := filepath.Join(dirPath, file.Name())
-						info, err := file.Info()
-						if err != nil {
-							continue
-						}
-						isDir := info.IsDir()
-						if info.Mode()&os.ModeSymlink != 0 {
-							statInfo, statErr := os.Stat(entryPath)
-							if statErr == nil {
-								isDir = statInfo.IsDir()
-							} else {
-								continue
-							}
-						}
-						if isDir {
-							collectSongs(entryPath)
-						} else if isAudioFile(file.Name()) {
-							songsInDir = append(songsInDir, entryPath)
-						}
-					}
-				}
-				collectSongs(path)
+				songsInDir := p.collectSongsSorted(path)
 				allSelected := true
 				if len(songsInDir) > 0 {
 					for _, songPath := range songsInDir {
@@ -1035,6 +1006,31 @@ func (p *Library) tryFastSearchMove(w, listHeight, oldCursor int) bool {
 	return true
 }
 
+// collectSongsSorted collects every audio file under one directory in the
+// order the library shows them: each level follows the active sort mode and
+// directories stay above files.
+//
+// collectSongsSorted 按媒体库显示的顺序收集目录下的全部音频文件：
+// 每层目录都遵循当前排序方式，目录在文件上方。
+func (p *Library) collectSongsSorted(dirPath string) []string {
+	var songs []string
+	var walk func(string)
+	walk = func(path string) {
+		entries := readLibraryEntries(path)
+		p.sortEntries(path, entries)
+		for _, libEntry := range entries {
+			entryPath := filepath.Join(path, libEntry.entry.Name())
+			if libEntry.isDir {
+				walk(entryPath)
+			} else {
+				songs = append(songs, entryPath)
+			}
+		}
+	}
+	walk(dirPath)
+	return songs
+}
+
 // toggleSelectionForEntry handles selection logic for a LibraryEntry (which can be a file or directory).
 //
 // toggleSelectionForEntry 处理 LibraryEntry（可以是文件或目录）的选择逻辑。
@@ -1043,36 +1039,7 @@ func (p *Library) toggleSelectionForEntry(libEntry LibraryEntry) {
 	if !libEntry.isDir {
 		p.toggleSelection(fullPath)
 	} else {
-		var songsInDir []string
-		var collectSongs func(string)
-		collectSongs = func(dirPath string) {
-			files, err := os.ReadDir(dirPath)
-			if err != nil {
-				return
-			}
-			for _, file := range files {
-				entryPath := filepath.Join(dirPath, file.Name())
-				info, err := file.Info()
-				if err != nil {
-					continue
-				}
-				isDir := info.IsDir()
-				if info.Mode()&os.ModeSymlink != 0 {
-					statInfo, statErr := os.Stat(entryPath)
-					if statErr == nil {
-						isDir = statInfo.IsDir()
-					} else {
-						continue
-					}
-				}
-				if isDir {
-					collectSongs(entryPath)
-				} else if isAudioFile(file.Name()) {
-					songsInDir = append(songsInDir, entryPath)
-				}
-			}
-		}
-		collectSongs(fullPath)
+		songsInDir := p.collectSongsSorted(fullPath)
 
 		allSelected := true
 		if len(songsInDir) > 0 {
@@ -1110,35 +1077,7 @@ func (p *Library) toggleSelectAll(isSearchView bool) {
 			if !libEntry.isDir {
 				allSongs = append(allSongs, fullPath)
 			} else {
-				var collectSongs func(string)
-				collectSongs = func(dirPath string) {
-					files, err := os.ReadDir(dirPath)
-					if err != nil {
-						return
-					}
-					for _, file := range files {
-						entryPath := filepath.Join(dirPath, file.Name())
-						info, err := file.Info()
-						if err != nil {
-							continue
-						}
-						isDir := info.IsDir()
-						if info.Mode()&os.ModeSymlink != 0 {
-							statInfo, statErr := os.Stat(entryPath)
-							if statErr == nil {
-								isDir = statInfo.IsDir()
-							} else {
-								continue
-							}
-						}
-						if isDir {
-							collectSongs(entryPath)
-						} else if isAudioFile(file.Name()) {
-							allSongs = append(allSongs, entryPath)
-						}
-					}
-				}
-				collectSongs(fullPath)
+				allSongs = append(allSongs, p.collectSongsSorted(fullPath)...)
 			}
 		}
 	}
@@ -1273,7 +1212,11 @@ func (p *Library) addSongsToPlaylistBatch(songPaths []string) {
 		l.Warnf("failed to save playlist: %v\n\n警告: 保存播放列表失败: %v", err, err)
 	}
 	if wasEmpty && len(newPlaylist) > 0 {
-		p.app.PlaySongWithSwitchAndRender(newPlaylist[0], false, false)
+		startIndex := 0
+		if p.app.randomStartPreferred() {
+			startIndex = p.app.pickRandomIndex("")
+		}
+		p.app.PlaySongWithSwitchAndRender(newPlaylist[startIndex], false, false)
 	}
 }
 

@@ -636,6 +636,20 @@ func (p *PlayerPage) playPreviousInRandomMode() {
 // N = 0: 纯随机（禁用）。
 // N < 0 或 N >= 歌单长度: 使用最大窗口，歌单内所有歌曲循环一遍后才重复。
 // N > 0: 排除最近 N 首不重复歌曲。
+// randomStartPreferred reports whether a fresh playlist should start at a
+// random position: the active play mode or the last recorded play mode is
+// shuffle.
+//
+// randomStartPreferred 报告新歌单是否应从随机位置开始：
+// 当前播放模式或记录的上个播放模式是随机。
+func (a *App) randomStartPreferred() bool {
+	if a.playMode == 2 {
+		return true
+	}
+	saved, err := LoadPlayMode()
+	return err == nil && saved == 2
+}
+
 func (a *App) pickRandomIndex(currentPath string) int {
 	playlistLen := len(a.Playlist)
 	if playlistLen == 0 {
