@@ -339,10 +339,7 @@ func (p *Library) planColumns(w, listHeight int) ([]columnGeometry, *columnGeome
 	var preview *columnGeometry
 	if pcol != nil {
 		lastGeom := geoms[len(geoms)-1]
-		previewX := lastGeom.x + lastGeom.width + 1
-		if lastGeom.col.isSearch {
-			previewX = lastGeom.x + p.searchFolderWidth(lastGeom.col, lastGeom.nameWidths) + 1
-		}
+		previewX := p.previewAnchorX(lastGeom)
 		previewAvail := avail - (previewX - 1)
 		previewWidth := 0
 		switch {
@@ -559,7 +556,7 @@ func (p *Library) renderColumns(w, listHeight int) string {
 			}
 			buf.WriteString(p.drawColumnRow(geom, row, i != last))
 		}
-		if preview != nil && (sepRow < 0 || row < sepRow) {
+		if preview != nil && previewRow(geoms[last].col, row) {
 			buf.WriteString(p.drawColumnRow(*preview, row, true))
 		}
 	}
@@ -605,10 +602,53 @@ func (p *Library) drawColumnRow(geom columnGeometry, row int, dim bool) string {
 	return drawColumnCell(geom.x, geom.width, y, line, style, idx == col.cursor, dim, geom.nameWidths)
 }
 
-// redrawPreviewArea repaints the preview strip after a cursor move, leaving
-// the navigation columns untouched.
+// previewRow reports whether one screen row of the given navigation column
+// shows folder entries, which is the only place the preview column may draw.
+// Song rows below the separator keep their names clear. The separator can
+// scroll out of the view, so the row kind is resolved from the visual row
+// index instead of the visible separator position.
 //
-// redrawPreviewArea 在光标移动后仅重绘预览区，不碰导航列。
+// previewRow 判断给定导航列的某个屏幕行是否显示文件夹条目，预览列只画在这些行。
+// 分隔线以下的歌曲行保持歌名不被覆盖。分隔线可能滚出视野，
+// 因此按视觉行号判断行的类型，不依赖分隔线的可见位置。
+func previewRow(col libraryColumn, row int) bool {
+	if !col.isSearch {
+		return true
+	}
+	if col.dirCount <= 0 {
+		return false
+	}
+	if col.dirCount >= len(col.items) {
+		return true
+	}
+	visualOffset := col.offset
+	if col.offset >= col.dirCount {
+		visualOffset++
+	}
+	return visualOffset+row < col.dirCount
+}
+
+// previewAnchorX returns the screen column where the preview column starts.
+// The preview of a search column anchors to the folder section width so long
+// song names below the separator never push it around.
+//
+// previewAnchorX 返回预览列起始的屏幕列。搜索列的预览锚定在文件夹区宽度处，
+// 分隔线下的长歌名不会推动它。
+func (p *Library) previewAnchorX(geom columnGeometry) int {
+	if geom.col.isSearch {
+		return geom.x + p.searchFolderWidth(geom.col, geom.nameWidths) + 1
+	}
+	return geom.x + geom.width + 1
+}
+
+// redrawPreviewArea repaints the preview strip after a cursor move, leaving
+// the navigation columns untouched. Above the separator the repaint starts at
+// the preview anchor so a narrower preview never leaves stale cells behind;
+// below the separator it starts past the search column so song names stay
+// untouched.
+//
+// redrawPreviewArea 在光标移动后仅重绘预览区，不碰导航列。分隔线以上从预览
+// 锚点开始重绘，较窄的预览不留残影；分隔线以下从搜索列右侧开始，不碰歌名。
 func (p *Library) redrawPreviewArea(w, listHeight int) string {
 	geoms, preview := p.planColumns(w, listHeight)
 	if len(geoms) == 0 {
@@ -616,6 +656,7 @@ func (p *Library) redrawPreviewArea(w, listHeight int) string {
 	}
 	lastGeom := geoms[len(geoms)-1]
 	startX := lastGeom.x + lastGeom.width + 1
+	previewX := p.previewAnchorX(lastGeom)
 	sepRow := -1
 	for _, geom := range geoms {
 		if geom.col.isSearch {
@@ -623,16 +664,19 @@ func (p *Library) redrawPreviewArea(w, listHeight int) string {
 		}
 	}
 	var buf strings.Builder
-	pad := strings.Repeat(" ", max(w-1-startX, 0))
 	for row := range listHeight {
 		if row == sepRow {
 			continue
 		}
-		fmt.Fprintf(&buf, "\x1b[%d;%dH%s", row+3, startX, pad)
+		clearX := startX
+		if previewRow(lastGeom.col, row) {
+			clearX = previewX
+		}
+		fmt.Fprintf(&buf, "\x1b[%d;%dH%s", row+3, clearX, strings.Repeat(" ", max(w-clearX, 0)))
 	}
 	if preview != nil {
 		for row := range listHeight {
-			if sepRow >= 0 && row >= sepRow {
+			if !previewRow(lastGeom.col, row) {
 				continue
 			}
 			buf.WriteString(p.drawColumnRow(*preview, row, true))
@@ -662,11 +706,15 @@ func (p *Library) redrawColumnRow(geom columnGeometry, entryIdx int) string {
 func (p *Library) redrawSearchRow(geom columnGeometry, itemIdx int) string {
 	col := geom.col
 	hasSep := col.dirCount > 0 && col.dirCount < len(col.items)
+	visualOffset := col.offset
+	if hasSep && col.offset >= col.dirCount {
+		visualOffset++
+	}
 	visualRow := itemIdx
 	if hasSep && itemIdx >= col.dirCount {
 		visualRow = itemIdx + 1
 	}
-	y := visualRow - col.offset + 3
+	y := visualRow - visualOffset + 3
 	if itemIdx < 0 || itemIdx >= len(col.items) {
 		return clearColumnCell(geom.x, geom.width, y)
 	}

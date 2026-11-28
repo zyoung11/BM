@@ -989,6 +989,8 @@ func (p *Library) tryFastCursorMove(oldCursor int) bool {
 	if len(geoms) == 0 {
 		return false
 	}
+	p.app.beginFrame()
+	defer p.app.endFrame()
 	var buf strings.Builder
 	buf.WriteString(p.redrawColumnRow(geoms[len(geoms)-1], oldCursor))
 	buf.WriteString(p.redrawColumnRow(geoms[len(geoms)-1], p.cursor))
@@ -1023,6 +1025,8 @@ func (p *Library) tryFastSearchMove(w, listHeight, oldCursor int) bool {
 	if len(geoms) == 0 {
 		return false
 	}
+	p.app.beginFrame()
+	defer p.app.endFrame()
 	var buf strings.Builder
 	buf.WriteString(p.redrawSearchRow(geoms[len(geoms)-1], oldCursor))
 	buf.WriteString(p.redrawSearchRow(geoms[len(geoms)-1], p.searchCursor))
